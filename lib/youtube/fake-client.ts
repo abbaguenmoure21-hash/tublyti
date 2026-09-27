@@ -1,3 +1,4 @@
+import { QuotaSoftLimitReached } from './quota';
 import type {
   YouTubeClient,
   ChannelInfo,
@@ -8,9 +9,21 @@ import type {
 
 export class FakeYouTubeClient implements YouTubeClient {
   private quotaUsed = 0;
+  private readonly softLimit: number;
+
+  constructor(softLimit = 8000) {
+    this.softLimit = softLimit;
+  }
+
+  private checkQuota(cost: number) {
+    this.quotaUsed += cost;
+    if (this.quotaUsed >= this.softLimit) {
+      throw new QuotaSoftLimitReached(this.quotaUsed, this.softLimit);
+    }
+  }
 
   async getChannels(ids: string[]): Promise<ChannelInfo[]> {
-    this.quotaUsed += 1;
+    this.checkQuota(1);
     return ids.map((id) => ({
       id,
       title: `Fake Channel ${id}`,
@@ -19,13 +32,25 @@ export class FakeYouTubeClient implements YouTubeClient {
     }));
   }
 
+  async resolveHandles(handles: string[]): Promise<ChannelInfo[]> {
+    return handles.map((h, i) => {
+      this.checkQuota(1);
+      return {
+        id: `UCfake${i}`,
+        title: `Fake ${h}`,
+        subscriberCount: 50000,
+        uploadsPlaylistId: `UUfake${i}`,
+      };
+    });
+  }
+
   async getPlaylistItems(_playlistId: string, maxResults = 50): Promise<string[]> {
-    this.quotaUsed += 1;
+    this.checkQuota(1);
     return Array.from({ length: Math.min(maxResults, 5) }, (_, i) => `fake-video-${i}`);
   }
 
   async getVideos(ids: string[]): Promise<VideoInfo[]> {
-    this.quotaUsed += 1;
+    this.checkQuota(1);
     return ids.map((id) => ({
       id,
       channelId: 'fake-channel',
@@ -36,7 +61,7 @@ export class FakeYouTubeClient implements YouTubeClient {
   }
 
   async getVideoSnapshots(ids: string[]): Promise<VideoSnapshot[]> {
-    this.quotaUsed += 1;
+    this.checkQuota(1);
     return ids.map((id) => ({
       videoId: id,
       views: 10000,
@@ -46,7 +71,7 @@ export class FakeYouTubeClient implements YouTubeClient {
   }
 
   async getCommentThreads(videoId: string, maxResults = 100): Promise<CommentThread[]> {
-    this.quotaUsed += 1;
+    this.checkQuota(1);
     return Array.from({ length: Math.min(maxResults, 3) }, (_, i) => ({
       id: `fake-comment-${videoId}-${i}`,
       videoId,
@@ -54,11 +79,6 @@ export class FakeYouTubeClient implements YouTubeClient {
       likeCount: 10,
       publishedAt: new Date().toISOString(),
     }));
-  }
-
-  async searchVideos(_query: string, maxResults = 10): Promise<string[]> {
-    this.quotaUsed += 100;
-    return Array.from({ length: Math.min(maxResults, 3) }, (_, i) => `fake-search-result-${i}`);
   }
 
   getQuotaUsed(): number {

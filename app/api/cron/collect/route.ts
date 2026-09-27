@@ -1,4 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { createServiceClient } from '@/lib/supabase/server';
+import { RealYouTubeClient } from '@/lib/youtube/client';
+import { SupabaseJobRunner } from '@/lib/jobs/supabase-runner';
+import { runCollect } from '@/lib/youtube/collect';
+
+const MAX_DURATION_MS = 4 * 60 * 1000; // 4 minutes
 
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
@@ -6,6 +12,49 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  // TODO: Phase 1 — collect job implementation
-  return NextResponse.json({ ok: true, job: 'collect', status: 'not_implemented' });
+  const db = createServiceClient();
+  const runner = new SupabaseJobRunner(db);
+
+  // Check lock
+  if (await runner.isLocked('collect')) {
+    return NextResponse.json(
+      { error: 'Collect job already running' },
+      { status: 409 },
+    );
+  }
+
+  // Acquire lock & start job
+  const locked = await runner.acquireLock('collect');
+  if (!locked) {
+    return NextResponse.json(
+      { error: 'Could not acquire lock' },
+      { status: 409 },
+    );
+  }
+
+  const job = await runner.start('collect');
+  const deadline = Date.now() + MAX_DURATION_MS;
+
+  try {
+    const yt = new RealYouTubeClient();
+    const result = await runCollect(db, yt, deadline);
+
+    await runner.finish(job.id, {
+      quotaUsed: result.quotaUsed,
+      itemsProcessed:
+        result.channelsUpdated + result.videosDiscovered + result.snapshotsTaken,
+    });
+
+    return NextResponse.json({ ok: true, ...result });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    await runner.finish(job.id, {
+      quotaUsed: 0,
+      itemsProcessed: 0,
+      error: message,
+    });
+    return NextResponse.json({ error: message }, { status: 500 });
+  } finally {
+    await runner.releaseLock('collect');
+  }
 }
