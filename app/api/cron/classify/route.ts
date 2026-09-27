@@ -1,4 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { createServiceClient } from '@/lib/supabase/server';
+import { SupabaseJobRunner } from '@/lib/jobs/supabase-runner';
+import { runClassify } from '@/lib/nlp/classify-service';
+
+const MAX_DURATION_MS = 4 * 60 * 1000; // 4 minutes
 
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
@@ -6,6 +11,45 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  // TODO: Phase 2 — classify job implementation
-  return NextResponse.json({ ok: true, job: 'classify', status: 'not_implemented' });
+  const db = createServiceClient();
+  const runner = new SupabaseJobRunner(db);
+
+  if (await runner.isLocked('classify')) {
+    return NextResponse.json(
+      { error: 'Classify job already running' },
+      { status: 409 },
+    );
+  }
+
+  const locked = await runner.acquireLock('classify');
+  if (!locked) {
+    return NextResponse.json(
+      { error: 'Could not acquire lock' },
+      { status: 409 },
+    );
+  }
+
+  const job = await runner.start('classify');
+  const deadline = Date.now() + MAX_DURATION_MS;
+
+  try {
+    const result = await runClassify(db, deadline);
+
+    await runner.finish(job.id, {
+      quotaUsed: 0,
+      itemsProcessed: result.labelsStored + result.commentsSubmitted,
+    });
+
+    return NextResponse.json({ ok: true, ...result });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    await runner.finish(job.id, {
+      quotaUsed: 0,
+      itemsProcessed: 0,
+      error: message,
+    });
+    return NextResponse.json({ error: message }, { status: 500 });
+  } finally {
+    await runner.releaseLock('classify');
+  }
 }
