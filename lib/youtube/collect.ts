@@ -6,10 +6,15 @@ const SUBSCRIBER_THRESHOLD = 10000;
 const DURATION_THRESHOLD = 480;
 const VIEW_RATIO_THRESHOLD = 0.2;
 
+const MIN_COMMENT_LENGTH = 15;
+const COMMENT_MAX_PAGES = 5;
+
 export interface CollectResult {
   channelsUpdated: number;
   videosDiscovered: number;
   snapshotsTaken: number;
+  commentsImported: number;
+  commentsPurged: number;
   quotaUsed: number;
   stoppedByQuota: boolean;
   stoppedByTimeout: boolean;
@@ -24,6 +29,8 @@ export async function runCollect(
     channelsUpdated: 0,
     videosDiscovered: 0,
     snapshotsTaken: 0,
+    commentsImported: 0,
+    commentsPurged: 0,
     quotaUsed: 0,
     stoppedByQuota: false,
     stoppedByTimeout: false,
@@ -216,6 +223,118 @@ export async function runCollect(
           viewRatio >= VIEW_RATIO_THRESHOLD;
 
         await db.from('videos').update({ is_qualified: isQualified }).eq('id', snap.videoId);
+      }
+    }
+    if (result.stoppedByTimeout) {
+      result.quotaUsed = yt.getQuotaUsed();
+      return result;
+    }
+
+    // ── Step 4: Comment ingestion ─────────────────────────────────
+    const sixtyDaysAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
+    const sevenDaysAgoForComments = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+    // Videos < 60 days, prioritized: phase 0/1/2 topics first, then by views
+    const { data: commentCandidates } = await db
+      .from('videos')
+      .select(`
+        id,
+        topic_id,
+        topics(phase),
+        video_snapshots(views)
+      `)
+      .gte('published_at', sixtyDaysAgo.toISOString());
+
+    // Find videos that need comments (no comments yet, or last import > 7 days)
+    const videosNeedingComments: { id: string; phase: number | null; views: number }[] = [];
+
+    for (const v of commentCandidates ?? []) {
+      const { data: latestComment } = await db
+        .from('comments')
+        .select('published_at')
+        .eq('video_id', v.id)
+        .order('published_at', { ascending: false })
+        .limit(1);
+
+      // Skip if we imported comments recently (check by looking at any comment)
+      if (latestComment && latestComment.length > 0) {
+        // Use a simple heuristic: if the newest comment fetch was recent, skip
+        const { count } = await db
+          .from('comments')
+          .select('id', { count: 'exact', head: true })
+          .eq('video_id', v.id)
+          .gte('published_at', sevenDaysAgoForComments.toISOString());
+
+        // If we already have recent comments, skip this video
+        if (count && count > 0) continue;
+      }
+
+      const topicsData = v.topics as unknown as { phase: number | null } | null;
+      const phase = topicsData?.phase ?? null;
+      const snaps = v.video_snapshots as unknown as { views: number }[] | null;
+      const views = snaps?.[0]?.views ?? 0;
+
+      videosNeedingComments.push({ id: v.id, phase, views });
+    }
+
+    // Sort: phase 0/1/2 first (by phase asc), then by views desc
+    videosNeedingComments.sort((a, b) => {
+      const aP = a.phase !== null && a.phase <= 2 ? a.phase : 99;
+      const bP = b.phase !== null && b.phase <= 2 ? b.phase : 99;
+      if (aP !== bP) return aP - bP;
+      return b.views - a.views;
+    });
+
+    for (const video of videosNeedingComments) {
+      if (isTimedOut()) {
+        result.stoppedByTimeout = true;
+        break;
+      }
+
+      try {
+        const comments = await yt.getCommentThreads(video.id, 100, COMMENT_MAX_PAGES);
+
+        for (const comment of comments) {
+          // Skip short comments and replies (we only have top-level from API)
+          if (comment.text.length < MIN_COMMENT_LENGTH) continue;
+
+          const { error } = await db.from('comments').upsert(
+            {
+              id: comment.id,
+              workspace_id: '00000000-0000-0000-0000-000000000001',
+              video_id: comment.videoId,
+              text: comment.text,
+              like_count: comment.likeCount,
+              published_at: comment.publishedAt,
+            },
+            { onConflict: 'id' },
+          );
+          if (!error) result.commentsImported++;
+        }
+      } catch (err) {
+        if (err instanceof QuotaSoftLimitReached) throw err;
+        // Comments disabled or other API error — skip this video
+        console.error(`Skipping comments for video ${video.id}: ${(err as Error).message}`);
+        continue;
+      }
+    }
+
+    if (result.stoppedByTimeout) {
+      result.quotaUsed = yt.getQuotaUsed();
+      return result;
+    }
+
+    // ── Step 5: Purge old comments (>90 days) that already have labels ─
+    const { data: purgeTargets } = await db
+      .from('comments')
+      .select('id, comment_labels(comment_id)')
+      .lt('published_at', ninetyDaysAgo.toISOString());
+
+    for (const comment of purgeTargets ?? []) {
+      const labels = comment.comment_labels as { comment_id: string }[] | null;
+      if (labels && labels.length > 0) {
+        await db.from('comments').delete().eq('id', comment.id);
+        result.commentsPurged++;
       }
     }
   } catch (err) {

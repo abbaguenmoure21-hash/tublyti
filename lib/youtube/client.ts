@@ -38,7 +38,7 @@ export interface YouTubeClient {
   getPlaylistItems(playlistId: string, maxResults?: number): Promise<string[]>;
   getVideos(ids: string[]): Promise<VideoInfo[]>;
   getVideoSnapshots(ids: string[]): Promise<VideoSnapshot[]>;
-  getCommentThreads(videoId: string, maxResults?: number): Promise<CommentThread[]>;
+  getCommentThreads(videoId: string, maxResults?: number, maxPages?: number): Promise<CommentThread[]>;
   getQuotaUsed(): number;
 }
 
@@ -200,27 +200,43 @@ export class RealYouTubeClient implements YouTubeClient {
     return results;
   }
 
-  async getCommentThreads(videoId: string, maxResults = 100): Promise<CommentThread[]> {
-    this.checkQuota(1);
-    const data = (await this.fetch('commentThreads', {
-      part: 'snippet',
-      videoId,
-      maxResults: String(Math.min(maxResults, 100)),
-      order: 'relevance',
-    })) as { items?: Array<Record<string, unknown>> };
+  async getCommentThreads(videoId: string, maxResults = 100, maxPages = 1): Promise<CommentThread[]> {
+    const allComments: CommentThread[] = [];
+    let pageToken: string | undefined;
 
-    return (data.items ?? []).map((item) => {
-      const top = (item.snippet as Record<string, unknown>)
-        .topLevelComment as Record<string, unknown>;
-      const snippet = top.snippet as Record<string, string>;
-      return {
-        id: top.id as string,
+    for (let page = 0; page < maxPages; page++) {
+      this.checkQuota(1);
+      const params: Record<string, string> = {
+        part: 'snippet',
         videoId,
-        text: snippet.textOriginal ?? snippet.textDisplay ?? '',
-        likeCount: parseInt(snippet.likeCount ?? '0', 10),
-        publishedAt: snippet.publishedAt,
+        maxResults: String(Math.min(maxResults, 100)),
+        order: 'relevance',
       };
-    });
+      if (pageToken) params.pageToken = pageToken;
+
+      const data = (await this.fetch('commentThreads', params)) as {
+        items?: Array<Record<string, unknown>>;
+        nextPageToken?: string;
+      };
+
+      for (const item of data.items ?? []) {
+        const top = (item.snippet as Record<string, unknown>)
+          .topLevelComment as Record<string, unknown>;
+        const snippet = top.snippet as Record<string, string>;
+        allComments.push({
+          id: top.id as string,
+          videoId,
+          text: snippet.textOriginal ?? snippet.textDisplay ?? '',
+          likeCount: parseInt(snippet.likeCount ?? '0', 10),
+          publishedAt: snippet.publishedAt,
+        });
+      }
+
+      pageToken = data.nextPageToken;
+      if (!pageToken) break;
+    }
+
+    return allComments;
   }
 
   getQuotaUsed(): number {

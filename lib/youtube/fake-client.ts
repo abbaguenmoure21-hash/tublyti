@@ -70,15 +70,23 @@ export class FakeYouTubeClient implements YouTubeClient {
     }));
   }
 
-  async getCommentThreads(videoId: string, maxResults = 100): Promise<CommentThread[]> {
-    this.checkQuota(1);
-    return Array.from({ length: Math.min(maxResults, 3) }, (_, i) => ({
-      id: `fake-comment-${videoId}-${i}`,
-      videoId,
-      text: 'I wish someone would explain this better',
-      likeCount: 10,
-      publishedAt: new Date().toISOString(),
-    }));
+  async getCommentThreads(videoId: string, maxResults = 100, maxPages = 1): Promise<CommentThread[]> {
+    const allComments: CommentThread[] = [];
+    const perPage = Math.min(maxResults, 100);
+    for (let page = 0; page < maxPages; page++) {
+      this.checkQuota(1);
+      const count = Math.min(perPage, 3);
+      for (let i = 0; i < count; i++) {
+        allComments.push({
+          id: `fake-comment-${videoId}-p${page}-${i}`,
+          videoId,
+          text: 'I wish someone would explain this better and in more detail',
+          likeCount: 10,
+          publishedAt: new Date().toISOString(),
+        });
+      }
+    }
+    return allComments;
   }
 
   getQuotaUsed(): number {
