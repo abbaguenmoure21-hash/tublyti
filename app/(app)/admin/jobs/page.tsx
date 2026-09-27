@@ -1,6 +1,26 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Settings,
+  RefreshCw,
+  Brain,
+  Calculator,
+  Bell,
+  AlertTriangle,
+  CheckCircle,
+  XCircle,
+  Clock,
+} from 'lucide-react';
 
 interface Job {
   id: string;
@@ -11,6 +31,12 @@ interface Job {
   items_processed: number;
   error: string | null;
 }
+
+const cronButtons = [
+  { kind: 'collect', label: 'Relancer collect', icon: RefreshCw },
+  { kind: 'classify', label: 'Relancer classify', icon: Brain },
+  { kind: 'score', label: 'Relancer score', icon: Calculator },
+] as const;
 
 export default function JobsPage() {
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -92,76 +118,166 @@ export default function JobsPage() {
     }
   }
 
+  function renderStatusBadge(job: Job) {
+    if (job.error) {
+      return (
+        <Badge variant="destructive">
+          <XCircle />
+          Erreur
+        </Badge>
+      );
+    }
+    if (job.finished_at) {
+      return (
+        <Badge className="bg-green-500/10 text-green-700 border-green-200">
+          <CheckCircle />
+          OK
+        </Badge>
+      );
+    }
+    return (
+      <Badge variant="secondary" className="bg-amber-500/10 text-amber-700 border-amber-200">
+        <Clock />
+        En cours
+      </Badge>
+    );
+  }
+
   return (
-    <div className="p-8 max-w-5xl">
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold">Admin — Jobs</h1>
-        <div className="flex flex-wrap gap-2">
-          {['collect', 'classify', 'score'].map((kind) => (
-            <button
-              key={kind}
-              onClick={() => handleRelaunch(kind)}
-              disabled={relaunching === kind}
-              className="bg-primary text-primary-foreground rounded-md px-3 py-1.5 text-xs font-medium disabled:opacity-50 cursor-pointer"
-            >
-              {relaunching === kind ? '...' : `Relancer ${kind}`}
-            </button>
-          ))}
-          <button
-            onClick={handleTestAlert}
-            disabled={sendingTest}
-            className="bg-amber-500 text-white rounded-md px-3 py-1.5 text-xs font-medium disabled:opacity-50 cursor-pointer"
-          >
-            {sendingTest ? '...' : 'Envoyer une alerte test'}
-          </button>
-        </div>
+    <div className="p-6 md:p-8 max-w-5xl mx-auto space-y-6">
+      {/* Page header */}
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight">Administration</h1>
+        <p className="text-sm text-muted-foreground mt-1">
+          Gestion des jobs et crons
+        </p>
       </div>
 
+      {/* Action buttons */}
+      <div className="flex flex-wrap items-center gap-2">
+        {cronButtons.map(({ kind, label, icon: Icon }) => (
+          <Button
+            key={kind}
+            variant="outline"
+            size="sm"
+            onClick={() => handleRelaunch(kind)}
+            disabled={relaunching === kind}
+          >
+            <Icon className={relaunching === kind ? 'animate-spin' : ''} />
+            {relaunching === kind ? 'Lancement...' : label}
+          </Button>
+        ))}
+        <Button
+          variant="outline"
+          size="sm"
+          className="border-amber-300 text-amber-700 hover:bg-amber-50"
+          onClick={handleTestAlert}
+          disabled={sendingTest}
+        >
+          <Bell />
+          {sendingTest ? 'Envoi...' : 'Alerte test'}
+        </Button>
+      </div>
+
+      {/* Test result feedback */}
       {testResult && (
-        <p className="mt-2 text-sm text-amber-600">{testResult}</p>
+        <p className="text-sm text-amber-600 font-medium">{testResult}</p>
       )}
 
-      {error && <p className="text-destructive mt-2 text-sm">{error}</p>}
+      {/* Error feedback */}
+      {error && (
+        <Card className="border-destructive/50 bg-destructive/5">
+          <CardContent className="flex items-center gap-3 py-3">
+            <AlertTriangle className="size-5 text-destructive shrink-0" />
+            <p className="text-sm text-destructive">{error}</p>
+          </CardContent>
+        </Card>
+      )}
 
+      {/* Content: loading / empty / table */}
       {loading ? (
-        <p className="text-muted-foreground mt-6">Chargement…</p>
-      ) : jobs.length === 0 ? (
-        <p className="text-muted-foreground mt-6">Aucun job exécuté pour le moment.</p>
-      ) : (
-        <table className="mt-6 w-full text-sm">
-          <thead>
-            <tr className="text-muted-foreground border-b text-left">
-              <th className="pb-2 font-medium">Type</th>
-              <th className="pb-2 font-medium">Début</th>
-              <th className="pb-2 font-medium">Durée</th>
-              <th className="pb-2 font-medium">Quota</th>
-              <th className="pb-2 font-medium">Items</th>
-              <th className="pb-2 font-medium">Statut</th>
-            </tr>
-          </thead>
-          <tbody>
-            {jobs.map((job) => (
-              <tr key={job.id} className="border-b">
-                <td className="py-2 font-medium">{job.kind}</td>
-                <td className="py-2">{formatDate(job.started_at)}</td>
-                <td className="py-2">{duration(job.started_at, job.finished_at)}</td>
-                <td className="py-2">{job.quota_used.toLocaleString('fr-FR')}</td>
-                <td className="py-2">{job.items_processed.toLocaleString('fr-FR')}</td>
-                <td className="py-2">
-                  {job.error ? (
-                    <span className="text-destructive" title={job.error}>
-                      Erreur
-                    </span>
-                  ) : job.finished_at ? (
-                    <span className="text-green-600">OK</span>
-                  ) : (
-                    <span className="text-yellow-600">En cours</span>
-                  )}
-                </td>
-              </tr>
+        <Card>
+          <CardHeader>
+            <CardTitle>Historique des jobs</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <Skeleton key={i} className="h-10 w-full" />
             ))}
-          </tbody>
-        </table>
+          </CardContent>
+        </Card>
+      ) : jobs.length === 0 ? (
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center py-16 text-center">
+            <Settings className="size-10 text-muted-foreground/50 mb-3" />
+            <p className="text-sm font-medium text-muted-foreground">
+              Aucun job execute pour le moment.
+            </p>
+            <p className="text-xs text-muted-foreground/70 mt-1">
+              Lancez un cron ci-dessus pour commencer.
+            </p>
+          </CardContent>
+        </Card>
+      ) : (
+        <Card>
+          <CardHeader>
+            <CardTitle>Historique des jobs</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-muted/50 text-muted-foreground">
+                    <th className="px-3 py-2 text-left font-medium rounded-tl-md">Type</th>
+                    <th className="px-3 py-2 text-left font-medium">Debut</th>
+                    <th className="px-3 py-2 text-left font-medium">Duree</th>
+                    <th className="px-3 py-2 text-left font-medium">Quota</th>
+                    <th className="px-3 py-2 text-left font-medium">Items</th>
+                    <th className="px-3 py-2 text-left font-medium">Statut</th>
+                    <th className="px-3 py-2 text-left font-medium rounded-tr-md">Erreur</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {jobs.map((job) => (
+                    <tr
+                      key={job.id}
+                      className="border-b border-border/50 last:border-0 hover:bg-muted/30 transition-colors"
+                    >
+                      <td className="px-3 py-2.5 font-medium">{job.kind}</td>
+                      <td className="px-3 py-2.5 font-mono text-xs">
+                        {formatDate(job.started_at)}
+                      </td>
+                      <td className="px-3 py-2.5 font-mono text-xs">
+                        {duration(job.started_at, job.finished_at)}
+                      </td>
+                      <td className="px-3 py-2.5 font-mono text-xs">
+                        {job.quota_used.toLocaleString('fr-FR')}
+                      </td>
+                      <td className="px-3 py-2.5 font-mono text-xs">
+                        {job.items_processed.toLocaleString('fr-FR')}
+                      </td>
+                      <td className="px-3 py-2.5">
+                        {renderStatusBadge(job)}
+                      </td>
+                      <td className="px-3 py-2.5 max-w-[200px]">
+                        {job.error ? (
+                          <span
+                            className="text-xs text-destructive truncate block"
+                            title={job.error}
+                          >
+                            {job.error}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
       )}
     </div>
   );

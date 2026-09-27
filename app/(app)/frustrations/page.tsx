@@ -1,6 +1,11 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
+import { Card, CardContent } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
+import { MessageSquareWarning, AlertTriangle, ThumbsUp } from 'lucide-react';
 
 interface FrustrationItem {
   commentId: string;
@@ -18,7 +23,7 @@ interface FrustrationItem {
 
 const LABEL_NAMES: Record<string, string> = {
   no_one_explains: 'Personne ne traite',
-  wish_video_on: 'Souhait de vidéo',
+  wish_video_on: 'Souhait de video',
   stopped_too_early: 'Trop court',
   searched_long: 'Longue recherche',
   none: 'Aucun',
@@ -39,6 +44,31 @@ const ALL_LABELS = [
   'searched_long',
   'none',
 ] as const;
+
+function LabelBadge({ label }: { label: string }) {
+  const name = LABEL_NAMES[label] ?? label;
+
+  switch (label) {
+    case 'no_one_explains':
+      return <Badge variant="destructive">{name}</Badge>;
+    case 'wish_video_on':
+      return <Badge variant="default">{name}</Badge>;
+    case 'stopped_too_early':
+      return (
+        <Badge variant="secondary" className="bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">
+          {name}
+        </Badge>
+      );
+    case 'searched_long':
+      return (
+        <Badge variant="outline" className="border-purple-300 text-purple-700 dark:border-purple-600 dark:text-purple-400">
+          {name}
+        </Badge>
+      );
+    default:
+      return <Badge variant="secondary">{name}</Badge>;
+  }
+}
 
 export default function FrustrationsPage() {
   const [items, setItems] = useState<FrustrationItem[]>([]);
@@ -97,46 +127,98 @@ export default function FrustrationsPage() {
     nicheGroup.get(videoKey)!.push(item);
   }
 
+  /* ------------------------------------------------------------------ */
+  /*  Loading state                                                      */
+  /* ------------------------------------------------------------------ */
   if (loading) {
     return (
-      <div className="p-8 text-center text-gray-500">
-        Chargement des frustrations...
+      <div className="p-6 md:p-8 max-w-6xl mx-auto space-y-6">
+        <div className="space-y-2">
+          <Skeleton className="h-8 w-48" />
+          <Skeleton className="h-4 w-80" />
+        </div>
+        <div className="space-y-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Card key={i}>
+              <CardContent className="space-y-3 pt-4">
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-4 w-3/4" />
+                <div className="flex items-center gap-2">
+                  <Skeleton className="h-5 w-24 rounded-full" />
+                  <Skeleton className="h-4 w-16" />
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
       </div>
     );
   }
 
+  /* ------------------------------------------------------------------ */
+  /*  Error state                                                        */
+  /* ------------------------------------------------------------------ */
   if (error) {
     return (
-      <div className="p-8 text-center text-red-600">
-        {error}
+      <div className="p-6 md:p-8 max-w-6xl mx-auto space-y-6">
+        <h1 className="text-2xl font-bold tracking-tight">Frustrations</h1>
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center py-16 text-center">
+            <AlertTriangle className="size-10 text-destructive mb-4" />
+            <p className="text-sm font-medium text-destructive">{error}</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Verifiez votre connexion et rechargez la page.
+            </p>
+          </CardContent>
+        </Card>
       </div>
     );
   }
 
+  /* ------------------------------------------------------------------ */
+  /*  Empty state                                                        */
+  /* ------------------------------------------------------------------ */
   if (items.length === 0) {
     return (
-      <div className="p-8 text-center text-gray-500">
-        <h1 className="text-2xl font-bold mb-4">Frustrations</h1>
-        <p>
-          Aucun commentaire classifié pour le moment. Lancez le cron{' '}
-          <code>classify</code> pour analyser les commentaires.
-        </p>
+      <div className="p-6 md:p-8 max-w-6xl mx-auto space-y-6">
+        <h1 className="text-2xl font-bold tracking-tight">Frustrations</h1>
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center py-16 text-center">
+            <MessageSquareWarning className="size-10 text-muted-foreground mb-4" />
+            <p className="text-sm font-medium text-foreground">
+              Aucun commentaire classifie
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Lancez le cron <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">classify</code> pour analyser les commentaires.
+            </p>
+          </CardContent>
+        </Card>
       </div>
     );
   }
 
+  /* ------------------------------------------------------------------ */
+  /*  Main content                                                       */
+  /* ------------------------------------------------------------------ */
   return (
-    <div className="p-8 max-w-6xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">Frustrations</h1>
-        <div className="flex items-center gap-3">
-          <span className="text-sm text-gray-500">
+    <div className="p-6 md:p-8 max-w-6xl mx-auto space-y-6">
+      {/* Page header */}
+      <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Frustrations</h1>
+          <p className="text-sm text-muted-foreground">
+            Commentaires exprimant un besoin non satisfait
+          </p>
+        </div>
+
+        <div className="flex items-center gap-3 mt-2 sm:mt-0">
+          <Badge variant="secondary">
             {filtered.length} commentaire{filtered.length > 1 ? 's' : ''}
-          </span>
+          </Badge>
           <select
             value={filterNiche}
             onChange={(e) => setFilterNiche(e.target.value)}
-            className="border rounded px-3 py-1.5 text-sm"
+            className="h-8 rounded-lg border border-input bg-background px-3 text-sm"
           >
             <option value="">Toutes les niches</option>
             {niches.map((n) => (
@@ -148,90 +230,106 @@ export default function FrustrationsPage() {
         </div>
       </div>
 
-      {[...grouped.entries()].map(([nicheName, videos]) => (
-        <div key={nicheName} className="mb-8">
-          <h2 className="text-lg font-semibold text-gray-700 mb-3 border-b pb-1">
-            {nicheName}
-          </h2>
+      {/* Grouped content */}
+      {[...grouped.entries()].map(([nicheName, videos]) => {
+        const nicheCount = [...videos.values()].reduce(
+          (sum, arr) => sum + arr.length,
+          0,
+        );
 
-          {[...videos.entries()].map(([videoKey, comments]) => (
-            <div key={videoKey} className="mb-6 ml-2">
-              <h3 className="text-sm font-medium text-gray-500 mb-2">
-                {videoKey}
-              </h3>
+        return (
+          <section key={nicheName} className="space-y-4">
+            {/* Niche heading */}
+            <h2 className="text-base font-semibold text-foreground flex items-center gap-2">
+              {nicheName}
+              <Badge variant="outline">{nicheCount}</Badge>
+            </h2>
 
-              <div className="space-y-2">
+            {[...videos.entries()].map(([videoKey, comments]) => (
+              <div key={videoKey} className="space-y-2 ml-1">
+                {/* Video heading */}
+                <h3 className="text-sm font-medium text-muted-foreground">
+                  {videoKey}
+                </h3>
+
+                {/* Comment cards */}
                 {comments.map((item) => (
-                  <div
+                  <Card
                     key={item.commentId}
-                    className="border rounded-lg p-4 bg-white hover:shadow-sm transition-shadow"
+                    className="transition-shadow hover:shadow-md"
                   >
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm text-gray-800 whitespace-pre-wrap break-words">
-                          {item.commentText}
-                        </p>
-                        {item.requestedAngle && (
-                          <p className="mt-1 text-xs text-indigo-600 italic">
-                            Angle : {item.requestedAngle}
+                    <CardContent className="pt-4">
+                      <div className="flex items-start justify-between gap-4">
+                        {/* Left: comment text */}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-foreground whitespace-pre-wrap break-words leading-relaxed">
+                            {item.commentText}
                           </p>
-                        )}
-                      </div>
+                          {item.requestedAngle && (
+                            <p className="mt-1.5 text-xs text-indigo-600 italic dark:text-indigo-400">
+                              Angle : {item.requestedAngle}
+                            </p>
+                          )}
+                        </div>
 
-                      <div className="flex flex-col items-end gap-2 shrink-0">
-                        <span
-                          className={`text-xs font-medium px-2 py-0.5 rounded ${LABEL_COLORS[item.label] ?? 'bg-gray-100'}`}
-                        >
-                          {LABEL_NAMES[item.label] ?? item.label}
-                        </span>
-                        <span className="text-xs text-gray-400">
-                          {item.likeCount} like{item.likeCount !== 1 ? 's' : ''}
-                          {' · '}
-                          {Math.round(item.confidence * 100)}%
-                          {item.model === 'human' && ' · corrigé'}
-                        </span>
+                        {/* Right: label, meta, actions */}
+                        <div className="flex flex-col items-end gap-2 shrink-0">
+                          <LabelBadge label={item.label} />
 
-                        {editing === item.commentId ? (
-                          <div className="flex flex-wrap gap-1">
-                            {ALL_LABELS.map((l) => (
-                              <button
-                                key={l}
-                                onClick={() =>
-                                  handleCorrect(item.commentId, l)
-                                }
-                                className={`text-xs px-2 py-0.5 rounded border cursor-pointer hover:ring-1 ${
-                                  l === item.label
-                                    ? 'ring-2 ring-blue-400'
-                                    : ''
-                                }`}
+                          <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                            <ThumbsUp className="size-3" />
+                            {item.likeCount}
+                            {' · '}
+                            {Math.round(item.confidence * 100)}%
+                            {item.model === 'human' && ' · corrige'}
+                          </span>
+
+                          {editing === item.commentId ? (
+                            <div className="flex flex-wrap gap-1">
+                              {ALL_LABELS.map((l) => (
+                                <Button
+                                  key={l}
+                                  variant="outline"
+                                  size="xs"
+                                  onClick={() =>
+                                    handleCorrect(item.commentId, l)
+                                  }
+                                  className={
+                                    l === item.label
+                                      ? 'ring-2 ring-primary'
+                                      : ''
+                                  }
+                                >
+                                  {LABEL_NAMES[l]}
+                                </Button>
+                              ))}
+                              <Button
+                                variant="ghost"
+                                size="xs"
+                                onClick={() => setEditing(null)}
                               >
-                                {LABEL_NAMES[l]}
-                              </button>
-                            ))}
-                            <button
-                              onClick={() => setEditing(null)}
-                              className="text-xs text-gray-400 underline cursor-pointer"
+                                annuler
+                              </Button>
+                            </div>
+                          ) : (
+                            <Button
+                              variant="ghost"
+                              size="xs"
+                              onClick={() => setEditing(item.commentId)}
                             >
-                              annuler
-                            </button>
-                          </div>
-                        ) : (
-                          <button
-                            onClick={() => setEditing(item.commentId)}
-                            className="text-xs text-blue-500 hover:underline cursor-pointer"
-                          >
-                            corriger
-                          </button>
-                        )}
+                              corriger
+                            </Button>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  </div>
+                    </CardContent>
+                  </Card>
                 ))}
               </div>
-            </div>
-          ))}
-        </div>
-      ))}
+            ))}
+          </section>
+        );
+      })}
     </div>
   );
 }

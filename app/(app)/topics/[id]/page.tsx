@@ -2,7 +2,24 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useParams } from 'next/navigation';
+import Link from 'next/link';
 import { SignalChart } from '@/components/charts/signal-chart';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Separator } from '@/components/ui/separator';
+import {
+  ArrowLeft,
+  ExternalLink,
+  ThumbsUp,
+  Copy,
+  Sparkles,
+  AlertTriangle,
+  Play,
+  Check,
+} from 'lucide-react';
 
 interface TopicScore {
   mgi: number;
@@ -67,10 +84,10 @@ const PHASE_LABELS: Record<number, string> = {
 };
 
 const PHASE_COLORS: Record<number, string> = {
-  0: 'bg-green-100 text-green-700',
-  1: 'bg-yellow-100 text-yellow-700',
-  2: 'bg-blue-100 text-blue-700',
-  3: 'bg-red-100 text-red-700',
+  0: 'bg-green-100 text-green-700 border-green-200',
+  1: 'bg-yellow-100 text-yellow-700 border-yellow-200',
+  2: 'bg-blue-100 text-blue-700 border-blue-200',
+  3: 'bg-red-100 text-red-700 border-red-200',
 };
 
 const PHASE_EXPLANATIONS: Record<number, string> = {
@@ -88,10 +105,10 @@ const LABEL_NAMES: Record<string, string> = {
 };
 
 const LABEL_COLORS: Record<string, string> = {
-  no_one_explains: 'bg-red-100 text-red-700',
-  wish_video_on: 'bg-blue-100 text-blue-700',
-  stopped_too_early: 'bg-amber-100 text-amber-700',
-  searched_long: 'bg-purple-100 text-purple-700',
+  no_one_explains: 'bg-red-100 text-red-700 border-red-200',
+  wish_video_on: 'bg-blue-100 text-blue-700 border-blue-200',
+  stopped_too_early: 'bg-amber-100 text-amber-700 border-amber-200',
+  searched_long: 'bg-purple-100 text-purple-700 border-purple-200',
 };
 
 function formatViews(n: number): string {
@@ -218,19 +235,52 @@ export default function TopicPage() {
   // Estimated cost: $3/MTok input + $15/MTok output, ~2000+1200 tokens
   const estimatedCost = ((2000 * 3) / 1_000_000 + (1200 * 15) / 1_000_000);
 
+  /* ---------- Loading state ---------- */
   if (loading) {
     return (
-      <div className="p-8 text-center text-gray-500">Chargement...</div>
+      <div className="p-6 md:p-8 max-w-5xl mx-auto space-y-6">
+        <Skeleton className="h-4 w-32" />
+        <Skeleton className="h-8 w-80" />
+        <div className="flex gap-2">
+          <Skeleton className="h-5 w-20 rounded-full" />
+          <Skeleton className="h-5 w-28 rounded-full" />
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <Skeleton key={i} className="h-20 rounded-xl" />
+          ))}
+        </div>
+        <Skeleton className="h-64 rounded-xl" />
+        <Skeleton className="h-48 rounded-xl" />
+      </div>
     );
   }
 
+  /* ---------- Error state ---------- */
   if (error) {
-    return <div className="p-8 text-center text-red-600">{error}</div>;
+    return (
+      <div className="p-6 md:p-8 max-w-5xl mx-auto">
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+            <AlertTriangle className="size-10 mb-3 text-destructive" />
+            <p className="text-sm font-medium text-destructive">{error}</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
   }
 
+  /* ---------- Not found state ---------- */
   if (!topic) {
     return (
-      <div className="p-8 text-center text-gray-500">Sujet introuvable.</div>
+      <div className="p-6 md:p-8 max-w-5xl mx-auto">
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+            <AlertTriangle className="size-10 mb-3" />
+            <p className="text-sm">Sujet introuvable.</p>
+          </CardContent>
+        </Card>
+      </div>
     );
   }
 
@@ -238,33 +288,40 @@ export default function TopicPage() {
   const phase = score?.phase ?? topic.phase;
 
   return (
-    <div className="p-4 md:p-8 max-w-5xl mx-auto space-y-6">
+    <div className="p-6 md:p-8 max-w-5xl mx-auto space-y-6">
+      {/* Back link */}
+      <Link
+        href="/dashboard"
+        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+      >
+        <ArrowLeft className="size-4" />
+        Retour au tableau de bord
+      </Link>
+
       {/* Header */}
-      <div>
-        <p className="text-sm text-gray-500">
-          {topic.niches?.name ?? 'Niche inconnue'}
-        </p>
-        <h1 className="text-2xl font-bold mt-1">{topic.label}</h1>
-        <div className="flex flex-wrap gap-2 mt-2">
-          <span className="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-600">
-            {topic.status}
-          </span>
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant="outline">
+            {topic.niches?.name ?? 'Niche inconnue'}
+          </Badge>
+          <Badge variant="secondary">{topic.status}</Badge>
           {phase !== null && phase !== undefined && (
-            <span
-              className={`text-xs px-2 py-0.5 rounded ${PHASE_COLORS[phase] ?? 'bg-gray-100'}`}
-            >
+            <Badge className={PHASE_COLORS[phase] ?? 'bg-muted text-muted-foreground'}>
               Phase {phase} — {PHASE_LABELS[phase] ?? '?'}
-            </span>
+            </Badge>
           )}
         </div>
+        <h1 className="text-3xl font-bold tracking-tight">{topic.label}</h1>
         {phase !== null && phase !== undefined && (
-          <p className="text-sm text-gray-500 mt-1 italic">
+          <p className="text-sm text-muted-foreground italic">
             {PHASE_EXPLANATIONS[phase] ?? ''}
           </p>
         )}
       </div>
 
-      {/* MGI + components */}
+      <Separator />
+
+      {/* MGI + score components */}
       {score && (
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
           <ScoreCard
@@ -295,217 +352,257 @@ export default function TopicPage() {
       {(topic.status === 'active' || topic.status === 'in_production') && (
         <div className="flex flex-wrap items-center gap-3">
           {topic.status === 'active' && (
-            <button
+            <Button
+              variant="default"
               onClick={() => handleStatusChange('mark_production')}
               disabled={acting}
-              className="px-4 py-2 text-sm font-medium bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50 cursor-pointer"
             >
+              <Play className="size-4" />
               Marquer en production
-            </button>
+            </Button>
           )}
           {topic.status === 'in_production' && !showPublishInput && (
-            <button
+            <Button
+              className="bg-green-600 text-white hover:bg-green-700"
               onClick={() => setShowPublishInput(true)}
-              className="px-4 py-2 text-sm font-medium bg-green-600 text-white rounded hover:bg-green-700 cursor-pointer"
             >
+              <Check className="size-4" />
               Marquer publiee
-            </button>
+            </Button>
           )}
           {showPublishInput && (
             <div className="flex items-center gap-2">
-              <input
+              <Input
                 type="text"
                 placeholder="ID de la video YouTube"
                 value={publishVideoId}
                 onChange={(e) => setPublishVideoId(e.target.value)}
-                className="border rounded px-3 py-1.5 text-sm w-48"
+                className="w-52"
               />
-              <button
+              <Button
+                className="bg-green-600 text-white hover:bg-green-700"
                 onClick={() =>
                   handleStatusChange('mark_published', publishVideoId)
                 }
                 disabled={acting || !publishVideoId.trim()}
-                className="px-4 py-1.5 text-sm font-medium bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 cursor-pointer"
               >
                 Confirmer
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
                 onClick={() => {
                   setShowPublishInput(false);
                   setPublishVideoId('');
                 }}
-                className="text-xs text-gray-400 underline cursor-pointer"
               >
                 annuler
-              </button>
+              </Button>
             </div>
           )}
         </div>
       )}
 
       {/* Signal chart */}
-      <div className="border rounded-lg p-4 md:p-6 bg-white">
-        <h2 className="text-lg font-semibold mb-4">Signaux sur 90 jours</h2>
-        {signals ? (
-          <SignalChart series={signals} />
-        ) : (
-          <p className="text-sm text-gray-400">Aucune donnee disponible.</p>
-        )}
-      </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>Signaux sur 90 jours</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {signals ? (
+            <SignalChart series={signals} />
+          ) : (
+            <p className="text-sm text-muted-foreground">Aucune donnee disponible.</p>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Competitor videos */}
-      <div className="border rounded-lg p-4 md:p-6 bg-white">
-        <h2 className="text-lg font-semibold mb-4">
-          Videos qualifiees concurrentes
-        </h2>
-        {topic.competitors.length === 0 ? (
-          <p className="text-sm text-gray-400">
-            Aucune video qualifiee trouvee pour ce sujet.
-          </p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b text-left text-gray-500">
-                  <th className="py-2 pr-4 font-medium">Titre</th>
-                  <th className="py-2 pr-4 font-medium">Chaine</th>
-                  <th className="py-2 pr-4 font-medium text-right">Vues</th>
-                  <th className="py-2 font-medium text-right">Date</th>
-                </tr>
-              </thead>
-              <tbody>
-                {topic.competitors.map((v) => (
-                  <tr key={v.id} className="border-b last:border-0">
-                    <td className="py-2 pr-4">
-                      <a
-                        href={`https://youtube.com/watch?v=${v.id}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-blue-600 hover:underline"
-                      >
-                        {v.title}
-                      </a>
-                    </td>
-                    <td className="py-2 pr-4 text-gray-500 text-xs">
-                      {v.channelTitle}
-                    </td>
-                    <td className="py-2 pr-4 text-right font-mono">
-                      {formatViews(v.views)}
-                    </td>
-                    <td className="py-2 text-right text-gray-400 text-xs">
-                      {new Date(v.publishedAt).toLocaleDateString('fr-FR')}
-                    </td>
+      <Card>
+        <CardHeader>
+          <CardTitle>Videos qualifiees concurrentes</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {topic.competitors.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              Aucune video qualifiee trouvee pour ce sujet.
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-muted/50">
+                    <th className="py-2.5 px-3 text-left font-medium text-muted-foreground">Titre</th>
+                    <th className="py-2.5 px-3 text-left font-medium text-muted-foreground">Chaine</th>
+                    <th className="py-2.5 px-3 text-right font-medium text-muted-foreground">Vues</th>
+                    <th className="py-2.5 px-3 text-right font-medium text-muted-foreground">Date</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+                </thead>
+                <tbody>
+                  {topic.competitors.map((v) => (
+                    <tr
+                      key={v.id}
+                      className="border-b last:border-0 transition-colors hover:bg-muted/30"
+                    >
+                      <td className="py-2.5 px-3">
+                        <a
+                          href={`https://youtube.com/watch?v=${v.id}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-primary hover:underline"
+                        >
+                          {v.title}
+                          <ExternalLink className="size-3 shrink-0" />
+                        </a>
+                      </td>
+                      <td className="py-2.5 px-3 text-muted-foreground text-xs">
+                        {v.channelTitle}
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-mono">
+                        {formatViews(v.views)}
+                      </td>
+                      <td className="py-2.5 px-3 text-right text-muted-foreground text-xs">
+                        {new Date(v.publishedAt).toLocaleDateString('fr-FR')}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Frustrated comments */}
-      <div className="border rounded-lg p-4 md:p-6 bg-white">
-        <h2 className="text-lg font-semibold mb-4">
-          Commentaires frustres ({topic.frustrations.length})
-        </h2>
-        {topic.frustrations.length === 0 ? (
-          <p className="text-sm text-gray-400">
-            Aucun commentaire de frustration detecte.
-          </p>
-        ) : (
-          <div className="space-y-3">
-            {topic.frustrations.map((f) => (
-              <div
-                key={f.commentId}
-                className="border rounded p-3 hover:shadow-sm transition-shadow"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <p className="text-sm text-gray-800 whitespace-pre-wrap break-words flex-1">
-                    {f.text}
-                  </p>
-                  <div className="flex flex-col items-end gap-1 shrink-0">
-                    <span
-                      className={`text-xs font-medium px-2 py-0.5 rounded ${LABEL_COLORS[f.label] ?? 'bg-gray-100'}`}
-                    >
-                      {LABEL_NAMES[f.label] ?? f.label}
-                    </span>
-                    <span className="text-xs text-gray-400">
-                      {f.likeCount} like{f.likeCount !== 1 ? 's' : ''}
-                    </span>
-                  </div>
-                </div>
-                {f.requestedAngle && (
-                  <p className="mt-1 text-xs text-indigo-600 italic">
-                    Angle : {f.requestedAngle}
-                  </p>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>
+            Commentaires frustres ({topic.frustrations.length})
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {topic.frustrations.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              Aucun commentaire de frustration detecte.
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {topic.frustrations.map((f) => (
+                <Card
+                  key={f.commentId}
+                  size="sm"
+                  className="transition-shadow hover:shadow-md"
+                >
+                  <CardContent>
+                    <div className="flex items-start justify-between gap-3">
+                      <p className="text-sm text-foreground whitespace-pre-wrap break-words flex-1">
+                        {f.text}
+                      </p>
+                      <div className="flex flex-col items-end gap-1.5 shrink-0">
+                        <Badge
+                          className={LABEL_COLORS[f.label] ?? 'bg-muted text-muted-foreground'}
+                        >
+                          {LABEL_NAMES[f.label] ?? f.label}
+                        </Badge>
+                        <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                          <ThumbsUp className="size-3" />
+                          {f.likeCount}
+                        </span>
+                      </div>
+                    </div>
+                    {f.requestedAngle && (
+                      <p className="mt-2 text-xs text-primary italic">
+                        Angle : {f.requestedAngle}
+                      </p>
+                    )}
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Angles */}
-      <div className="border rounded-lg p-4 md:p-6 bg-white">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold">Angles de contenu</h2>
+      <Card>
+        <CardHeader className="flex-row items-center justify-between">
+          <CardTitle>Angles de contenu</CardTitle>
           <div className="flex items-center gap-3">
             {genCost !== null && (
-              <span className="text-xs text-gray-400">
+              <span className="text-xs text-muted-foreground">
                 Cout : ${genCost.toFixed(4)}
               </span>
             )}
-            <button
+            <Button
+              variant="default"
+              size="sm"
               onClick={handleGenerateAngles}
               disabled={generating}
-              className="px-3 py-1.5 text-xs font-medium bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50 cursor-pointer"
             >
+              <Sparkles className="size-3.5" />
               {generating
                 ? 'Generation...'
                 : topic.angles.length > 0
                   ? `Regenerer (~$${estimatedCost.toFixed(3)})`
                   : `Generer 5 angles (~$${estimatedCost.toFixed(3)})`}
-            </button>
+            </Button>
           </div>
-        </div>
+        </CardHeader>
+        <CardContent>
+          {genError && (
+            <p className="text-sm text-destructive mb-3">{genError}</p>
+          )}
 
-        {genError && (
-          <p className="text-sm text-red-600 mb-3">{genError}</p>
-        )}
-
-        {topic.angles.length === 0 ? (
-          <p className="text-sm text-gray-400">
-            Aucun angle genere pour ce sujet.
-          </p>
-        ) : (
-          <div className="space-y-3">
-            {topic.angles.map((a) => (
-              <div key={a.id} className="border rounded p-3">
-                <div className="flex items-center justify-between mb-1">
-                  <h3 className="font-medium text-sm">{a.title}</h3>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => handleCopyBrief(a)}
-                      className="text-xs text-indigo-600 hover:underline cursor-pointer"
-                    >
-                      {copied ? 'Copie !' : 'Copier le brief'}
-                    </button>
-                    <span className="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-600">
-                      {a.status}
-                    </span>
+          {topic.angles.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              Aucun angle genere pour ce sujet.
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {topic.angles.map((a) => (
+                <div
+                  key={a.id}
+                  className="rounded-lg border p-4 space-y-2"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <h3 className="font-medium text-sm">{a.title}</h3>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <Button
+                        variant="ghost"
+                        size="xs"
+                        onClick={() => handleCopyBrief(a)}
+                      >
+                        {copied ? (
+                          <>
+                            <Check className="size-3" />
+                            Copie !
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="size-3" />
+                            Copier le brief
+                          </>
+                        )}
+                      </Button>
+                      <Badge variant="secondary">{a.status}</Badge>
+                    </div>
                   </div>
+                  {a.hook && (
+                    <p className="text-sm text-muted-foreground italic">
+                      {a.hook}
+                    </p>
+                  )}
+                  {a.rationale && (
+                    <p className="text-xs text-muted-foreground">
+                      {a.rationale}
+                    </p>
+                  )}
                 </div>
-                {a.hook && (
-                  <p className="text-sm text-gray-600 italic">{a.hook}</p>
-                )}
-                {a.rationale && (
-                  <p className="text-xs text-gray-400 mt-1">{a.rationale}</p>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
@@ -520,19 +617,23 @@ function ScoreCard({
   highlight?: boolean;
 }) {
   return (
-    <div
-      className={`border rounded-lg p-3 text-center ${
-        highlight ? 'bg-indigo-50 border-indigo-200' : 'bg-white'
-      }`}
+    <Card
+      className={
+        highlight
+          ? 'bg-primary/5 border-primary/20'
+          : ''
+      }
     >
-      <p className="text-xs text-gray-500">{label}</p>
-      <p
-        className={`text-xl font-bold mt-1 ${
-          highlight ? 'text-indigo-700' : 'text-gray-800'
-        }`}
-      >
-        {value}
-      </p>
-    </div>
+      <CardContent className="flex flex-col items-center justify-center py-3 text-center">
+        <p className="text-xs text-muted-foreground">{label}</p>
+        <p
+          className={`text-xl font-bold mt-1 ${
+            highlight ? 'text-primary' : 'text-foreground'
+          }`}
+        >
+          {value}
+        </p>
+      </CardContent>
+    </Card>
   );
 }

@@ -1,6 +1,12 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
+import { ListChecks, AlertTriangle, Check, X, GitMerge } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Separator } from '@/components/ui/separator';
 
 interface VideoInfo {
   id: string;
@@ -31,6 +37,44 @@ type ActionState = {
   action: 'accept' | 'reject' | 'merge';
   mergeInto?: string;
 } | null;
+
+function LoadingSkeleton() {
+  return (
+    <div className="p-6 md:p-8 max-w-5xl mx-auto space-y-6">
+      <div className="space-y-2">
+        <Skeleton className="h-8 w-64" />
+        <Skeleton className="h-4 w-96" />
+      </div>
+      {[1, 2, 3].map((i) => (
+        <Card key={i}>
+          <CardHeader>
+            <Skeleton className="h-6 w-3/4" />
+            <div className="flex items-center gap-2 pt-1">
+              <Skeleton className="h-5 w-20 rounded-full" />
+              <Skeleton className="h-4 w-24" />
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-5/6" />
+            <Skeleton className="h-4 w-4/6" />
+          </CardContent>
+          <div className="px-(--card-spacing) pb-(--card-spacing)">
+            <Separator />
+            <div className="flex items-center gap-3 pt-4">
+              <Skeleton className="h-8 w-24 rounded-lg" />
+              <Skeleton className="h-8 w-20 rounded-lg" />
+              <div className="ml-auto flex items-center gap-2">
+                <Skeleton className="h-8 w-48 rounded-lg" />
+                <Skeleton className="h-8 w-24 rounded-lg" />
+              </div>
+            </div>
+          </div>
+        </Card>
+      ))}
+    </div>
+  );
+}
 
 export default function TopicsReviewPage() {
   const [proposed, setProposed] = useState<ProposedTopic[]>([]);
@@ -83,151 +127,194 @@ export default function TopicsReviewPage() {
   };
 
   if (loading) {
-    return (
-      <div className="p-8 text-center text-gray-500">
-        Chargement des sujets proposés...
-      </div>
-    );
+    return <LoadingSkeleton />;
   }
 
   if (error) {
     return (
-      <div className="p-8 text-center text-red-600">
-        {error}
+      <div className="p-6 md:p-8 max-w-5xl mx-auto space-y-6">
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center py-16 text-center">
+            <AlertTriangle className="size-10 text-destructive mb-4" />
+            <p className="text-lg font-semibold text-destructive">
+              Une erreur est survenue
+            </p>
+            <p className="text-sm text-muted-foreground mt-1">{error}</p>
+          </CardContent>
+        </Card>
       </div>
     );
   }
 
   if (proposed.length === 0) {
     return (
-      <div className="p-8 text-center text-gray-500">
-        <h1 className="text-2xl font-bold mb-4">Sujets à valider</h1>
-        <p>
-          Aucun sujet proposé pour le moment. Le clustering automatique
-          proposera des sujets lors du prochain cycle de collecte.
-        </p>
+      <div className="p-6 md:p-8 max-w-5xl mx-auto space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">
+            Sujets a valider
+          </h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Validez, rejetez ou fusionnez les sujets detectes automatiquement.
+          </p>
+        </div>
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center py-16 text-center">
+            <ListChecks className="size-10 text-muted-foreground mb-4" />
+            <p className="text-lg font-semibold text-foreground">
+              Aucun sujet en attente
+            </p>
+            <p className="text-sm text-muted-foreground mt-1 max-w-md">
+              Le clustering automatique proposera des sujets lors du prochain
+              cycle de collecte.
+            </p>
+          </CardContent>
+        </Card>
       </div>
     );
   }
 
   return (
-    <div className="p-8 max-w-6xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">Sujets à valider</h1>
-        <span className="text-sm text-gray-500">
-          {proposed.length} sujet{proposed.length > 1 ? 's' : ''} proposé
-          {proposed.length > 1 ? 's' : ''}
-        </span>
+    <div className="p-6 md:p-8 max-w-5xl mx-auto space-y-6">
+      <div className="flex items-center gap-3">
+        <h1 className="text-2xl font-bold tracking-tight">
+          Sujets a valider
+        </h1>
+        <Badge variant="secondary">
+          {proposed.length}
+        </Badge>
+        <p className="hidden sm:block text-sm text-muted-foreground ml-auto">
+          Validez, rejetez ou fusionnez les sujets detectes automatiquement.
+        </p>
       </div>
 
-      <div className="space-y-6">
+      <div className="space-y-4">
         {proposed.map((topic) => {
           const isActing = acting?.topicId === topic.id;
 
           return (
-            <div
-              key={topic.id}
-              className="border rounded-lg p-5 bg-white shadow-sm"
-            >
-              <div className="flex items-start justify-between gap-4 mb-3">
-                <div>
-                  <h2 className="text-lg font-semibold">{topic.label}</h2>
-                  {topic.niches && (
-                    <span className="text-xs text-gray-500">
-                      {topic.niches.name}
-                    </span>
-                  )}
+            <Card key={topic.id}>
+              <CardHeader>
+                <div className="flex items-start justify-between gap-4">
+                  <div className="space-y-1.5">
+                    <CardTitle className="text-lg font-semibold">
+                      {topic.label}
+                    </CardTitle>
+                    <div className="flex items-center gap-2">
+                      {topic.niches && (
+                        <Badge variant="outline">{topic.niches.name}</Badge>
+                      )}
+                      <span className="text-xs text-muted-foreground">
+                        {new Date(topic.created_at).toLocaleDateString('fr-FR', {
+                          day: 'numeric',
+                          month: 'long',
+                          year: 'numeric',
+                        })}
+                      </span>
+                    </div>
+                  </div>
                 </div>
-                <span className="text-xs text-gray-400">
-                  {new Date(topic.created_at).toLocaleDateString('fr-FR')}
-                </span>
-              </div>
+              </CardHeader>
 
               {topic.videos.length > 0 && (
-                <div className="mb-4">
-                  <h3 className="text-sm font-medium text-gray-600 mb-2">
-                    {topic.videos.length} vidéo{topic.videos.length > 1 ? 's' : ''} membre{topic.videos.length > 1 ? 's' : ''}
-                  </h3>
-                  <ul className="space-y-1 text-sm text-gray-700">
+                <CardContent>
+                  <p className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wide">
+                    {topic.videos.length} video{topic.videos.length > 1 ? 's' : ''} membre{topic.videos.length > 1 ? 's' : ''}
+                  </p>
+                  <ul className="space-y-1">
                     {topic.videos.slice(0, 10).map((v) => (
-                      <li key={v.id} className="flex items-center gap-2">
-                        <span className="text-gray-400">•</span>
+                      <li
+                        key={v.id}
+                        className="flex items-center gap-2 text-sm text-foreground"
+                      >
+                        <span className="text-muted-foreground shrink-0">
+                          &bull;
+                        </span>
                         <span className="truncate">{v.title}</span>
                         {v.channels && (
-                          <span className="text-xs text-gray-400 shrink-0">
+                          <span className="text-xs text-muted-foreground shrink-0">
                             — {v.channels.title}
                           </span>
                         )}
                       </li>
                     ))}
                     {topic.videos.length > 10 && (
-                      <li className="text-xs text-gray-400 italic">
+                      <li className="text-xs text-muted-foreground italic pl-4">
                         et {topic.videos.length - 10} autre{topic.videos.length - 10 > 1 ? 's' : ''}...
                       </li>
                     )}
                   </ul>
-                </div>
+                </CardContent>
               )}
 
-              <div className="flex items-center gap-3 border-t pt-3">
-                <button
-                  onClick={() => handleAction(topic.id, 'accept')}
-                  disabled={isActing}
-                  className="px-4 py-1.5 text-sm font-medium bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 cursor-pointer"
-                >
-                  {isActing && acting?.action === 'accept'
-                    ? 'Validation...'
-                    : 'Accepter'}
-                </button>
+              <div className="px-(--card-spacing) pb-(--card-spacing)">
+                <Separator />
+                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 pt-4">
+                  <div className="flex items-center gap-2">
+                    <Button
+                      onClick={() => handleAction(topic.id, 'accept')}
+                      disabled={isActing}
+                      className="bg-green-600 hover:bg-green-700 text-white"
+                    >
+                      <Check className="size-4" />
+                      {isActing && acting?.action === 'accept'
+                        ? 'Validation...'
+                        : 'Accepter'}
+                    </Button>
 
-                <button
-                  onClick={() => handleAction(topic.id, 'reject')}
-                  disabled={isActing}
-                  className="px-4 py-1.5 text-sm font-medium bg-red-100 text-red-700 rounded hover:bg-red-200 disabled:opacity-50 cursor-pointer"
-                >
-                  {isActing && acting?.action === 'reject'
-                    ? 'Rejet...'
-                    : 'Rejeter'}
-                </button>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={() => handleAction(topic.id, 'reject')}
+                      disabled={isActing}
+                    >
+                      <X className="size-3.5" />
+                      {isActing && acting?.action === 'reject'
+                        ? 'Rejet...'
+                        : 'Rejeter'}
+                    </Button>
+                  </div>
 
-                <div className="flex items-center gap-2 ml-auto">
-                  <select
-                    value={mergeSelection[topic.id] ?? ''}
-                    onChange={(e) =>
-                      setMergeSelection((prev) => ({
-                        ...prev,
-                        [topic.id]: e.target.value,
-                      }))
-                    }
-                    className="border rounded px-2 py-1.5 text-sm max-w-[250px]"
-                  >
-                    <option value="">Fusionner avec...</option>
-                    {mergeTargets.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.label}
-                        {t.niches ? ` (${t.niches.name})` : ''}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    onClick={() => {
-                      const target = mergeSelection[topic.id];
-                      if (!target) {
-                        alert('Sélectionnez un sujet cible pour la fusion.');
-                        return;
+                  <div className="flex items-center gap-2 sm:ml-auto">
+                    <GitMerge className="size-4 text-muted-foreground hidden sm:block" />
+                    <select
+                      value={mergeSelection[topic.id] ?? ''}
+                      onChange={(e) =>
+                        setMergeSelection((prev) => ({
+                          ...prev,
+                          [topic.id]: e.target.value,
+                        }))
                       }
-                      handleAction(topic.id, 'merge', target);
-                    }}
-                    disabled={isActing || !mergeSelection[topic.id]}
-                    className="px-4 py-1.5 text-sm font-medium bg-blue-100 text-blue-700 rounded hover:bg-blue-200 disabled:opacity-50 cursor-pointer"
-                  >
-                    {isActing && acting?.action === 'merge'
-                      ? 'Fusion...'
-                      : 'Fusionner'}
-                  </button>
+                      className="h-8 rounded-lg border border-border bg-background px-2 text-sm max-w-[250px] focus:outline-none focus:ring-2 focus:ring-ring/50"
+                    >
+                      <option value="">Fusionner avec...</option>
+                      {mergeTargets.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.label}
+                          {t.niches ? ` (${t.niches.name})` : ''}
+                        </option>
+                      ))}
+                    </select>
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        const target = mergeSelection[topic.id];
+                        if (!target) {
+                          alert('Selectionnez un sujet cible pour la fusion.');
+                          return;
+                        }
+                        handleAction(topic.id, 'merge', target);
+                      }}
+                      disabled={isActing || !mergeSelection[topic.id]}
+                    >
+                      <GitMerge className="size-4" />
+                      {isActing && acting?.action === 'merge'
+                        ? 'Fusion...'
+                        : 'Fusionner'}
+                    </Button>
+                  </div>
                 </div>
               </div>
-            </div>
+            </Card>
           );
         })}
       </div>
