@@ -4,6 +4,10 @@ import { RealYouTubeClient } from '@/lib/youtube/client';
 import { SupabaseJobRunner } from '@/lib/jobs/supabase-runner';
 import { runCollect } from '@/lib/youtube/collect';
 import { collectSignals } from '@/lib/signals/collect-signals';
+import { runClustering } from '@/lib/topics/cluster-service';
+import { runYouTubeSearch } from '@/lib/youtube/search';
+import { VoyageEmbeddingProvider } from '@/lib/providers/voyage-embeddings';
+import { FakeEmbeddingProvider } from '@/lib/providers/embeddings';
 
 const MAX_DURATION_MS = 4 * 60 * 1000; // 4 minutes
 
@@ -43,14 +47,30 @@ export async function GET(request: NextRequest) {
     const yt = new RealYouTubeClient();
     const result = await runCollect(db, yt, deadline);
 
+    // Embedding + topic clustering if time permits
+    let clustering = { videosEmbedded: 0, anglesEmbedded: 0, videosAttached: 0, topicsProposed: 0 };
+    if (!result.stoppedByTimeout && !result.stoppedByQuota) {
+      const embedder = process.env.VOYAGE_API_KEY
+        ? new VoyageEmbeddingProvider()
+        : new FakeEmbeddingProvider();
+      clustering = await runClustering(db, embedder, deadline);
+    }
+
+    // YouTube search for videos outside followed channels
+    let search = { searchesPerformed: 0, videosDiscovered: 0 };
+    if (Date.now() < deadline) {
+      search = await runYouTubeSearch(db, deadline, result.quotaUsed);
+    }
+
     await runner.finish(job.id, {
       quotaUsed: result.quotaUsed,
       itemsProcessed:
         result.channelsUpdated + result.videosDiscovered + result.snapshotsTaken
-        + signals.trendPointsCollected + signals.socialPointsCollected + signals.ytViewPointsCollected,
+        + signals.trendPointsCollected + signals.socialPointsCollected + signals.ytViewPointsCollected
+        + clustering.videosEmbedded + clustering.videosAttached + search.videosDiscovered,
     });
 
-    return NextResponse.json({ ok: true, ...result, ...signals });
+    return NextResponse.json({ ok: true, ...result, ...signals, ...clustering, ...search });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     await runner.finish(job.id, {

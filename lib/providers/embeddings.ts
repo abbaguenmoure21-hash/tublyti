@@ -1,5 +1,7 @@
+export type InputType = 'document' | 'query';
+
 export interface EmbeddingProvider {
-  embed(texts: string[]): Promise<number[][]>;
+  embed(texts: string[], inputType?: InputType): Promise<number[][]>;
   dimensions(): number;
 }
 
