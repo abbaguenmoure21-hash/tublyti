@@ -115,7 +115,8 @@ export default function ChannelsPage() {
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Chaines surveillees</h1>
         <p className="text-muted-foreground text-sm mt-1">
-          Gerez les chaines YouTube suivies par TubLyTI pour detecter les opportunites.
+          Ajoutez les chaines YouTube de votre niche. TubLyTI analysera leurs videos
+          et les commentaires de leur audience pour detecter les opportunites.
         </p>
       </div>
 
@@ -184,16 +185,33 @@ export default function ChannelsPage() {
           </CardContent>
         </Card>
       ) : channels.length === 0 ? (
-        <Card>
+        <Card className="border-dashed border-2 border-primary/20">
           <CardContent className="flex flex-col items-center justify-center py-16 text-center">
-            <Tv className="size-10 text-muted-foreground/50 mb-3" />
-            <p className="text-sm font-medium text-muted-foreground">
-              Aucune chaine suivie
+            <div className="flex items-center justify-center w-12 h-12 rounded-2xl bg-primary/10 text-primary mb-4">
+              <Tv className="size-6" />
+            </div>
+            <p className="font-semibold text-foreground">
+              Aucune chaine suivie pour l&apos;instant
             </p>
-            <p className="text-xs text-muted-foreground mt-1">
-              Ajoutez-en une ci-dessus ou lancez{' '}
-              <code className="bg-muted rounded px-1.5 py-0.5 text-foreground">pnpm seed</code>.
+            <p className="text-sm text-muted-foreground mt-2 max-w-md">
+              Collez l&apos;URL ou l&apos;ID d&apos;une chaine YouTube dans le formulaire ci-dessus,
+              choisissez sa niche, et cliquez sur Ajouter. TubLyTI commencera a analyser
+              ses videos et les commentaires de son audience.
             </p>
+            <div className="flex flex-col items-start gap-2 mt-6 text-sm text-muted-foreground">
+              <p className="flex items-center gap-2">
+                <span className="flex items-center justify-center w-5 h-5 rounded-full bg-primary/10 text-primary text-xs font-bold">1</span>
+                Copiez l&apos;URL d&apos;une chaine YouTube
+              </p>
+              <p className="flex items-center gap-2">
+                <span className="flex items-center justify-center w-5 h-5 rounded-full bg-primary/10 text-primary text-xs font-bold">2</span>
+                Selectionnez la niche correspondante
+              </p>
+              <p className="flex items-center gap-2">
+                <span className="flex items-center justify-center w-5 h-5 rounded-full bg-primary/10 text-primary text-xs font-bold">3</span>
+                Cliquez sur Ajouter — c&apos;est tout !
+              </p>
+            </div>
           </CardContent>
         </Card>
       ) : (

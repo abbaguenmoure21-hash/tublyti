@@ -16,7 +16,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { TrendingUp, AlertTriangle, Target, BarChart3 } from 'lucide-react';
+import { TrendingUp, AlertTriangle, Target, BarChart3, Tv, Zap, ArrowRight, CheckCircle2, Circle } from 'lucide-react';
 
 interface Niche {
   id: string;
@@ -86,6 +86,29 @@ function Sparkline({ values }: { values: number[] }) {
       />
     </svg>
   );
+}
+
+function ChecklistItem({ done, label, href }: { done: boolean; label: string; href?: string }) {
+  const content = (
+    <div className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors ${
+      href ? 'hover:bg-muted/50 cursor-pointer' : ''
+    }`}>
+      {done ? (
+        <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" />
+      ) : (
+        <Circle className="w-4 h-4 text-muted-foreground/40 shrink-0" />
+      )}
+      <span className={done ? 'text-muted-foreground line-through' : 'text-foreground'}>
+        {label}
+      </span>
+      {href && <ArrowRight className="w-3.5 h-3.5 text-muted-foreground ml-auto shrink-0" />}
+    </div>
+  );
+
+  if (href) {
+    return <Link href={href}>{content}</Link>;
+  }
+  return content;
 }
 
 export default function DashboardPage() {
@@ -212,75 +235,201 @@ export default function DashboardPage() {
       {/* Stats cards */}
       {stats && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <Card>
-            <CardContent className="pt-4 pb-4">
-              <div className="flex items-center gap-3">
-                <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-primary/10 text-primary">
-                  <BarChart3 className="w-4 h-4" />
+          <div className="card-3d">
+            <Card className="card-3d-inner shine-hover">
+              <CardContent className="pt-4 pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-primary/10 text-primary">
+                    <BarChart3 className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold">{stats.total}</p>
+                    <p className="text-xs text-muted-foreground">Sujets scores</p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-2xl font-bold">{stats.total}</p>
-                  <p className="text-xs text-muted-foreground">Sujets scores</p>
+              </CardContent>
+            </Card>
+          </div>
+          <div className="card-3d">
+            <Card className="card-3d-inner shine-hover">
+              <CardContent className="pt-4 pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-blue-500/10 text-blue-600">
+                    <Target className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold">{stats.idealCount}</p>
+                    <p className="text-xs text-muted-foreground">Fenetre ideale</p>
+                  </div>
                 </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-4 pb-4">
-              <div className="flex items-center gap-3">
-                <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-blue-500/10 text-blue-600">
-                  <Target className="w-4 h-4" />
+              </CardContent>
+            </Card>
+          </div>
+          <div className="card-3d">
+            <Card className="card-3d-inner shine-hover">
+              <CardContent className="pt-4 pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-green-500/10 text-green-600">
+                    <TrendingUp className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold">{stats.avgMgi.toFixed(1)}</p>
+                    <p className="text-xs text-muted-foreground">MGI moyen</p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-2xl font-bold">{stats.idealCount}</p>
-                  <p className="text-xs text-muted-foreground">Fenetre ideale</p>
+              </CardContent>
+            </Card>
+          </div>
+          <div className="card-3d">
+            <Card className="card-3d-inner shine-hover">
+              <CardContent className="pt-4 pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-amber-500/10 text-amber-600">
+                    <AlertTriangle className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold">{stats.highFrust}</p>
+                    <p className="text-xs text-muted-foreground">Haute frustration</p>
+                  </div>
                 </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-4 pb-4">
-              <div className="flex items-center gap-3">
-                <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-green-500/10 text-green-600">
-                  <TrendingUp className="w-4 h-4" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold">{stats.avgMgi.toFixed(1)}</p>
-                  <p className="text-xs text-muted-foreground">MGI moyen</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-4 pb-4">
-              <div className="flex items-center gap-3">
-                <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-amber-500/10 text-amber-600">
-                  <AlertTriangle className="w-4 h-4" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold">{stats.highFrust}</p>
-                  <p className="text-xs text-muted-foreground">Haute frustration</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          </div>
         </div>
       )}
 
       {topics.length === 0 ? (
-        <Card>
-          <CardContent className="py-12 text-center">
-            <BarChart3 className="w-10 h-10 text-muted-foreground/30 mx-auto mb-3" />
-            <p className="text-muted-foreground">Aucun score disponible pour aujourd&apos;hui.</p>
-            <p className="text-sm text-muted-foreground/70 mt-1">
-              Lancez le cron <code className="bg-muted rounded px-1.5 py-0.5">score</code> pour calculer les MGI.
-            </p>
-          </CardContent>
-        </Card>
+        <div className="space-y-6">
+          {/* Welcome hero */}
+          <Card className="border-primary/20 bg-gradient-to-br from-primary/5 via-background to-background">
+            <CardContent className="py-10 text-center">
+              <div
+                className="flex items-center justify-center w-14 h-14 rounded-2xl bg-primary text-primary-foreground mx-auto mb-4"
+                style={{ boxShadow: '0 0 30px oklch(0.488 0.243 264.376 / 0.3)' }}
+              >
+                <Zap className="w-7 h-7" />
+              </div>
+              <h2 className="text-xl font-bold mb-2">Bienvenue sur TubLyTI</h2>
+              <p className="text-muted-foreground max-w-lg mx-auto">
+                TubLyTI detecte les opportunites YouTube avant tout le monde en mesurant
+                le desequilibre entre la demande des spectateurs et l&apos;offre de videos existantes.
+              </p>
+            </CardContent>
+          </Card>
+
+          {/* How it works — 4 steps */}
+          <div>
+            <h3 className="text-lg font-semibold mb-4">Comment ca marche</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Card className="card-3d">
+                <CardContent className="card-3d-inner pt-5 pb-5">
+                  <div className="flex items-start gap-4">
+                    <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-blue-500/10 text-blue-600 shrink-0">
+                      <span className="text-sm font-bold">1</span>
+                    </div>
+                    <div>
+                      <p className="font-semibold text-sm">Ajoutez des chaines a surveiller</p>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        Allez dans <strong>Chaines</strong> et ajoutez les chaines YouTube
+                        de votre niche. TubLyTI analysera leurs videos et commentaires.
+                      </p>
+                      <Link
+                        href="/channels"
+                        className="inline-flex items-center gap-1 text-sm text-primary font-medium mt-2 hover:underline"
+                      >
+                        Ajouter des chaines <ArrowRight className="w-3.5 h-3.5" />
+                      </Link>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="card-3d">
+                <CardContent className="card-3d-inner pt-5 pb-5">
+                  <div className="flex items-start gap-4">
+                    <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-green-500/10 text-green-600 shrink-0">
+                      <span className="text-sm font-bold">2</span>
+                    </div>
+                    <div>
+                      <p className="font-semibold text-sm">La collecte automatique demarre</p>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        Chaque nuit, TubLyTI collecte les nouvelles videos, les commentaires,
+                        et les signaux de demande (Trends, Reddit, Hacker News).
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="card-3d">
+                <CardContent className="card-3d-inner pt-5 pb-5">
+                  <div className="flex items-start gap-4">
+                    <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-violet-500/10 text-violet-600 shrink-0">
+                      <span className="text-sm font-bold">3</span>
+                    </div>
+                    <div>
+                      <p className="font-semibold text-sm">Les scores apparaissent ici</p>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        Le <strong>MGI</strong> (Market Gap Index) mesure l&apos;ecart entre
+                        la demande et l&apos;offre pour chaque sujet. Plus le score est haut,
+                        plus l&apos;opportunite est forte.
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="card-3d">
+                <CardContent className="card-3d-inner pt-5 pb-5">
+                  <div className="flex items-start gap-4">
+                    <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-amber-500/10 text-amber-600 shrink-0">
+                      <span className="text-sm font-bold">4</span>
+                    </div>
+                    <div>
+                      <p className="font-semibold text-sm">Exploitez les meilleures opportunites</p>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        Cliquez sur un sujet pour voir les frustrations des spectateurs,
+                        les angles de contenu generes par IA, et un brief pret a utiliser.
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+
+          {/* Quick checklist */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Pour commencer</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <ChecklistItem
+                done={false}
+                label="Ajouter au moins 3 chaines YouTube"
+                href="/channels"
+              />
+              <ChecklistItem
+                done={false}
+                label="Attendre la premiere collecte automatique (ou lancer manuellement dans Admin > Jobs)"
+                href="/admin/jobs"
+              />
+              <ChecklistItem
+                done={false}
+                label="Valider les sujets proposes"
+                href="/topics/review"
+              />
+              <ChecklistItem
+                done={false}
+                label="Explorer la matrice d'opportunites"
+              />
+            </CardContent>
+          </Card>
+        </div>
       ) : (
         <>
           {/* Scatter plot */}
-          <Card>
+          <Card className="shine-hover">
             <CardHeader className="pb-2">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <CardTitle className="text-base">
@@ -364,7 +513,7 @@ export default function DashboardPage() {
           </Card>
 
           {/* Table */}
-          <Card>
+          <Card className="shine-hover">
             <CardContent className="p-0">
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">

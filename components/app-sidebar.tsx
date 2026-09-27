@@ -19,10 +19,10 @@ import { useState } from 'react';
 import { Separator } from '@/components/ui/separator';
 
 const NAV_ITEMS = [
-  { href: '/dashboard', label: 'Matrice', icon: LayoutDashboard },
-  { href: '/channels', label: 'Chaines', icon: Tv },
-  { href: '/topics/review', label: 'Validation', icon: ListChecks },
-  { href: '/frustrations', label: 'Frustrations', icon: MessageSquareWarning },
+  { href: '/dashboard', label: 'Matrice', desc: 'Opportunites & MGI', icon: LayoutDashboard },
+  { href: '/channels', label: 'Chaines', desc: 'YouTube surveillees', icon: Tv },
+  { href: '/topics/review', label: 'Validation', desc: 'Sujets a valider', icon: ListChecks },
+  { href: '/frustrations', label: 'Frustrations', desc: 'Besoins spectateurs', icon: MessageSquareWarning },
 ];
 
 const ADMIN_ITEMS = [
@@ -32,12 +32,14 @@ const ADMIN_ITEMS = [
 function NavLink({
   href,
   label,
+  desc,
   icon: Icon,
   active,
   collapsed,
 }: {
   href: string;
   label: string;
+  desc?: string;
   icon: React.ComponentType<{ className?: string }>;
   active: boolean;
   collapsed: boolean;
@@ -45,15 +47,20 @@ function NavLink({
   return (
     <Link
       href={href}
-      title={collapsed ? label : undefined}
-      className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+      title={collapsed ? `${label} — ${desc ?? ''}` : undefined}
+      className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-200 ${
         active
-          ? 'bg-sidebar-accent text-sidebar-primary'
-          : 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground'
+          ? 'bg-sidebar-accent text-sidebar-primary shadow-[inset_2px_0_0_oklch(0.70_0.18_264)]'
+          : 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground hover:translate-x-0.5'
       } ${collapsed ? 'justify-center px-0' : ''}`}
     >
       <Icon className="w-4 h-4 shrink-0" />
-      {!collapsed && <span>{label}</span>}
+      {!collapsed && (
+        <div className="flex flex-col">
+          <span>{label}</span>
+          {desc && <span className="text-[10px] font-normal text-sidebar-foreground/40 leading-tight">{desc}</span>}
+        </div>
+      )}
     </Link>
   );
 }
@@ -72,13 +79,16 @@ export function AppSidebar() {
 
   return (
     <aside
-      className={`flex flex-col bg-sidebar text-sidebar-foreground border-r border-sidebar-border transition-all duration-200 ${
+      className={`flex flex-col bg-sidebar text-sidebar-foreground border-r border-sidebar-border transition-all duration-300 sidebar-glow ${
         collapsed ? 'w-16' : 'w-56'
       }`}
     >
       {/* Logo */}
       <div className="flex items-center gap-2 px-4 h-14 shrink-0">
-        <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
+        <div
+          className="flex items-center justify-center w-8 h-8 rounded-lg bg-sidebar-primary text-sidebar-primary-foreground transition-shadow duration-300 hover:shadow-[0_0_20px_oklch(0.70_0.18_264_/_0.5)]"
+          style={{ animation: 'float-fast 6s ease-in-out infinite' }}
+        >
           <Zap className="w-4 h-4" />
         </div>
         {!collapsed && (
@@ -95,6 +105,7 @@ export function AppSidebar() {
             key={item.href}
             href={item.href}
             label={item.label}
+            desc={item.desc}
             icon={item.icon}
             active={pathname.startsWith(item.href)}
             collapsed={collapsed}

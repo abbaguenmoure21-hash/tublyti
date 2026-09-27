@@ -157,15 +157,20 @@ export default function TopicsReviewPage() {
             Validez, rejetez ou fusionnez les sujets detectes automatiquement.
           </p>
         </div>
-        <Card>
+        <Card className="border-dashed border-2 border-primary/20">
           <CardContent className="flex flex-col items-center justify-center py-16 text-center">
-            <ListChecks className="size-10 text-muted-foreground mb-4" />
+            <div className="flex items-center justify-center w-12 h-12 rounded-2xl bg-primary/10 text-primary mb-4">
+              <ListChecks className="size-6" />
+            </div>
             <p className="text-lg font-semibold text-foreground">
-              Aucun sujet en attente
+              Aucun sujet en attente de validation
             </p>
-            <p className="text-sm text-muted-foreground mt-1 max-w-md">
-              Le clustering automatique proposera des sujets lors du prochain
-              cycle de collecte.
+            <p className="text-sm text-muted-foreground mt-2 max-w-md">
+              Apres chaque collecte, TubLyTI regroupe les videos par sujet et vous les propose ici.
+              Vous pourrez alors les accepter, les rejeter, ou les fusionner avec un sujet existant.
+            </p>
+            <p className="text-xs text-muted-foreground mt-4">
+              Les sujets apparaitront automatiquement apres la prochaine collecte de nuit.
             </p>
           </CardContent>
         </Card>

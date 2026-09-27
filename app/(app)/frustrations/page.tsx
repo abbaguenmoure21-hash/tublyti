@@ -182,14 +182,20 @@ export default function FrustrationsPage() {
     return (
       <div className="p-6 md:p-8 max-w-6xl mx-auto space-y-6">
         <h1 className="text-2xl font-bold tracking-tight">Frustrations</h1>
-        <Card>
+        <Card className="border-dashed border-2 border-primary/20">
           <CardContent className="flex flex-col items-center justify-center py-16 text-center">
-            <MessageSquareWarning className="size-10 text-muted-foreground mb-4" />
-            <p className="text-sm font-medium text-foreground">
-              Aucun commentaire classifie
+            <div className="flex items-center justify-center w-12 h-12 rounded-2xl bg-primary/10 text-primary mb-4">
+              <MessageSquareWarning className="size-6" />
+            </div>
+            <p className="font-semibold text-foreground">
+              Aucune frustration detectee pour l&apos;instant
             </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Lancez le cron <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">classify</code> pour analyser les commentaires.
+            <p className="text-sm text-muted-foreground mt-2 max-w-md">
+              TubLyTI analyse les commentaires YouTube pour detecter les besoins non satisfaits
+              des spectateurs : sujets non traites, videos trop courtes, demandes explicites.
+            </p>
+            <p className="text-xs text-muted-foreground mt-4">
+              Les frustrations apparaitront automatiquement apres la prochaine collecte et classification.
             </p>
           </CardContent>
         </Card>
