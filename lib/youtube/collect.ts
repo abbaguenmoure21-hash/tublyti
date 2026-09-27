@@ -86,7 +86,16 @@ export async function runCollect(
         break;
       }
 
-      const videoIds = await yt.getPlaylistItems(channel.uploads_playlist_id, 50);
+      if (!channel.uploads_playlist_id) continue;
+
+      let videoIds: string[];
+      try {
+        videoIds = await yt.getPlaylistItems(channel.uploads_playlist_id, 50);
+      } catch (err) {
+        if (err instanceof QuotaSoftLimitReached) throw err;
+        console.error(`Skipping channel ${channel.id}: ${(err as Error).message}`);
+        continue;
+      }
       if (videoIds.length === 0) continue;
 
       // Check which videos are already known
