@@ -145,37 +145,41 @@ export async function runCollect(
     const now = new Date();
     const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
 
-    // Daily snapshots for videos < 90 days old
-    const { data: recentVideos } = await db
-      .from('videos')
-      .select('id')
-      .gte('published_at', ninetyDaysAgo.toISOString());
-
-    // Weekly snapshots for older videos (only if no snapshot this week)
+    // Daily snapshots for recent videos, weekly for older ones
+    // Only include videos that don't already have a snapshot in the current period
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    const { data: olderVideos } = await db
-      .from('videos')
-      .select('id')
-      .lt('published_at', ninetyDaysAgo.toISOString());
+    const todayStart = new Date(now);
+    todayStart.setUTCHours(0, 0, 0, 0);
 
-    // Filter older videos that don't have a recent snapshot
-    const olderIds: string[] = [];
-    for (const v of olderVideos ?? []) {
-      const { data: snap } = await db
-        .from('video_snapshots')
-        .select('video_id')
-        .eq('video_id', v.id)
-        .gte('captured_at', sevenDaysAgo.toISOString())
-        .limit(1);
-      if (!snap || snap.length === 0) {
-        olderIds.push(v.id);
+    const { data: allVideos } = await db
+      .from('videos')
+      .select('id, published_at');
+
+    // Batch-fetch all recent snapshots to filter in memory
+    const allVideoIds = (allVideos ?? []).map((v) => v.id);
+    const { data: todaySnaps } = await db
+      .from('video_snapshots')
+      .select('video_id')
+      .in('video_id', allVideoIds)
+      .gte('captured_at', todayStart.toISOString());
+    const hasSnapToday = new Set((todaySnaps ?? []).map((s) => s.video_id));
+
+    const { data: weekSnaps } = await db
+      .from('video_snapshots')
+      .select('video_id')
+      .in('video_id', allVideoIds)
+      .gte('captured_at', sevenDaysAgo.toISOString());
+    const hasSnapThisWeek = new Set((weekSnaps ?? []).map((s) => s.video_id));
+
+    const allSnapshotIds: string[] = [];
+    for (const v of allVideos ?? []) {
+      const isRecent = new Date(v.published_at) >= ninetyDaysAgo;
+      if (isRecent && !hasSnapToday.has(v.id)) {
+        allSnapshotIds.push(v.id);
+      } else if (!isRecent && !hasSnapThisWeek.has(v.id)) {
+        allSnapshotIds.push(v.id);
       }
     }
-
-    const allSnapshotIds = [
-      ...(recentVideos ?? []).map((v) => v.id),
-      ...olderIds,
-    ];
 
     for (let i = 0; i < allSnapshotIds.length; i += 50) {
       if (isTimedOut()) {
@@ -200,20 +204,25 @@ export async function runCollect(
         result.snapshotsTaken++;
       }
 
-      // Update is_qualified with view ratio if we have subscriber data
-      for (const snap of snapshots) {
-        const { data: video } = await db
-          .from('videos')
-          .select('channel_id, duration_s')
-          .eq('id', snap.videoId)
-          .single();
-        if (!video) continue;
+      // Update is_qualified with view ratio — batch-fetch video & channel data
+      const snapVideoIds = snapshots.map((s) => s.videoId);
+      const { data: batchVideos } = await db
+        .from('videos')
+        .select('id, channel_id, duration_s')
+        .in('id', snapVideoIds);
+      const videoMap = new Map((batchVideos ?? []).map((v) => [v.id, v]));
 
-        const { data: channel } = await db
-          .from('channels')
-          .select('subscriber_count')
-          .eq('id', video.channel_id)
-          .single();
+      const channelIds = [...new Set((batchVideos ?? []).map((v) => v.channel_id))];
+      const { data: batchChannels } = await db
+        .from('channels')
+        .select('id, subscriber_count')
+        .in('id', channelIds);
+      const channelMap = new Map((batchChannels ?? []).map((c) => [c.id, c]));
+
+      for (const snap of snapshots) {
+        const video = videoMap.get(snap.videoId);
+        if (!video) continue;
+        const channel = channelMap.get(video.channel_id);
         if (!channel || !channel.subscriber_count) continue;
 
         const viewRatio = snap.views / channel.subscriber_count;
