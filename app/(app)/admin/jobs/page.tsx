@@ -17,6 +17,8 @@ export default function JobsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [relaunching, setRelaunching] = useState<string | null>(null);
+  const [sendingTest, setSendingTest] = useState(false);
+  const [testResult, setTestResult] = useState<string | null>(null);
 
   const fetchJobs = useCallback(async () => {
     try {
@@ -70,23 +72,54 @@ export default function JobsPage() {
     return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m${s % 60}s`;
   }
 
+  async function handleTestAlert() {
+    setSendingTest(true);
+    setTestResult(null);
+    try {
+      const secret = prompt('CRON_SECRET :');
+      if (!secret) { setSendingTest(false); return; }
+      const res = await fetch('/api/alerts/test', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${secret}` },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setTestResult(`Alerte envoyee (${data.method})`);
+    } catch (err) {
+      setTestResult(err instanceof Error ? err.message : 'Erreur');
+    } finally {
+      setSendingTest(false);
+    }
+  }
+
   return (
     <div className="p-8 max-w-5xl">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <h1 className="text-2xl font-bold">Admin — Jobs</h1>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {['collect', 'classify', 'score'].map((kind) => (
             <button
               key={kind}
               onClick={() => handleRelaunch(kind)}
               disabled={relaunching === kind}
-              className="bg-primary text-primary-foreground rounded-md px-3 py-1.5 text-xs font-medium disabled:opacity-50"
+              className="bg-primary text-primary-foreground rounded-md px-3 py-1.5 text-xs font-medium disabled:opacity-50 cursor-pointer"
             >
-              {relaunching === kind ? '…' : `Relancer ${kind}`}
+              {relaunching === kind ? '...' : `Relancer ${kind}`}
             </button>
           ))}
+          <button
+            onClick={handleTestAlert}
+            disabled={sendingTest}
+            className="bg-amber-500 text-white rounded-md px-3 py-1.5 text-xs font-medium disabled:opacity-50 cursor-pointer"
+          >
+            {sendingTest ? '...' : 'Envoyer une alerte test'}
+          </button>
         </div>
       </div>
+
+      {testResult && (
+        <p className="mt-2 text-sm text-amber-600">{testResult}</p>
+      )}
 
       {error && <p className="text-destructive mt-2 text-sm">{error}</p>}
 

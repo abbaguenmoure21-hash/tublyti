@@ -1,8 +1,15 @@
 import { SupabaseClient } from '@supabase/supabase-js';
 import type { JobRecord, JobRunner } from './runner';
+import type { AlertSender } from '../email/alerts';
 
 export class SupabaseJobRunner implements JobRunner {
+  private alertSender: AlertSender | null = null;
+
   constructor(private readonly db: SupabaseClient) {}
+
+  setAlertSender(sender: AlertSender): void {
+    this.alertSender = sender;
+  }
 
   async start(kind: string): Promise<JobRecord> {
     const { data, error } = await this.db
@@ -39,6 +46,27 @@ export class SupabaseJobRunner implements JobRunner {
       .eq('id', id);
 
     if (error) throw new Error(`Failed to finish job: ${error.message}`);
+
+    // Send alert on cron failure
+    if (result.error && this.alertSender) {
+      // Get job kind from the DB
+      const { data: job } = await this.db
+        .from('jobs')
+        .select('kind')
+        .eq('id', id)
+        .single();
+
+      const kind = job?.kind ?? 'unknown';
+      const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://tublyti.vercel.app';
+
+      await this.alertSender.send({
+        kind: 'cron_failed',
+        subject: `Cron ${kind} en echec`,
+        body: `Le cron « ${kind} » a echoue avec l'erreur :\n\n${result.error}`,
+        actionUrl: `${baseUrl}/admin/jobs`,
+        actionLabel: 'Voir les jobs',
+      });
+    }
   }
 
   async isLocked(kind: string): Promise<boolean> {

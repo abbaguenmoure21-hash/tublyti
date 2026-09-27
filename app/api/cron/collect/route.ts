@@ -8,6 +8,7 @@ import { runClustering } from '@/lib/topics/cluster-service';
 import { runYouTubeSearch } from '@/lib/youtube/search';
 import { VoyageEmbeddingProvider } from '@/lib/providers/voyage-embeddings';
 import { FakeEmbeddingProvider } from '@/lib/providers/embeddings';
+import { ResendAlertSender, ConsoleAlertSender } from '@/lib/email/resend-alerts';
 
 const MAX_DURATION_MS = 4 * 60 * 1000; // 4 minutes
 
@@ -19,6 +20,9 @@ export async function GET(request: NextRequest) {
 
   const db = createServiceClient();
   const runner = new SupabaseJobRunner(db);
+  runner.setAlertSender(
+    process.env.RESEND_API_KEY ? new ResendAlertSender() : new ConsoleAlertSender(),
+  );
 
   // Check lock
   if (await runner.isLocked('collect')) {

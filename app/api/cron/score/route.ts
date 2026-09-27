@@ -12,6 +12,10 @@ export async function GET(request: NextRequest) {
 
   const db = createServiceClient();
   const runner = new SupabaseJobRunner(db);
+  const alertSender = process.env.RESEND_API_KEY
+    ? new ResendAlertSender()
+    : new ConsoleAlertSender();
+  runner.setAlertSender(alertSender);
 
   if (await runner.isLocked('score')) {
     return NextResponse.json(
@@ -31,10 +35,6 @@ export async function GET(request: NextRequest) {
   const job = await runner.start('score');
 
   try {
-    const alertSender = process.env.RESEND_API_KEY
-      ? new ResendAlertSender()
-      : new ConsoleAlertSender();
-
     const result = await runScore(db, alertSender);
 
     await runner.finish(job.id, {

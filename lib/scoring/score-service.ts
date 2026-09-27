@@ -16,10 +16,12 @@ import type { AlertSender } from '../email/alerts';
 export interface ScoreResult {
   topicsScored: number;
   burnDownAlerts: number;
+  silentCollectionAlert: boolean;
 }
 
 interface ActiveTopic {
   id: string;
+  label: string;
   niche_id: string;
   status: string;
   rpm_coefficient: number;
@@ -57,14 +59,14 @@ export async function runScore(
   db: SupabaseClient,
   alertSender: AlertSender,
 ): Promise<ScoreResult> {
-  const result: ScoreResult = { topicsScored: 0, burnDownAlerts: 0 };
+  const result: ScoreResult = { topicsScored: 0, burnDownAlerts: 0, silentCollectionAlert: false };
   const today = new Date().toISOString().slice(0, 10);
   const weights = await getWeights(db);
 
   // ── Load active topics with niche info ──────────────────────────
   const { data: topicsRaw } = await db
     .from('topics')
-    .select('id, niche_id, status, niches!inner(rpm_coefficient)')
+    .select('id, label, niche_id, status, niches!inner(rpm_coefficient)')
     .in('status', ['active', 'in_production']);
 
   if (!topicsRaw || topicsRaw.length === 0) return result;
@@ -73,6 +75,7 @@ export async function runScore(
     const niche = t.niches as unknown as { rpm_coefficient: number };
     return {
       id: t.id,
+      label: t.label,
       niche_id: t.niche_id,
       status: t.status,
       rpm_coefficient: niche.rpm_coefficient ?? 1.0,
@@ -346,13 +349,35 @@ export async function runScore(
 
     // ── Burn-down detection ─────────────────────────────────────
     if (qualifiedIn72h >= 5 && topic.status === 'in_production') {
+      const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://tublyti.vercel.app';
       await alertSender.send({
         kind: 'burn_down',
-        subject: `Saturation imminente : ${qualifiedIn72h} vidéos qualifiées en 72h`,
-        body: `Le sujet (topic_id: ${topic.id}) a ${qualifiedIn72h} vidéos qualifiées publiées dans les 72 dernières heures alors qu'il est en production. La fenêtre d'opportunité se referme.`,
+        subject: `Sujet ${topic.label} : ${qualifiedIn72h} chaines ont publie en 72 h`,
+        body: `Sujet « ${topic.label} » : ${qualifiedIn72h} videos qualifiees publiees dans les 72 dernieres heures. Fenetre en train de se fermer.`,
+        actionUrl: `${baseUrl}/topics/${topic.id}`,
+        actionLabel: 'Voir la fiche sujet',
       });
       result.burnDownAlerts++;
     }
+  }
+
+  // ── Silent collection detection ──────────────────────────────
+  const thirtyySixHoursAgo = new Date(Date.now() - 36 * 3_600_000).toISOString();
+  const { data: recentSnap } = await db
+    .from('video_snapshots')
+    .select('video_id')
+    .gte('captured_at', thirtyySixHoursAgo)
+    .limit(1);
+
+  if (!recentSnap || recentSnap.length === 0) {
+    await alertSender.send({
+      kind: 'silent_collection',
+      subject: 'Collecte silencieuse depuis 36 h',
+      body: 'Aucun snapshot video enregistre dans les 36 dernieres heures. Le cron collect est peut-etre en echec.',
+      actionUrl: `${process.env.NEXT_PUBLIC_APP_URL ?? 'https://tublyti.vercel.app'}/admin/jobs`,
+      actionLabel: 'Voir les jobs',
+    });
+    result.silentCollectionAlert = true;
   }
 
   return result;

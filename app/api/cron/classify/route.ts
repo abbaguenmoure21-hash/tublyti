@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
 import { SupabaseJobRunner } from '@/lib/jobs/supabase-runner';
 import { runClassify } from '@/lib/nlp/classify-service';
+import { ResendAlertSender, ConsoleAlertSender } from '@/lib/email/resend-alerts';
 
 const MAX_DURATION_MS = 4 * 60 * 1000; // 4 minutes
 
@@ -13,6 +14,9 @@ export async function GET(request: NextRequest) {
 
   const db = createServiceClient();
   const runner = new SupabaseJobRunner(db);
+  runner.setAlertSender(
+    process.env.RESEND_API_KEY ? new ResendAlertSender() : new ConsoleAlertSender(),
+  );
 
   if (await runner.isLocked('classify')) {
     return NextResponse.json(

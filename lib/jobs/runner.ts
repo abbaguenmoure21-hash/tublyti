@@ -1,3 +1,5 @@
+import type { AlertSender } from '../email/alerts';
+
 export interface JobRecord {
   id: string;
   kind: string;
@@ -14,4 +16,5 @@ export interface JobRunner {
   isLocked(kind: string): Promise<boolean>;
   acquireLock(kind: string): Promise<boolean>;
   releaseLock(kind: string): Promise<void>;
+  setAlertSender(sender: AlertSender): void;
 }
