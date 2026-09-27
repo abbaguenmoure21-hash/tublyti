@@ -3,6 +3,7 @@ import { createServiceClient } from '@/lib/supabase/server';
 import { RealYouTubeClient } from '@/lib/youtube/client';
 import { SupabaseJobRunner } from '@/lib/jobs/supabase-runner';
 import { runCollect } from '@/lib/youtube/collect';
+import { collectSignals } from '@/lib/signals/collect-signals';
 
 const MAX_DURATION_MS = 4 * 60 * 1000; // 4 minutes
 
@@ -36,16 +37,20 @@ export async function GET(request: NextRequest) {
   const deadline = Date.now() + MAX_DURATION_MS;
 
   try {
+    // Signals first (cheap, no YouTube quota), then YouTube collection
+    const signals = await collectSignals(db, deadline);
+
     const yt = new RealYouTubeClient();
     const result = await runCollect(db, yt, deadline);
 
     await runner.finish(job.id, {
       quotaUsed: result.quotaUsed,
       itemsProcessed:
-        result.channelsUpdated + result.videosDiscovered + result.snapshotsTaken,
+        result.channelsUpdated + result.videosDiscovered + result.snapshotsTaken
+        + signals.trendPointsCollected + signals.socialPointsCollected + signals.ytViewPointsCollected,
     });
 
-    return NextResponse.json({ ok: true, ...result });
+    return NextResponse.json({ ok: true, ...result, ...signals });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     await runner.finish(job.id, {

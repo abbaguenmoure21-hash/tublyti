@@ -5,11 +5,15 @@ export interface SocialMention {
 }
 
 export interface SocialProvider {
-  countMentions(query: string, source: 'reddit' | 'hn'): Promise<SocialMention>;
+  countMentions(
+    query: string,
+    source: 'reddit' | 'hn',
+    nicheCategory?: string,
+  ): Promise<SocialMention>;
 }
 
 export class FakeSocialProvider implements SocialProvider {
-  async countMentions(query: string, source: 'reddit' | 'hn'): Promise<SocialMention> {
+  async countMentions(_query: string, source: 'reddit' | 'hn'): Promise<SocialMention> {
     return {
       source,
       count: Math.round(Math.random() * 20),
