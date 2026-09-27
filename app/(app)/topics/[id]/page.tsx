@@ -109,6 +109,10 @@ export default function TopicPage() {
   const [acting, setActing] = useState(false);
   const [publishVideoId, setPublishVideoId] = useState('');
   const [showPublishInput, setShowPublishInput] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [genCost, setGenCost] = useState<number | null>(null);
+  const [genError, setGenError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const fetchData = useCallback(async () => {
     try {
@@ -157,6 +161,62 @@ export default function TopicPage() {
       setActing(false);
     }
   };
+
+  const handleGenerateAngles = async () => {
+    setGenerating(true);
+    setGenError(null);
+    setGenCost(null);
+    try {
+      const res = await fetch(`/api/topics/${id}/angles`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'Erreur');
+      setGenCost(data.costUSD);
+      await fetchData();
+    } catch (err) {
+      setGenError(err instanceof Error ? err.message : 'Erreur');
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const buildBrief = (angle: Angle): string => {
+    if (!topic) return '';
+    const lines: string[] = [
+      `# Brief — ${angle.title}`,
+      '',
+      `**Sujet :** ${topic.label}`,
+      `**Niche :** ${topic.niches?.name ?? '?'} (RPM x${topic.niches?.rpm_coefficient ?? '?'})`,
+      `**Phase :** ${topic.phase !== null ? PHASE_LABELS[topic.phase] ?? topic.phase : '?'}`,
+      '',
+      `## Angle`,
+      '',
+      `**Titre :** ${angle.title}`,
+      `**Hook :** ${angle.hook}`,
+      `**Rationale :** ${angle.rationale}`,
+      '',
+      `## Frustrations sources (top ${Math.min(topic.frustrations.length, 10)})`,
+      '',
+    ];
+    for (const f of topic.frustrations.slice(0, 10)) {
+      const angleNote = f.requestedAngle ? ` → ${f.requestedAngle}` : '';
+      lines.push(`- [${f.likeCount} likes] ${f.text.slice(0, 200)}${angleNote}`);
+    }
+    lines.push('', '## Concurrents', '');
+    for (const c of topic.competitors.slice(0, 10)) {
+      lines.push(`- ${c.title} (${c.channelTitle})`);
+    }
+    return lines.join('\n');
+  };
+
+  const handleCopyBrief = async (angle: Angle) => {
+    const brief = buildBrief(angle);
+    await navigator.clipboard.writeText(brief);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  // Estimated cost: $3/MTok input + $15/MTok output, ~2000+1200 tokens
+  const estimatedCost = ((2000 * 3) / 1_000_000 + (1200 * 15) / 1_000_000);
 
   if (loading) {
     return (
@@ -387,11 +447,35 @@ export default function TopicPage() {
 
       {/* Angles */}
       <div className="border rounded-lg p-4 md:p-6 bg-white">
-        <h2 className="text-lg font-semibold mb-4">Angles de contenu</h2>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold">Angles de contenu</h2>
+          <div className="flex items-center gap-3">
+            {genCost !== null && (
+              <span className="text-xs text-gray-400">
+                Cout : ${genCost.toFixed(4)}
+              </span>
+            )}
+            <button
+              onClick={handleGenerateAngles}
+              disabled={generating}
+              className="px-3 py-1.5 text-xs font-medium bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50 cursor-pointer"
+            >
+              {generating
+                ? 'Generation...'
+                : topic.angles.length > 0
+                  ? `Regenerer (~$${estimatedCost.toFixed(3)})`
+                  : `Generer 5 angles (~$${estimatedCost.toFixed(3)})`}
+            </button>
+          </div>
+        </div>
+
+        {genError && (
+          <p className="text-sm text-red-600 mb-3">{genError}</p>
+        )}
+
         {topic.angles.length === 0 ? (
           <p className="text-sm text-gray-400">
-            Aucun angle genere pour ce sujet. La generation d&apos;angles sera
-            disponible prochainement.
+            Aucun angle genere pour ce sujet.
           </p>
         ) : (
           <div className="space-y-3">
@@ -399,9 +483,17 @@ export default function TopicPage() {
               <div key={a.id} className="border rounded p-3">
                 <div className="flex items-center justify-between mb-1">
                   <h3 className="font-medium text-sm">{a.title}</h3>
-                  <span className="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-600">
-                    {a.status}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleCopyBrief(a)}
+                      className="text-xs text-indigo-600 hover:underline cursor-pointer"
+                    >
+                      {copied ? 'Copie !' : 'Copier le brief'}
+                    </button>
+                    <span className="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-600">
+                      {a.status}
+                    </span>
+                  </div>
                 </div>
                 {a.hook && (
                   <p className="text-sm text-gray-600 italic">{a.hook}</p>

@@ -134,7 +134,7 @@ Contexte fourni au modèle : label du sujet, niche et coefficient RPM, les 20 fr
 
 Prompt à placer dans lib/nlp/prompts/angles_v1.md :
 
-« Tu es stratège éditorial pour une chaîne YouTube faceless anglophone. À partir des frustrations réelles des spectateurs et des vidéos concurrentes ci-dessous, propose exactement 5 angles de vidéo originaux (8 à 20 minutes) qui répondent à une frustration précise sans reprendre un angle concurrent. Chaque angle : title (≤ 60 caractères, en anglais), hook (2 phrases), rationale (quelle frustration il résout, quel angle concurrent il évite, en français). Réponds en JSON strict. Pas de clickbait mensonger, pas de promesse de gain chiffrée. »
+« Tu es stratège éditorial pour des chaînes YouTube. À partir des frustrations réelles des spectateurs et des vidéos concurrentes ci-dessous, propose exactement 5 angles de vidéo originaux (8 à 20 minutes) qui répondent à une frustration précise sans reprendre un angle concurrent. Chaque angle : title (≤ 60 caractères, en anglais), hook (2 phrases), rationale (quelle frustration il résout, quel angle concurrent il évite, en français). Réponds en JSON strict. Pas de clickbait mensonger, pas de promesse de gain chiffrée. »
 
 - Stocker dans `angles`, afficher sur la fiche sujet, permettre de régénérer (coût affiché avant) et d'exporter un angle en brief Markdown (sujet, angle, 10 frustrations sources, concurrents) via un bouton « Copier le brief ».
 
