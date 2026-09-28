@@ -27,6 +27,8 @@ import { extractTitlePatterns } from '../lib/nlp/title-patterns';
 import { VoyageEmbeddingProvider } from '../lib/providers/voyage-embeddings';
 import { FakeEmbeddingProvider } from '../lib/providers/embeddings';
 import { ConsoleAlertSender } from '../lib/email/resend-alerts';
+import { runDiscoverySources } from '../lib/youtube/discover-sources';
+import { autoTriageCandidates } from '../lib/youtube/auto-triage';
 
 const DEADLINE_MS = 10 * 60 * 1000; // 10 minutes
 const args = process.argv.slice(2);
@@ -51,15 +53,18 @@ async function main() {
   const { error: rpmCheck } = await db.from('niches').select('rpm_low').limit(1);
   if (rpmCheck?.message?.includes('rpm_low')) {
     console.log('  Applying RPM migration...');
-    await db.rpc('exec_sql', {
-      sql: `
-        alter table niches add column if not exists rpm_low numeric;
-        alter table niches add column if not exists rpm_high numeric;
-        alter table niches add column if not exists rpm_source text;
-      `,
-    }).then(() => console.log('  Done.')).catch(() => {
+    try {
+      await db.rpc('exec_sql', {
+        sql: `
+          alter table niches add column if not exists rpm_low numeric;
+          alter table niches add column if not exists rpm_high numeric;
+          alter table niches add column if not exists rpm_source text;
+        `,
+      });
+      console.log('  Done.');
+    } catch {
       console.log('  RPC exec_sql not available — run migration 00004 manually via Supabase dashboard.');
-    });
+    }
   } else {
     console.log('  RPM columns present.');
   }
@@ -86,7 +91,7 @@ async function main() {
     const collectResult = await runCollect(db, yt, deadline);
     quotaUsed = collectResult.quotaUsed;
     console.log(`  Channels: ${collectResult.channelsUpdated}`);
-    console.log(`  Videos discovered: ${collectResult.videosDiscovered}`);
+    console.log(`  Videos discovered: ${collectResult.videosDiscovered} (RSS: ${collectResult.videosFromRSS}, API: ${collectResult.videosFromAPI})`);
     console.log(`  Snapshots: ${collectResult.snapshotsTaken}`);
     console.log(`  Comments imported: ${collectResult.commentsImported}`);
     console.log(`  Quota used: ${quotaUsed}`);
@@ -125,6 +130,37 @@ async function main() {
     console.log(`  Videos discovered: ${search.videosDiscovered}`);
   }
 
+  // ── Step 5b: Discovery sources (channelSections, trending) ────
+  if (shouldRun('discover') && Date.now() < deadline) {
+    console.log('\n=== Channel Discovery (sections, trending) ===');
+    try {
+      const discovery = await runDiscoverySources(db, deadline, 200);
+      console.log(`  Channel sections: ${discovery.channelSections.channelsDiscovered} channels`);
+      console.log(`  Trending: ${discovery.trending.channelsDiscovered} channels`);
+      console.log(`  Comment authors: ${discovery.commentAuthors.channelsDiscovered} channels`);
+      console.log(`  Quota used: ${discovery.channelSections.quotaUsed + discovery.trending.quotaUsed}`);
+    } catch (err) {
+      console.error(`  Discovery failed: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+
+  // ── Step 5c: Auto-triage candidates ───────────────────────────
+  if (shouldRun('triage') && Date.now() < deadline) {
+    console.log('\n=== Auto-triage candidates ===');
+    try {
+      const embedder = process.env.VOYAGE_API_KEY
+        ? new VoyageEmbeddingProvider()
+        : null;
+      const triage = await autoTriageCandidates(db, embedder);
+      console.log(`  Processed: ${triage.processed}`);
+      console.log(`  Accepted: ${triage.accepted}`);
+      console.log(`  Rejected: ${triage.rejected}`);
+      console.log(`  Manual review: ${triage.manual}`);
+    } catch (err) {
+      console.error(`  Triage failed: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+
   // ── Step 6: Score all topics ────────────────────────────────────
   if (shouldRun('score')) {
     console.log('\n=== Scoring (MGI + phase + feasibility) ===');
@@ -138,7 +174,7 @@ async function main() {
     const classifyResult = await runClassify(db, deadline);
     console.log(`  Comments submitted: ${classifyResult.commentsSubmitted}`);
     console.log(`  Labels stored: ${classifyResult.labelsStored}`);
-    console.log(`  Batches: pending=${classifyResult.batchesPending}, retrieved=${classifyResult.batchesRetrieved}`);
+    console.log(`  Batches: submitted=${classifyResult.batchSubmitted}, retrieved=${classifyResult.batchesRetrieved}`);
 
     // Title patterns
     if (shouldRun('patterns')) {
@@ -146,7 +182,7 @@ async function main() {
       try {
         const patterns = await extractTitlePatterns(db);
         console.log(`  Patterns stored: ${patterns.patternsStored}`);
-        console.log(`  Niches processed: ${patterns.nichesProcessed}`);
+        console.log(`  Batches: submitted=${patterns.batchSubmitted}, retrieved=${patterns.batchesRetrieved}`);
       } catch (err) {
         console.error(`  Title patterns failed: ${err instanceof Error ? err.message : err}`);
       }

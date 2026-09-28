@@ -1,6 +1,7 @@
 import { SupabaseClient } from '@supabase/supabase-js';
 import type { YouTubeClient } from './client';
 import { QuotaSoftLimitReached } from './quota';
+import { fetchRSSVideos } from './rss';
 import { detectChanges, detectSpikes, recordEvents, recordNewUploads } from './detect-events';
 
 const SUBSCRIBER_THRESHOLD = 10000;
@@ -13,6 +14,8 @@ const COMMENT_MAX_PAGES = 5;
 export interface CollectResult {
   channelsUpdated: number;
   videosDiscovered: number;
+  videosFromRSS: number;
+  videosFromAPI: number;
   snapshotsTaken: number;
   commentsImported: number;
   commentsPurged: number;
@@ -20,6 +23,37 @@ export interface CollectResult {
   quotaUsed: number;
   stoppedByQuota: boolean;
   stoppedByTimeout: boolean;
+}
+
+/**
+ * Quota budget envelope — each task has a max allocation.
+ * Falls back to percentage of soft limit if no quota_plan is configured.
+ */
+interface QuotaBudget {
+  tracking: number;
+  comments: number;
+}
+
+async function loadQuotaBudget(db: SupabaseClient, softLimit: number): Promise<QuotaBudget> {
+  const { data } = await db
+    .from('settings')
+    .select('value')
+    .eq('key', 'quota_plan')
+    .single();
+
+  if (data?.value && typeof data.value === 'object') {
+    const plan = data.value as Record<string, number>;
+    return {
+      tracking: plan.tracking ?? Math.floor(softLimit * 0.45),
+      comments: plan.comments ?? Math.floor(softLimit * 0.25),
+    };
+  }
+
+  // Default: 45% tracking, 25% comments (rest for search/discovery)
+  return {
+    tracking: Math.floor(softLimit * 0.45),
+    comments: Math.floor(softLimit * 0.25),
+  };
 }
 
 export async function runCollect(
@@ -30,6 +64,8 @@ export async function runCollect(
   const result: CollectResult = {
     channelsUpdated: 0,
     videosDiscovered: 0,
+    videosFromRSS: 0,
+    videosFromAPI: 0,
     snapshotsTaken: 0,
     commentsImported: 0,
     commentsPurged: 0,
@@ -42,6 +78,10 @@ export async function runCollect(
   function isTimedOut() {
     return Date.now() >= deadlineMs;
   }
+
+  const budget = await loadQuotaBudget(db, 8000);
+  let trackingQuota = 0;
+  let commentQuota = 0;
 
   try {
     // ── Step 1: Update channels (oldest first) ──────────────────────
@@ -62,6 +102,7 @@ export async function runCollect(
       const batch = channels.slice(i, i + 50);
       const ids = batch.map((c) => c.id);
       const infos = await yt.getChannels(ids);
+      trackingQuota += 1;
 
       for (const info of infos) {
         await db
@@ -82,8 +123,7 @@ export async function runCollect(
       return result;
     }
 
-    // ── Step 2: Discover new videos via uploads playlist ────────────
-    // Re-fetch channels with updated uploads_playlist_id
+    // ── Step 2: Discover new videos — RSS first, API fallback ────────
     const { data: updatedChannels } = await db
       .from('channels')
       .select('id, uploads_playlist_id, subscriber_count')
@@ -96,16 +136,36 @@ export async function runCollect(
         break;
       }
 
-      if (!channel.uploads_playlist_id) continue;
+      let videoIds: string[] = [];
+      let usedRSS = false;
 
-      let videoIds: string[];
+      // Try RSS first (0 quota units)
       try {
-        videoIds = await yt.getPlaylistItems(channel.uploads_playlist_id, 50);
-      } catch (err) {
-        if (err instanceof QuotaSoftLimitReached) throw err;
-        console.error(`Skipping channel ${channel.id}: ${(err as Error).message}`);
-        continue;
+        const rssEntries = await fetchRSSVideos(channel.id);
+        if (rssEntries.length > 0) {
+          videoIds = rssEntries.map((e) => e.videoId);
+          usedRSS = true;
+        }
+      } catch {
+        // RSS failed — fall through to API
       }
+
+      // Fallback to playlistItems.list (1 quota unit)
+      if (!usedRSS && channel.uploads_playlist_id) {
+        if (trackingQuota >= budget.tracking) {
+          result.stoppedByQuota = true;
+          break;
+        }
+        try {
+          videoIds = await yt.getPlaylistItems(channel.uploads_playlist_id, 50);
+          trackingQuota += 1;
+        } catch (err) {
+          if (err instanceof QuotaSoftLimitReached) throw err;
+          console.error(`Skipping channel ${channel.id}: ${(err as Error).message}`);
+          continue;
+        }
+      }
+
       if (videoIds.length === 0) continue;
 
       // Check which videos are already known
@@ -118,8 +178,13 @@ export async function runCollect(
 
       if (newIds.length === 0) continue;
 
-      // Fetch video details
+      // Fetch video details via API (need duration, thumbnails)
+      if (trackingQuota >= budget.tracking) {
+        result.stoppedByQuota = true;
+        break;
+      }
       const videos = await yt.getVideos(newIds);
+      trackingQuota += Math.ceil(newIds.length / 50);
 
       for (const video of videos) {
         const isQualified =
@@ -137,6 +202,8 @@ export async function runCollect(
           is_qualified: isQualified,
         });
         result.videosDiscovered++;
+        if (usedRSS) result.videosFromRSS++;
+        else result.videosFromAPI++;
       }
 
       // Record new_upload events
@@ -146,59 +213,67 @@ export async function runCollect(
       }
     }
 
-    if (result.stoppedByTimeout) {
+    if (result.stoppedByTimeout || result.stoppedByQuota) {
       result.quotaUsed = yt.getQuotaUsed();
       return result;
     }
 
-    // ── Step 3: Snapshots ───────────────────────────────────────────
+    // ── Step 3: Tiered snapshots ─────────────────────────────────────
+    // Daily for <14 days, weekly for 14-90 days, monthly for >90 days
     const now = new Date();
+    const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
     const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
 
-    // Daily snapshots for recent videos, weekly for older ones
-    // Only include videos that don't already have a snapshot in the current period
-    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     const todayStart = new Date(now);
     todayStart.setUTCHours(0, 0, 0, 0);
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
     const { data: allVideos } = await db
       .from('videos')
       .select('id, published_at');
 
-    // Batch-fetch all recent snapshots to filter in memory
     const allVideoIds = (allVideos ?? []).map((v) => v.id);
-    const { data: todaySnaps } = await db
-      .from('video_snapshots')
-      .select('video_id')
-      .in('video_id', allVideoIds)
-      .gte('captured_at', todayStart.toISOString());
+
+    // Batch-fetch recent snapshots to filter in memory
+    const [{ data: todaySnaps }, { data: weekSnaps }, { data: monthSnaps }] = await Promise.all([
+      db.from('video_snapshots').select('video_id').in('video_id', allVideoIds).gte('captured_at', todayStart.toISOString()),
+      db.from('video_snapshots').select('video_id').in('video_id', allVideoIds).gte('captured_at', sevenDaysAgo.toISOString()),
+      db.from('video_snapshots').select('video_id').in('video_id', allVideoIds).gte('captured_at', thirtyDaysAgo.toISOString()),
+    ]);
     const hasSnapToday = new Set((todaySnaps ?? []).map((s) => s.video_id));
-
-    const { data: weekSnaps } = await db
-      .from('video_snapshots')
-      .select('video_id')
-      .in('video_id', allVideoIds)
-      .gte('captured_at', sevenDaysAgo.toISOString());
     const hasSnapThisWeek = new Set((weekSnaps ?? []).map((s) => s.video_id));
+    const hasSnapThisMonth = new Set((monthSnaps ?? []).map((s) => s.video_id));
 
-    const allSnapshotIds: string[] = [];
+    const snapshotIds: string[] = [];
     for (const v of allVideos ?? []) {
-      const isRecent = new Date(v.published_at) >= ninetyDaysAgo;
-      if (isRecent && !hasSnapToday.has(v.id)) {
-        allSnapshotIds.push(v.id);
-      } else if (!isRecent && !hasSnapThisWeek.has(v.id)) {
-        allSnapshotIds.push(v.id);
+      const pubDate = new Date(v.published_at);
+
+      if (pubDate >= fourteenDaysAgo) {
+        // Very recent: daily snapshots
+        if (!hasSnapToday.has(v.id)) snapshotIds.push(v.id);
+      } else if (pubDate >= ninetyDaysAgo) {
+        // Medium: weekly snapshots
+        if (!hasSnapThisWeek.has(v.id)) snapshotIds.push(v.id);
+      } else {
+        // Old: monthly snapshots
+        if (!hasSnapThisMonth.has(v.id)) snapshotIds.push(v.id);
       }
     }
 
-    for (let i = 0; i < allSnapshotIds.length; i += 50) {
+    for (let i = 0; i < snapshotIds.length; i += 50) {
       if (isTimedOut()) {
         result.stoppedByTimeout = true;
         break;
       }
+      if (trackingQuota >= budget.tracking) {
+        result.stoppedByQuota = true;
+        break;
+      }
 
-      const batch = allSnapshotIds.slice(i, i + 50);
+      const batch = snapshotIds.slice(i, i + 50);
       const snapshots = await yt.getVideoSnapshots(batch);
+      trackingQuota += 1;
 
       for (const snap of snapshots) {
         await db.from('video_snapshots').upsert(
@@ -225,7 +300,7 @@ export async function runCollect(
         result.eventsRecorded += recorded;
       }
 
-      // Update is_qualified with view ratio — batch-fetch video & channel data
+      // Update is_qualified with view ratio
       const snapVideoIds = snapshots.map((s) => s.videoId);
       const { data: batchVideos } = await db
         .from('videos')
@@ -255,7 +330,8 @@ export async function runCollect(
         await db.from('videos').update({ is_qualified: isQualified }).eq('id', snap.videoId);
       }
     }
-    if (result.stoppedByTimeout) {
+
+    if (result.stoppedByTimeout || result.stoppedByQuota) {
       result.quotaUsed = yt.getQuotaUsed();
       return result;
     }
@@ -264,7 +340,6 @@ export async function runCollect(
     const sixtyDaysAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
     const sevenDaysAgoForComments = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
-    // Videos < 60 days, prioritized: phase 0/1/2 topics first, then by views
     const { data: commentCandidates } = await db
       .from('videos')
       .select(`
@@ -275,7 +350,6 @@ export async function runCollect(
       `)
       .gte('published_at', sixtyDaysAgo.toISOString());
 
-    // Find videos that need comments (no comments yet, or last import > 7 days)
     const videosNeedingComments: { id: string; phase: number | null; views: number }[] = [];
 
     for (const v of commentCandidates ?? []) {
@@ -286,16 +360,13 @@ export async function runCollect(
         .order('published_at', { ascending: false })
         .limit(1);
 
-      // Skip if we imported comments recently (check by looking at any comment)
       if (latestComment && latestComment.length > 0) {
-        // Use a simple heuristic: if the newest comment fetch was recent, skip
         const { count } = await db
           .from('comments')
           .select('id', { count: 'exact', head: true })
           .eq('video_id', v.id)
           .gte('published_at', sevenDaysAgoForComments.toISOString());
 
-        // If we already have recent comments, skip this video
         if (count && count > 0) continue;
       }
 
@@ -320,12 +391,16 @@ export async function runCollect(
         result.stoppedByTimeout = true;
         break;
       }
+      if (commentQuota >= budget.comments) {
+        result.stoppedByQuota = true;
+        break;
+      }
 
       try {
         const comments = await yt.getCommentThreads(video.id, 100, COMMENT_MAX_PAGES);
+        commentQuota += COMMENT_MAX_PAGES;
 
         for (const comment of comments) {
-          // Skip short comments and replies (we only have top-level from API)
           if (comment.text.length < MIN_COMMENT_LENGTH) continue;
 
           const { error } = await db.from('comments').upsert(
@@ -343,13 +418,12 @@ export async function runCollect(
         }
       } catch (err) {
         if (err instanceof QuotaSoftLimitReached) throw err;
-        // Comments disabled or other API error — skip this video
         console.error(`Skipping comments for video ${video.id}: ${(err as Error).message}`);
         continue;
       }
     }
 
-    if (result.stoppedByTimeout) {
+    if (result.stoppedByTimeout || result.stoppedByQuota) {
       result.quotaUsed = yt.getQuotaUsed();
       return result;
     }
@@ -376,5 +450,12 @@ export async function runCollect(
   }
 
   result.quotaUsed = yt.getQuotaUsed();
+
+  // Record quota usage by task for the day
+  await db.from('settings').upsert({
+    key: `quota_${new Date().toISOString().slice(0, 10)}`,
+    value: { tracking: trackingQuota, comments: commentQuota, total: result.quotaUsed },
+  });
+
   return result;
 }
