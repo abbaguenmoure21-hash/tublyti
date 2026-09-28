@@ -1,34 +1,28 @@
-'use client';
-
-import { useEffect, useState, useCallback } from 'react';
-import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { SignalChart } from '@/components/charts/signal-chart';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Skeleton } from '@/components/ui/skeleton';
-import { Separator } from '@/components/ui/separator';
-import {
-  ArrowLeft,
-  ExternalLink,
-  ThumbsUp,
-  Copy,
-  Sparkles,
-  AlertTriangle,
-  Play,
-  Check,
-} from 'lucide-react';
+import { notFound } from 'next/navigation';
+import { createServiceClient } from '@/lib/supabase/server';
+import { PhaseBadge, MgiScore, PHASE_LABELS } from '@/components/tublyti';
+import { getMgiBand, type ConfidenceResult } from '@/lib/scoring/mgi';
+import { OutlierBadge } from '@/components/tublyti/outlier-badge';
+import { TopicActions } from './_components/topic-actions';
+import { TopicShortcuts } from './_components/topic-shortcuts';
+import { AngleSection } from './_components/angle-section';
+import { DossierExport } from './_components/dossier-export';
+import { getFavoriteIds } from '@/lib/actions/collections';
 
-interface TopicScore {
-  mgi: number;
-  demand: number;
-  frustration: number;
-  supply_q: number;
-  monetization: number;
-  phase: number;
-}
+const LABEL_NAMES: Record<string, string> = {
+  no_one_explains: "Personne n'explique",
+  wish_video_on: 'Souhait de vidéo',
+  stopped_too_early: "S'arrête trop tôt",
+  searched_long: 'Longue recherche',
+};
+
+const COMPETITOR_TAGS: Record<string, { label: string; color: string }> = {
+  qualified: { label: 'Qualifiée', color: 'text-phase-2-ink' },
+  old: { label: 'Ancienne', color: 'text-phase-1-ink' },
+  off_topic: { label: 'Hors sujet', color: 'text-muted-foreground' },
+  short: { label: 'Short', color: 'text-muted-foreground' },
+};
 
 interface Competitor {
   id: string;
@@ -36,6 +30,9 @@ interface Competitor {
   channelTitle: string;
   publishedAt: string;
   views: number;
+  durationSec: number;
+  tag: string;
+  outlier: { score: number; ageDays: number; method: 'same_age' | 'approximate'; baseline: number } | null;
 }
 
 interface FrustrationComment {
@@ -44,596 +41,611 @@ interface FrustrationComment {
   likeCount: number;
   label: string;
   requestedAngle: string | null;
-  confidence: number;
 }
-
-interface Angle {
-  id: string;
-  title: string;
-  hook: string;
-  rationale: string;
-  status: string;
-  video_id: string | null;
-  created_at: string;
-}
-
-interface TopicDetail {
-  id: string;
-  label: string;
-  phase: number | null;
-  status: string;
-  niches: { name: string; rpm_coefficient: number } | null;
-  score: TopicScore | null;
-  competitors: Competitor[];
-  frustrations: FrustrationComment[];
-  angles: Angle[];
-}
-
-interface DataPoint {
-  date: string;
-  value: number;
-}
-
-type SignalSeries = Record<string, DataPoint[]>;
-
-const PHASE_LABELS: Record<number, string> = {
-  0: 'Emergence',
-  1: 'Viralite courte',
-  2: 'Fenetre ideale',
-  3: 'Saturation',
-};
-
-const PHASE_COLORS: Record<number, string> = {
-  0: 'bg-green-100 text-green-700 border-green-200',
-  1: 'bg-yellow-100 text-yellow-700 border-yellow-200',
-  2: 'bg-blue-100 text-blue-700 border-blue-200',
-  3: 'bg-red-100 text-red-700 border-red-200',
-};
-
-const PHASE_EXPLANATIONS: Record<number, string> = {
-  0: 'Le sujet emerge sur les reseaux sociaux sans offre qualifiee sur YouTube.',
-  1: 'La demande est presente mais la fenetre se referme rapidement.',
-  2: 'Fort interet, peu de concurrence qualifiee : moment ideal pour publier.',
-  3: 'Trop de videos qualifiees recentes, la fenetre est fermee.',
-};
-
-const LABEL_NAMES: Record<string, string> = {
-  no_one_explains: 'Personne ne traite',
-  wish_video_on: 'Souhait de video',
-  stopped_too_early: 'Trop court',
-  searched_long: 'Longue recherche',
-};
-
-const LABEL_COLORS: Record<string, string> = {
-  no_one_explains: 'bg-red-100 text-red-700 border-red-200',
-  wish_video_on: 'bg-blue-100 text-blue-700 border-blue-200',
-  stopped_too_early: 'bg-amber-100 text-amber-700 border-amber-200',
-  searched_long: 'bg-purple-100 text-purple-700 border-purple-200',
-};
 
 function formatViews(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(0)}k`;
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)} M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)} k`;
   return String(n);
 }
 
-export default function TopicPage() {
-  const { id } = useParams<{ id: string }>();
-  const [topic, setTopic] = useState<TopicDetail | null>(null);
-  const [signals, setSignals] = useState<SignalSeries | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [acting, setActing] = useState(false);
-  const [publishVideoId, setPublishVideoId] = useState('');
-  const [showPublishInput, setShowPublishInput] = useState(false);
-  const [generating, setGenerating] = useState(false);
-  const [genCost, setGenCost] = useState<number | null>(null);
-  const [genError, setGenError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+function formatRelativeDate(dateStr: string): string {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const days = Math.floor(diff / 86_400_000);
+  if (days < 1) return "aujourd'hui";
+  if (days < 30) return `il y a ${days} j`;
+  const months = Math.floor(days / 30);
+  if (months < 12) return `il y a ${months} mois`;
+  const years = Math.floor(months / 12);
+  return `il y a ${years} an${years > 1 ? 's' : ''}`;
+}
 
-  const fetchData = useCallback(async () => {
-    try {
-      const [topicRes, signalsRes] = await Promise.all([
-        fetch(`/api/topics/${id}`),
-        fetch(`/api/topics/${id}/signals`),
-      ]);
+function formatDuration(sec: number): string {
+  if (sec < 60) return 'Short';
+  const m = Math.floor(sec / 60);
+  return `${m} min`;
+}
 
-      if (!topicRes.ok) throw new Error('Erreur chargement sujet');
-      if (!signalsRes.ok) throw new Error('Erreur chargement signaux');
+function classifyCompetitor(video: {
+  publishedAt: string;
+  durationSec: number;
+}): string {
+  if (video.durationSec < 60) return 'short';
+  const sixMonthsAgo = Date.now() - 180 * 86_400_000;
+  if (new Date(video.publishedAt).getTime() < sixMonthsAgo) return 'old';
+  return 'qualified';
+}
 
-      setTopic(await topicRes.json());
-      setSignals(await signalsRes.json());
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erreur inconnue');
-    } finally {
-      setLoading(false);
+function formatScoredAtFreshness(scoredAt: string): string {
+  const diff = Date.now() - new Date(scoredAt).getTime();
+  const hours = Math.floor(diff / 3_600_000);
+  if (hours < 1) return 'mis \u00e0 jour \u00e0 l\u2019instant';
+  if (hours < 24) return `mis \u00e0 jour il y a ${hours} h`;
+  const days = Math.floor(hours / 24);
+  return `mis \u00e0 jour il y a ${days} j`;
+}
+
+function formatLikes(n: number): string {
+  if (n >= 1000) return `${(n / 1000).toFixed(1)} k`;
+  return String(n);
+}
+
+export default async function TopicPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = await params;
+  const db = createServiceClient();
+
+  // Topic + niche
+  const { data: topic, error } = await db
+    .from('topics')
+    .select('id, label, phase, status, created_at, niches(id, name, rpm_coefficient, rpm_low, rpm_high, rpm_source)')
+    .eq('id', id)
+    .single();
+
+  if (error || !topic) notFound();
+
+  // Latest score
+  const { data: score } = await db
+    .from('topic_scores')
+    .select('mgi, demand, frustration, supply_q, monetization, phase, scored_at, confidence, confidence_reason, feasibility_grade, feasibility_reason')
+    .eq('topic_id', id)
+    .order('scored_at', { ascending: false })
+    .limit(1)
+    .single();
+
+  // Previous score (7 days ago) for delta
+  let mgiDelta: number | null = null;
+  if (score) {
+    const prevDate = new Date(new Date(score.scored_at).getTime() - 7 * 86_400_000)
+      .toISOString().slice(0, 10);
+    const { data: prevScore } = await db
+      .from('topic_scores')
+      .select('mgi')
+      .eq('topic_id', id)
+      .eq('scored_at', prevDate)
+      .single();
+    if (prevScore) {
+      mgiDelta = Number(score.mgi) - Number(prevScore.mgi);
     }
-  }, [id]);
+  }
 
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+  // Videos (competitors)
+  const { data: videos } = await db
+    .from('videos')
+    .select('id, title, published_at, duration_seconds, is_qualified, channel_id, channels(title)')
+    .eq('topic_id', id)
+    .order('published_at', { ascending: false })
+    .limit(20);
 
-  const handleStatusChange = async (
-    action: 'mark_production' | 'mark_published',
-    videoId?: string,
-  ) => {
-    setActing(true);
-    try {
-      const res = await fetch(`/api/topics/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, videoId }),
-      });
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error ?? 'Erreur');
+  // Get latest views
+  const videoIds = (videos ?? []).map((v: Record<string, unknown>) => v.id as string);
+  let videoViews: Record<string, number> = {};
+  if (videoIds.length > 0) {
+    const { data: snaps } = await db
+      .from('video_snapshots')
+      .select('video_id, views')
+      .in('video_id', videoIds)
+      .order('captured_at', { ascending: false });
+
+    const seen = new Set<string>();
+    for (const s of snaps ?? []) {
+      if (!seen.has(s.video_id)) {
+        seen.add(s.video_id);
+        videoViews[s.video_id] = s.views ?? 0;
       }
-      setShowPublishInput(false);
-      setPublishVideoId('');
-      await fetchData();
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Erreur');
-    } finally {
-      setActing(false);
     }
-  };
-
-  const handleGenerateAngles = async () => {
-    setGenerating(true);
-    setGenError(null);
-    setGenCost(null);
-    try {
-      const res = await fetch(`/api/topics/${id}/angles`, { method: 'POST' });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? 'Erreur');
-      setGenCost(data.costUSD);
-      await fetchData();
-    } catch (err) {
-      setGenError(err instanceof Error ? err.message : 'Erreur');
-    } finally {
-      setGenerating(false);
-    }
-  };
-
-  const buildBrief = (angle: Angle): string => {
-    if (!topic) return '';
-    const lines: string[] = [
-      `# Brief — ${angle.title}`,
-      '',
-      `**Sujet :** ${topic.label}`,
-      `**Niche :** ${topic.niches?.name ?? '?'} (RPM x${topic.niches?.rpm_coefficient ?? '?'})`,
-      `**Phase :** ${topic.phase !== null ? PHASE_LABELS[topic.phase] ?? topic.phase : '?'}`,
-      '',
-      `## Angle`,
-      '',
-      `**Titre :** ${angle.title}`,
-      `**Hook :** ${angle.hook}`,
-      `**Rationale :** ${angle.rationale}`,
-      '',
-      `## Frustrations sources (top ${Math.min(topic.frustrations.length, 10)})`,
-      '',
-    ];
-    for (const f of topic.frustrations.slice(0, 10)) {
-      const angleNote = f.requestedAngle ? ` → ${f.requestedAngle}` : '';
-      lines.push(`- [${f.likeCount} likes] ${f.text.slice(0, 200)}${angleNote}`);
-    }
-    lines.push('', '## Concurrents', '');
-    for (const c of topic.competitors.slice(0, 10)) {
-      lines.push(`- ${c.title} (${c.channelTitle})`);
-    }
-    return lines.join('\n');
-  };
-
-  const handleCopyBrief = async (angle: Angle) => {
-    const brief = buildBrief(angle);
-    await navigator.clipboard.writeText(brief);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  // Estimated cost: $3/MTok input + $15/MTok output, ~2000+1200 tokens
-  const estimatedCost = ((2000 * 3) / 1_000_000 + (1200 * 15) / 1_000_000);
-
-  /* ---------- Loading state ---------- */
-  if (loading) {
-    return (
-      <div className="p-6 md:p-8 max-w-5xl mx-auto space-y-6">
-        <Skeleton className="h-4 w-32" />
-        <Skeleton className="h-8 w-80" />
-        <div className="flex gap-2">
-          <Skeleton className="h-5 w-20 rounded-full" />
-          <Skeleton className="h-5 w-28 rounded-full" />
-        </div>
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <Skeleton key={i} className="h-20 rounded-xl" />
-          ))}
-        </div>
-        <Skeleton className="h-64 rounded-xl" />
-        <Skeleton className="h-48 rounded-xl" />
-      </div>
-    );
   }
 
-  /* ---------- Error state ---------- */
-  if (error) {
-    return (
-      <div className="p-6 md:p-8 max-w-5xl mx-auto">
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-16 text-muted-foreground">
-            <AlertTriangle className="size-10 mb-3 text-destructive" />
-            <p className="text-sm font-medium text-destructive">{error}</p>
-          </CardContent>
-        </Card>
-      </div>
-    );
+  // Fetch outlier scores for these videos
+  let videoOutliers: Record<string, { score: number; ageDays: number; method: string; baseline: number }> = {};
+  if (videoIds.length > 0) {
+    const { data: outliers } = await db
+      .from('video_outliers')
+      .select('video_id, score, age_days, method, baseline')
+      .in('video_id', videoIds);
+
+    for (const o of outliers ?? []) {
+      videoOutliers[o.video_id as string] = {
+        score: Number(o.score),
+        ageDays: o.age_days as number,
+        method: o.method as string,
+        baseline: Number(o.baseline),
+      };
+    }
   }
 
-  /* ---------- Not found state ---------- */
-  if (!topic) {
-    return (
-      <div className="p-6 md:p-8 max-w-5xl mx-auto">
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-16 text-muted-foreground">
-            <AlertTriangle className="size-10 mb-3" />
-            <p className="text-sm">Sujet introuvable.</p>
-          </CardContent>
-        </Card>
-      </div>
-    );
+  const competitors: Competitor[] = (videos ?? []).map((v: Record<string, unknown>) => {
+    const durationSec = (v.duration_seconds as number) ?? 0;
+    const publishedAt = v.published_at as string;
+    const tag = classifyCompetitor({ publishedAt, durationSec });
+    const vid = v.id as string;
+    const outlier = videoOutliers[vid] ?? null;
+    return {
+      id: vid,
+      title: v.title as string,
+      channelTitle: (v.channels as unknown as { title: string })?.title ?? '',
+      publishedAt,
+      views: videoViews[vid] ?? 0,
+      durationSec,
+      tag,
+      outlier: outlier ? { ...outlier, method: outlier.method as 'same_age' | 'approximate' } : null,
+    };
+  });
+
+  // Frustrated comments
+  const { data: frustrations } = await db
+    .from('comment_labels')
+    .select(`
+      label, requested_angle, confidence,
+      comments!inner(id, text, like_count, video_id, videos!inner(topic_id))
+    `)
+    .eq('comments.videos.topic_id', id)
+    .neq('label', 'none')
+    .gte('confidence', 0.7)
+    .order('comments(like_count)', { ascending: false })
+    .limit(20);
+
+  const frustrationList: FrustrationComment[] = (frustrations ?? []).map((f: Record<string, unknown>) => {
+    const comment = f.comments as unknown as {
+      id: string; text: string; like_count: number;
+    };
+    return {
+      commentId: comment.id,
+      text: comment.text,
+      likeCount: comment.like_count,
+      label: f.label as string,
+      requestedAngle: (f.requested_angle as string) ?? null,
+    };
+  });
+
+  // Angles
+  const { data: angles } = await db
+    .from('angles')
+    .select('id, title, hook, rationale, status, video_id, created_at')
+    .eq('topic_id', id)
+    .order('created_at', { ascending: false });
+
+  // Signals (90 days)
+  const ninetyDaysAgo = new Date(Date.now() - 90 * 86_400_000).toISOString().slice(0, 10);
+  const { data: trendPoints } = await db
+    .from('trend_points')
+    .select('source, captured_at, value')
+    .eq('topic_id', id)
+    .gte('captured_at', ninetyDaysAgo)
+    .order('captured_at', { ascending: true });
+
+  const signals: Record<string, { date: string; value: number }[]> = {
+    trends: [], hn: [], yt_views: [],
+  };
+  for (const point of trendPoints ?? []) {
+    const source = point.source as string;
+    if (source in signals) {
+      signals[source].push({ date: point.captured_at, value: point.value });
+    }
   }
 
-  const score = topic.score;
+  // Check if topic is in favorites
+  const { data: favoriteTopicIds } = await getFavoriteIds('topic');
+  const isFavorite = favoriteTopicIds.includes(id);
+
   const phase = score?.phase ?? topic.phase;
+  const niche = topic.niches as unknown as {
+    id: string; name: string; rpm_coefficient: number;
+    rpm_low: number | null; rpm_high: number | null; rpm_source: string | null;
+  } | null;
+
+  const daysSinceCreated = Math.floor(
+    (Date.now() - new Date(topic.created_at).getTime()) / 86_400_000,
+  );
+
+  const totalFrustrated = frustrationList.length;
+
+  // Estimate total comments from frustration ratio
+  let totalComments = 0;
+  if (score && Number(score.frustration) > 0) {
+    totalComments = Math.round(totalFrustrated / Number(score.frustration));
+  }
 
   return (
-    <div className="p-6 md:p-8 max-w-5xl mx-auto space-y-6">
-      {/* Back link */}
-      <Link
-        href="/dashboard"
-        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
-      >
-        <ArrowLeft className="size-4" />
-        Retour au tableau de bord
-      </Link>
+    <div className="flex-1 flex flex-col min-w-0">
+      {/* Breadcrumb header */}
+      <header className="h-[60px] shrink-0 flex items-center gap-3 px-8 border-b border-border bg-card text-[14px] text-muted-foreground">
+        <Link href="/dashboard" className="text-muted-foreground hover:text-foreground transition-colors">
+          Matrice
+        </Link>
+        <span className="text-border">/</span>
+        <Link href={`/dashboard${niche ? `?niche=${niche.id}` : ''}`} className="text-muted-foreground hover:text-foreground transition-colors">
+          {niche?.name ?? 'Niche'}
+        </Link>
+        <span className="text-border">/</span>
+        <span className="text-foreground font-medium truncate">{topic.label}</span>
+      </header>
 
-      {/* Header */}
-      <div className="space-y-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge variant="outline">
-            {topic.niches?.name ?? 'Niche inconnue'}
-          </Badge>
-          <Badge variant="secondary">{topic.status}</Badge>
-          {phase !== null && phase !== undefined && (
-            <Badge className={PHASE_COLORS[phase] ?? 'bg-muted text-muted-foreground'}>
-              Phase {phase} — {PHASE_LABELS[phase] ?? '?'}
-            </Badge>
-          )}
+      <div className="flex-1 p-7 flex flex-col gap-5">
+        {/* Title row */}
+        <div className="flex items-start justify-between gap-6">
+          <div className="flex flex-col gap-2.5">
+            <div className="flex items-center gap-2.5">
+              <PhaseBadge phase={phase} />
+              <span className="text-[13px] text-muted-foreground">
+                Ouverte depuis {daysSinceCreated} jour{daysSinceCreated !== 1 ? 's' : ''}
+              </span>
+            </div>
+            <h1 className="text-[30px] font-semibold tracking-[-0.02em] leading-tight">
+              {topic.label}
+            </h1>
+          </div>
+          <div className="flex items-center gap-2">
+            <DossierExport topicId={id} />
+            <TopicActions topicId={id} status={topic.status} isFavorite={isFavorite} />
+          </div>
         </div>
-        <h1 className="text-3xl font-bold tracking-tight">{topic.label}</h1>
-        {phase !== null && phase !== undefined && (
-          <p className="text-sm text-muted-foreground italic">
-            {PHASE_EXPLANATIONS[phase] ?? ''}
-          </p>
+        <TopicShortcuts topicId={id} status={topic.status} hasBrief={(angles ?? []).length > 0} />
+
+        {/* Stale data banner */}
+        {score && (Date.now() - new Date(score.scored_at).getTime() > 36 * 3_600_000) && (
+          <div className="flex items-center gap-2 px-4 py-2.5 rounded-[10px] bg-[var(--warning)]/10 text-[var(--warning)] text-[13px] border border-[var(--warning)]/20">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            Les données ont plus de 36 h. Le cron de collecte est peut-être en panne.
+          </div>
         )}
-      </div>
 
-      <Separator />
-
-      {/* MGI + score components */}
-      {score && (
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-          <ScoreCard
-            label="MGI"
-            value={score.mgi.toFixed(1)}
-            highlight
-          />
-          <ScoreCard
-            label="Demande (D)"
-            value={score.demand.toFixed(0)}
-          />
-          <ScoreCard
-            label="Frustration (F)"
-            value={`${(score.frustration * 100).toFixed(0)}%`}
-          />
-          <ScoreCard
-            label="Offre (O_q)"
-            value={score.supply_q.toFixed(1)}
-          />
-          <ScoreCard
-            label="Monetisation (P)"
-            value={`x${score.monetization.toFixed(1)}`}
-          />
-        </div>
-      )}
-
-      {/* Action buttons */}
-      {(topic.status === 'active' || topic.status === 'in_production') && (
-        <div className="flex flex-wrap items-center gap-3">
-          {topic.status === 'active' && (
-            <Button
-              variant="default"
-              onClick={() => handleStatusChange('mark_production')}
-              disabled={acting}
-            >
-              <Play className="size-4" />
-              Marquer en production
-            </Button>
-          )}
-          {topic.status === 'in_production' && !showPublishInput && (
-            <Button
-              className="bg-green-600 text-white hover:bg-green-700"
-              onClick={() => setShowPublishInput(true)}
-            >
-              <Check className="size-4" />
-              Marquer publiee
-            </Button>
-          )}
-          {showPublishInput && (
-            <div className="flex items-center gap-2">
-              <Input
-                type="text"
-                placeholder="ID de la video YouTube"
-                value={publishVideoId}
-                onChange={(e) => setPublishVideoId(e.target.value)}
-                className="w-52"
-              />
-              <Button
-                className="bg-green-600 text-white hover:bg-green-700"
-                onClick={() =>
-                  handleStatusChange('mark_published', publishVideoId)
-                }
-                disabled={acting || !publishVideoId.trim()}
-              >
-                Confirmer
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  setShowPublishInput(false);
-                  setPublishVideoId('');
-                }}
-              >
-                annuler
-              </Button>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Signal chart */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Signaux sur 90 jours</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {signals ? (
-            <SignalChart series={signals} />
-          ) : (
-            <p className="text-sm text-muted-foreground">Aucune donnee disponible.</p>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Competitor videos */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Videos qualifiees concurrentes</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {topic.competitors.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              Aucune video qualifiee trouvee pour ce sujet.
-            </p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b bg-muted/50">
-                    <th className="py-2.5 px-3 text-left font-medium text-muted-foreground">Titre</th>
-                    <th className="py-2.5 px-3 text-left font-medium text-muted-foreground">Chaine</th>
-                    <th className="py-2.5 px-3 text-right font-medium text-muted-foreground">Vues</th>
-                    <th className="py-2.5 px-3 text-right font-medium text-muted-foreground">Date</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {topic.competitors.map((v) => (
-                    <tr
-                      key={v.id}
-                      className="border-b last:border-0 transition-colors hover:bg-muted/30"
-                    >
-                      <td className="py-2.5 px-3">
-                        <a
-                          href={`https://youtube.com/watch?v=${v.id}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 text-primary hover:underline"
-                        >
-                          {v.title}
-                          <ExternalLink className="size-3 shrink-0" />
-                        </a>
-                      </td>
-                      <td className="py-2.5 px-3 text-muted-foreground text-xs">
-                        {v.channelTitle}
-                      </td>
-                      <td className="py-2.5 px-3 text-right font-mono">
-                        {formatViews(v.views)}
-                      </td>
-                      <td className="py-2.5 px-3 text-right text-muted-foreground text-xs">
-                        {new Date(v.publishedAt).toLocaleDateString('fr-FR')}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Frustrated comments */}
-      <Card>
-        <CardHeader>
-          <CardTitle>
-            Commentaires frustres ({topic.frustrations.length})
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {topic.frustrations.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              Aucun commentaire de frustration detecte.
-            </p>
-          ) : (
-            <div className="space-y-3">
-              {topic.frustrations.map((f) => (
-                <Card
-                  key={f.commentId}
-                  size="sm"
-                  className="transition-shadow hover:shadow-md"
+        {/* 5 MGI component cards */}
+        {score && (() => {
+          const mgiVal = Number(score.mgi);
+          const band = getMgiBand(mgiVal);
+          const confidenceData: ConfidenceResult | null = score.confidence
+            ? { level: score.confidence as 'high' | 'medium' | 'low', reason: score.confidence_reason ?? '' }
+            : null;
+          return (
+          <div className="grid gap-4" style={{ gridTemplateColumns: '1.3fr 1fr 1fr 1fr 1fr' }}>
+            {/* MGI card */}
+            <div className="bg-card border border-border rounded-[10px] px-[18px] py-4 shadow-[0_1px_2px_rgba(20,24,34,0.06)] flex flex-col gap-1.5">
+              <span className="text-[13px] text-muted-foreground">Market Gap Index</span>
+              <div className="flex items-baseline gap-2">
+                <span className="text-[40px] font-semibold tabular-nums tracking-[-0.02em]">
+                  {Math.round(mgiVal)}
+                </span>
+                <span
+                  className="text-[12px] font-medium px-1.5 py-0.5 rounded"
+                  style={{
+                    backgroundColor: band.color + '33',
+                    color: band.color === '#e2e6ff' || band.color === '#b7c0f8' ? '#424882' : band.color,
+                  }}
                 >
-                  <CardContent>
-                    <div className="flex items-start justify-between gap-3">
-                      <p className="text-sm text-foreground whitespace-pre-wrap break-words flex-1">
-                        {f.text}
-                      </p>
-                      <div className="flex flex-col items-end gap-1.5 shrink-0">
-                        <Badge
-                          className={LABEL_COLORS[f.label] ?? 'bg-muted text-muted-foreground'}
-                        >
-                          {LABEL_NAMES[f.label] ?? f.label}
-                        </Badge>
-                        <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                          <ThumbsUp className="size-3" />
-                          {f.likeCount}
+                  {band.label}
+                </span>
+                {mgiDelta !== null && (
+                  <span className={`text-[13px] ${mgiDelta >= 0 ? 'text-phase-2-ink' : 'text-phase-3-ink'}`}>
+                    {mgiDelta >= 0 ? '+' : ''}{Math.round(mgiDelta)} en 7 j
+                  </span>
+                )}
+              </div>
+              <span className="block h-1.5 rounded-full bg-muted overflow-hidden">
+                <span
+                  className="block h-1.5 rounded-full"
+                  style={{
+                    width: `${Math.min(mgiVal, 100)}%`,
+                    backgroundColor: band.color,
+                  }}
+                />
+              </span>
+              <div className="flex items-center gap-2 text-[11px] text-muted-foreground mt-0.5">
+                {confidenceData && (
+                  <span className="group relative cursor-help flex items-center gap-1">
+                    <span className={`w-1.5 h-1.5 rounded-full ${
+                      confidenceData.level === 'high' ? 'bg-[var(--success)]'
+                      : confidenceData.level === 'medium' ? 'bg-[var(--warning)]'
+                      : 'bg-[var(--destructive)]'
+                    }`} />
+                    Confiance : {confidenceData.level === 'high' ? 'Élevée' : confidenceData.level === 'medium' ? 'Moyenne' : 'Faible'}
+                    <span className="absolute bottom-full left-0 mb-1 hidden group-hover:block bg-popover text-popover-foreground text-[11px] px-2 py-1 rounded shadow-md border border-border whitespace-nowrap z-10">
+                      {confidenceData.reason}
+                    </span>
+                  </span>
+                )}
+                {confidenceData && <span className="text-border">·</span>}
+                <span className={Date.now() - new Date(score.scored_at).getTime() > 36 * 3_600_000 ? 'text-[var(--warning)]' : ''}>
+                  {formatScoredAtFreshness(score.scored_at)}
+                </span>
+              </div>
+            </div>
+            <ScoreCard label="Demande" value={String(Math.round(Number(score.demand)))} sub="Trends" />
+            <ScoreCard label="Offre qualifiée" value={String(Math.round(Number(score.supply_q)))} sub="vidéo(s) de qualité en 180 j" />
+            <ScoreCard
+              label="Frustration"
+              value={`${Math.round(Number(score.frustration) * 100)} %`}
+              sub={totalComments > 0 ? `sur ${totalComments.toLocaleString('fr-FR')} commentaires` : undefined}
+            />
+            <ScoreCard
+              label="Monétisation"
+              value={niche?.rpm_low && niche?.rpm_high ? `${niche.rpm_low}–${niche.rpm_high} $` : `× ${Number(score.monetization).toFixed(1)}`}
+              sub={niche?.rpm_source ? `Source : ${niche.rpm_source}` : niche ? `catégorie ${niche.name}` : undefined}
+            />
+          </div>
+          );
+        })()}
+
+        {/* Feasibility card */}
+        {score?.feasibility_grade && (
+          <div className="bg-card border border-border rounded-[10px] px-[18px] py-3.5 shadow-[0_1px_2px_rgba(20,24,34,0.06)] flex items-center gap-3">
+            <span className={`inline-flex items-center justify-center h-8 w-8 rounded-md text-[16px] font-bold ${
+              score.feasibility_grade === 'A' ? 'bg-success/15 text-success'
+              : score.feasibility_grade === 'B' ? 'bg-phase-2/15 text-phase-2-ink'
+              : score.feasibility_grade === 'C' ? 'bg-muted text-muted-foreground'
+              : score.feasibility_grade === 'D' ? 'bg-warning/15 text-warning'
+              : 'bg-destructive/15 text-destructive'
+            }`}>
+              {score.feasibility_grade}
+            </span>
+            <div className="flex flex-col gap-0.5">
+              <span className="text-[13px] font-medium">Faisabilité</span>
+              <span className="text-[13px] text-muted-foreground">
+                {score.feasibility_reason ?? `Note ${score.feasibility_grade}`}
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* Two-column layout */}
+        <div className="flex gap-4 items-start">
+          {/* Left column */}
+          <div className="flex-1 min-w-0 flex flex-col gap-4">
+            <SignalSection signals={signals} />
+
+            {/* Frustrations */}
+            <section className="bg-card border border-border rounded-[10px] shadow-[0_1px_2px_rgba(20,24,34,0.06)] flex flex-col">
+              <div className="flex items-center justify-between px-[18px] py-3.5 border-b border-border">
+                <h2 className="text-[15px] font-semibold">Ce que les spectateurs réclament</h2>
+                <span className="text-[13px] text-muted-foreground">
+                  {totalFrustrated} commentaire{totalFrustrated !== 1 ? 's' : ''} frustré{totalFrustrated !== 1 ? 's' : ''}
+                </span>
+              </div>
+              {frustrationList.length === 0 ? (
+                <div className="px-[18px] py-8 text-center text-[14px] text-muted-foreground">
+                  Aucun commentaire de frustration détecté.
+                </div>
+              ) : (
+                frustrationList.map((f) => (
+                  <div key={f.commentId} className="px-[18px] py-3.5 border-b border-muted flex flex-col gap-2 last:border-0">
+                    <p className="text-[14px] leading-[1.5]">« {f.text} »</p>
+                    <div className="flex items-center gap-2.5 text-[12px] text-muted-foreground">
+                      <span className="h-5 px-[7px] rounded-[5px] bg-muted inline-flex items-center font-medium text-foreground">
+                        {LABEL_NAMES[f.label] ?? f.label}
+                      </span>
+                      {f.requestedAngle && (
+                        <span>
+                          Angle demandé : <span className="text-foreground">{f.requestedAngle}</span>
+                        </span>
+                      )}
+                      <span className="ml-auto tabular-nums">{formatLikes(f.likeCount)} likes</span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </section>
+          </div>
+
+          {/* Right column */}
+          <div className="w-[400px] shrink-0 flex flex-col gap-4">
+            <AngleSection
+              topicId={id}
+              angles={angles ?? []}
+              briefData={{
+                topicLabel: topic.label,
+                nicheName: niche?.name ?? '?',
+                rpmCoefficient: niche?.rpm_coefficient ?? 1,
+                phaseLabel: phase !== null && phase !== undefined ? (PHASE_LABELS[phase] ?? String(phase)) : '?',
+                mgi: score ? Number(score.mgi) : null,
+                demand: score ? Number(score.demand) : null,
+                supply: score ? Number(score.supply_q) : null,
+                frustrationScore: score ? Number(score.frustration) : null,
+                monetization: score ? Number(score.monetization) : null,
+                date: score?.scored_at ?? new Date().toISOString().slice(0, 10),
+                frustrations: frustrationList.map((f) => ({
+                  text: f.text,
+                  likeCount: f.likeCount,
+                  requestedAngle: f.requestedAngle,
+                  commentId: f.commentId,
+                })),
+                competitors: competitors.map((c) => ({
+                  title: c.title,
+                  channelTitle: c.channelTitle,
+                  views: c.views,
+                  videoId: c.id,
+                })),
+              }}
+            />
+
+            {/* Competitors */}
+            <section className="bg-card border border-border rounded-[10px] shadow-[0_1px_2px_rgba(20,24,34,0.06)] flex flex-col">
+              <div className="px-[18px] py-3.5 border-b border-border">
+                <h2 className="text-[15px] font-semibold">Concurrents</h2>
+              </div>
+              {competitors.length === 0 ? (
+                <div className="px-[18px] py-8 text-center text-[14px] text-muted-foreground">
+                  Aucune vidéo trouvée pour ce sujet.
+                </div>
+              ) : (
+                competitors.map((c) => {
+                  const tagInfo = COMPETITOR_TAGS[c.tag] ?? { label: c.tag, color: 'text-muted-foreground' };
+                  return (
+                    <div key={c.id} className="px-[18px] py-3 border-b border-muted flex gap-3 items-center last:border-0">
+                      <div className="w-16 h-9 rounded-md bg-muted shrink-0" />
+                      <div className="flex-1 min-w-0 flex flex-col gap-0.5">
+                        <span className="text-[13px] font-medium truncate">{c.title}</span>
+                        <span className="text-[12px] text-muted-foreground">
+                          {formatViews(c.views)} vues · {formatRelativeDate(c.publishedAt)} · {formatDuration(c.durationSec)}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {c.outlier && (
+                          <OutlierBadge
+                            score={c.outlier.score}
+                            ageDays={c.outlier.ageDays}
+                            method={c.outlier.method}
+                            baseline={c.outlier.baseline}
+                          />
+                        )}
+                        <span className={`text-[11px] font-medium ${tagInfo.color}`}>
+                          {tagInfo.label}
                         </span>
                       </div>
                     </div>
-                    {f.requestedAngle && (
-                      <p className="mt-2 text-xs text-primary italic">
-                        Angle : {f.requestedAngle}
-                      </p>
-                    )}
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Angles */}
-      <Card>
-        <CardHeader className="flex-row items-center justify-between">
-          <CardTitle>Angles de contenu</CardTitle>
-          <div className="flex items-center gap-3">
-            {genCost !== null && (
-              <span className="text-xs text-muted-foreground">
-                Cout : ${genCost.toFixed(4)}
-              </span>
-            )}
-            <Button
-              variant="default"
-              size="sm"
-              onClick={handleGenerateAngles}
-              disabled={generating}
-            >
-              <Sparkles className="size-3.5" />
-              {generating
-                ? 'Generation...'
-                : topic.angles.length > 0
-                  ? `Regenerer (~$${estimatedCost.toFixed(3)})`
-                  : `Generer 5 angles (~$${estimatedCost.toFixed(3)})`}
-            </Button>
+                  );
+                })
+              )}
+            </section>
           </div>
-        </CardHeader>
-        <CardContent>
-          {genError && (
-            <p className="text-sm text-destructive mb-3">{genError}</p>
-          )}
-
-          {topic.angles.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              Aucun angle genere pour ce sujet.
-            </p>
-          ) : (
-            <div className="space-y-3">
-              {topic.angles.map((a) => (
-                <div
-                  key={a.id}
-                  className="rounded-lg border p-4 space-y-2"
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <h3 className="font-medium text-sm">{a.title}</h3>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <Button
-                        variant="ghost"
-                        size="xs"
-                        onClick={() => handleCopyBrief(a)}
-                      >
-                        {copied ? (
-                          <>
-                            <Check className="size-3" />
-                            Copie !
-                          </>
-                        ) : (
-                          <>
-                            <Copy className="size-3" />
-                            Copier le brief
-                          </>
-                        )}
-                      </Button>
-                      <Badge variant="secondary">{a.status}</Badge>
-                    </div>
-                  </div>
-                  {a.hook && (
-                    <p className="text-sm text-muted-foreground italic">
-                      {a.hook}
-                    </p>
-                  )}
-                  {a.rationale && (
-                    <p className="text-xs text-muted-foreground">
-                      {a.rationale}
-                    </p>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     </div>
   );
 }
 
-function ScoreCard({
-  label,
-  value,
-  highlight,
-}: {
-  label: string;
-  value: string;
-  highlight?: boolean;
-}) {
+function ScoreCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
-    <Card
-      className={
-        highlight
-          ? 'bg-primary/5 border-primary/20'
-          : ''
-      }
-    >
-      <CardContent className="flex flex-col items-center justify-center py-3 text-center">
-        <p className="text-xs text-muted-foreground">{label}</p>
-        <p
-          className={`text-xl font-bold mt-1 ${
-            highlight ? 'text-primary' : 'text-foreground'
-          }`}
-        >
-          {value}
-        </p>
-      </CardContent>
-    </Card>
+    <div className="bg-card border border-border rounded-[10px] px-[18px] py-4 shadow-[0_1px_2px_rgba(20,24,34,0.06)] flex flex-col gap-1.5">
+      <span className="text-[13px] text-muted-foreground">{label}</span>
+      <span className="text-[26px] font-semibold tabular-nums">{value}</span>
+      {sub && <span className="text-[12px] text-muted-foreground">{sub}</span>}
+    </div>
+  );
+}
+
+const SIGNAL_COLORS: Record<string, string> = {
+  trends: '#524fdd',
+  yt_views: '#0891b2',
+  hn: '#ea580c',
+};
+
+const SIGNAL_LABELS: Record<string, string> = {
+  trends: 'Google Trends',
+  yt_views: 'Vues YouTube / vidéo',
+  hn: 'Hacker News',
+};
+
+function SignalSection({ signals }: { signals: Record<string, { date: string; value: number }[]> }) {
+  const activeSources = Object.keys(signals).filter((s) => signals[s].length > 0);
+
+  if (activeSources.length === 0) {
+    return (
+      <section className="bg-card border border-border rounded-[10px] shadow-[0_1px_2px_rgba(20,24,34,0.06)] px-[18px] py-4">
+        <h2 className="text-[15px] font-semibold mb-3">Signaux sur 90 jours</h2>
+        <p className="text-[14px] text-muted-foreground">Aucune donnée de signal disponible.</p>
+      </section>
+    );
+  }
+
+  const allDates = [...new Set(activeSources.flatMap((s) => signals[s].map((p) => p.date)))].sort();
+  if (allDates.length === 0) return null;
+
+  const W = 680;
+  const H = 220;
+  const L = 36;
+  const R = 676;
+  const T = 20;
+  const B = 190;
+
+  const minDate = new Date(allDates[0]).getTime();
+  const maxDate = new Date(allDates[allDates.length - 1]).getTime();
+  const dateRange = maxDate - minDate || 1;
+
+  function toX(date: string): number {
+    return L + ((new Date(date).getTime() - minDate) / dateRange) * (R - L);
+  }
+
+  const dateLabels = [
+    allDates[0],
+    allDates[Math.floor(allDates.length / 3)],
+    allDates[Math.floor((allDates.length * 2) / 3)],
+    allDates[allDates.length - 1],
+  ];
+
+  return (
+    <section className="bg-card border border-border rounded-[10px] shadow-[0_1px_2px_rgba(20,24,34,0.06)] px-[18px] py-4 flex flex-col gap-3">
+      <div className="flex items-center justify-between">
+        <h2 className="text-[15px] font-semibold">Signaux sur 90 jours</h2>
+        <div className="flex gap-3.5 text-[12px] text-muted-foreground">
+          {activeSources.map((source) => (
+            <span key={source} className="flex items-center gap-1.5">
+              <span className="w-3 h-[3px] rounded-sm" style={{ backgroundColor: SIGNAL_COLORS[source] }} />
+              {SIGNAL_LABELS[source] ?? source}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      <svg width="100%" viewBox={`0 0 ${W} ${H + 20}`} role="img" aria-label="Signaux sur 90 jours">
+        <g stroke="var(--border)" strokeDasharray="3 4">
+          {[T, 80, 140].map((y) => (
+            <line key={y} x1={L} y1={y} x2={R} y2={y} />
+          ))}
+        </g>
+        <line x1={L} y1={B} x2={R} y2={B} stroke="var(--muted-foreground)" strokeOpacity={0.3} />
+
+        <g fontSize={11} className="fill-muted-foreground">
+          <text x={28} y={T + 4} textAnchor="end">100</text>
+          <text x={28} y={84} textAnchor="end">66</text>
+          <text x={28} y={144} textAnchor="end">33</text>
+        </g>
+
+        <g fontSize={11} className="fill-muted-foreground">
+          {dateLabels.map((d, i) => (
+            <text
+              key={d}
+              x={i === dateLabels.length - 1 ? R : toX(d)}
+              y={B + 18}
+              textAnchor={i === dateLabels.length - 1 ? 'end' : 'start'}
+            >
+              {new Date(d).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}
+            </text>
+          ))}
+        </g>
+
+        {activeSources.map((source) => {
+          const points = signals[source];
+          const maxVal = Math.max(...points.map((p) => p.value)) || 1;
+
+          return (
+            <polyline
+              key={source}
+              points={points.map((p) => {
+                const x = toX(p.date);
+                const y = B - (p.value / maxVal) * (B - T);
+                return `${x.toFixed(1)},${y.toFixed(1)}`;
+              }).join(' ')}
+              fill="none"
+              stroke={SIGNAL_COLORS[source]}
+              strokeWidth={2.25}
+              strokeLinejoin="round"
+            />
+          );
+        })}
+      </svg>
+    </section>
   );
 }

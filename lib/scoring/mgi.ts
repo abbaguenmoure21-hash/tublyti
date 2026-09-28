@@ -104,3 +104,99 @@ export function computeSupplyQualified(
 ): number {
   return qualifiedRecent + 0.3 * oldHighViewCount;
 }
+
+// ── Confidence ──────────────────────────────────────────────────────
+
+export interface ConfidenceInputs {
+  commentCount: number;
+  demandSourceCount: number; // how many of trends/ytViews/hn/stackexchange are present (0–4)
+  dataAgeHours: number;     // hours since last trend_point capture
+}
+
+export interface ConfidenceResult {
+  level: 'high' | 'medium' | 'low';
+  reason: string;
+}
+
+/**
+ * Confidence = how much we trust the MGI score.
+ * - High: ≥100 comments, ≥3 sources, data <24h old
+ * - Low: <50 comments OR 0–1 sources OR data >72h old
+ * - Medium: everything else
+ */
+export function computeConfidence(inputs: ConfidenceInputs): ConfidenceResult {
+  const { commentCount, demandSourceCount, dataAgeHours } = inputs;
+
+  const reasons: string[] = [];
+  let score = 0;
+
+  // Comments
+  if (commentCount >= 100) {
+    score += 2;
+  } else if (commentCount >= 50) {
+    score += 1;
+  } else {
+    reasons.push(`${commentCount} commentaires seulement`);
+  }
+
+  // Demand sources
+  if (demandSourceCount >= 3) {
+    score += 2;
+  } else if (demandSourceCount >= 2) {
+    score += 1;
+  } else {
+    const sourceLabel = demandSourceCount === 0
+      ? 'aucune source de demande'
+      : '1 seule source de demande';
+    reasons.push(sourceLabel);
+  }
+
+  // Data freshness
+  if (dataAgeHours <= 24) {
+    score += 2;
+  } else if (dataAgeHours <= 72) {
+    score += 1;
+  } else {
+    reasons.push(`données datant de ${Math.round(dataAgeHours)} h`);
+  }
+
+  if (score >= 5) {
+    return { level: 'high', reason: 'Données abondantes et récentes' };
+  }
+  if (score <= 2) {
+    return {
+      level: 'low',
+      reason: reasons.length > 0 ? reasons.join(', ') : 'Données insuffisantes',
+    };
+  }
+  return {
+    level: 'medium',
+    reason: reasons.length > 0 ? reasons.join(', ') : 'Données partielles',
+  };
+}
+
+// ── MGI Band ────────────────────────────────────────────────────────
+
+export type MgiBand = 'very_low' | 'low' | 'medium' | 'high' | 'very_high';
+
+export interface MgiBandInfo {
+  band: MgiBand;
+  label: string;
+  color: string;
+}
+
+const MGI_BANDS: MgiBandInfo[] = [
+  { band: 'very_low', label: 'Très faible', color: '#e2e6ff' },
+  { band: 'low', label: 'Faible', color: '#b7c0f8' },
+  { band: 'medium', label: 'Moyen', color: '#8c97e9' },
+  { band: 'high', label: 'Fort', color: '#646cd8' },
+  { band: 'very_high', label: 'Très fort', color: '#443cc6' },
+];
+
+export function getMgiBand(value: number): MgiBandInfo {
+  if (value >= 80) return MGI_BANDS[4];
+  if (value >= 60) return MGI_BANDS[3];
+  if (value >= 40) return MGI_BANDS[2];
+  if (value >= 20) return MGI_BANDS[1];
+  return MGI_BANDS[0];
+}

@@ -1,4 +1,4 @@
-name,category,rpm_coefficient,owner_channel,subreddits
-Dividend & passive income investing,finance,1.8,Wealth Decoded,dividends;investing;FinancialIndependence
-Cognitive biases & self-mastery,psychology,1.0,Mind Unlocked,psychology;getdisciplined;productivity
-AI agents & automation tools,ai_tools,1.6,AI Unchained,artificial;ChatGPT;LocalLLaMA;automation
+name,category,rpm_coefficient,rpm_low,rpm_high,rpm_source,owner_channel,subreddits
+Personal Finance & Investing,finance,1.8,8,25,Influencer Marketing Hub 2024,Wealth Decoded,dividends;investing;FinancialIndependence;personalfinance;Fire;stocks;bogleheads
+Psychology & Self-Improvement,psychology,1.1,4,12,Influencer Marketing Hub 2024,Mind Unlocked,psychology;getdisciplined;productivity;selfimprovement;Stoicism;DecidingToBeBetter;meditation
+AI Tools & Automation,ai_tools,1.6,6,20,Influencer Marketing Hub 2024,AI Unchained,artificial;ChatGPT;LocalLLaMA;automation;MachineLearning;singularity;AIAgents

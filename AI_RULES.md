@@ -28,7 +28,7 @@ Règles non négociables. Elles s'appliquent à chaque fonctionnalité, sans qu'
 13. TypeScript strict, aucun `any` sans commentaire `// why:`.
 14. La logique de scoring (`lib/scoring/*`) est pure (entrées → sorties, sans accès base) et couverte par des tests Vitest avec des cas limites (signal manquant, division par zéro, sujet sans commentaire).
 15. Chaque fournisseur externe a une implémentation `Fake*` utilisée par les tests et par le mode `DEMO=true`.
-16. Chaque page qui affiche des données gère trois états : chargement, vide (message d'accueil utile), erreur (message en langue de l'utilisateur, sans stack trace).
+16. Chaque page qui affiche des données gère trois états : chargement, vide (message d'accueil utile), erreur (message en français, sans stack trace).
 17. Les prompts envoyés à Claude vivent dans `lib/nlp/prompts/` en fichiers versionnés, jamais en chaîne inline ; chaque changement de prompt incrémente `PROMPT_VERSION`, stocké dans `comment_labels.model`.
 
 ## Comportement de l'agent
@@ -36,5 +36,8 @@ Règles non négociables. Elles s'appliquent à chaque fonctionnalité, sans qu'
 18. Proposer un plan et attendre validation avant d'écrire du code pour une nouvelle phase.
 19. Demander confirmation avant toute migration destructrice (suppression de colonne, de table, de données) et avant toute modification de `vercel.json` ou des politiques RLS.
 20. Signaler immédiatement toute limitation d'API découverte en cours de route (quota, endpoint déprécié, changement de tarif) plutôt que de la contourner silencieusement.
-21. Ne jamais scraper YouTube, Reddit ou TikTok en dehors de leurs API officielles.
+21. Ne jamais scraper YouTube, Reddit ou TikTok (Reddit a refusé l'accès API : aucune donnée Reddit dans TubLyTI) en dehors de leurs API officielles.
 22. Répondre en français ; code et identifiants en anglais.
+
+23. Respecter la liste « Hors périmètre » de PLAN_V2.md : ne jamais construire d'overlay dans le HTML de YouTube, de générateur de miniatures, d'écriture de script, voix ou vidéo, d'A/B test, de score SEO par mot-clé, de coach IA autonome ni de gamification sans validation explicite.
+24. Aucune action IA payante sans confirmation explicite de l'utilisateur avec le coût estimé affiché (voir P29).

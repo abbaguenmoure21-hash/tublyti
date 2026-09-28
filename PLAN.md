@@ -4,7 +4,7 @@ Chaque phase se termine par une porte de validation. On ne passe pas à la suiva
 
 ## Phase 0 — Préparation (semaine 0, sans code, ~3 h)
 
-- Comptes : Google Cloud (projet `tublyti-dev`, YouTube Data API v3 activée, clé API restreinte à cette API), Supabase, Vercel, Anthropic, SerpApi (gratuit), app Reddit (script), Resend, GitHub.
+- Comptes : Google Cloud (projet `tublyti-dev`, YouTube Data API v3 activée, clé API restreinte à cette API), Supabase, Vercel, Anthropic, SerpApi (gratuit), Resend, GitHub.
 - Copier les cinq fichiers de pilotage à la racine du dépôt vide.
 - Préparer `seed/niches.csv` (3 niches, catégorie, coefficient RPM depuis YouTube Studio), `seed/channels.csv` (60-100 chaînes par niche, via vidIQ « similar channels »), `seed/queries.csv` (20 requêtes par niche).
 - Porte : un appel `channels.list` réussi en ligne de commande ; `.env.local` rempli.
@@ -25,7 +25,7 @@ Chaque phase se termine par une porte de validation. On ne passe pas à la suiva
 
 ## Phase 3 — Signaux externes et sujets (semaines 5-6) — P5, P6
 
-- `TrendProvider` (SerpApi, 1 requête/sujet/semaine), `SocialProvider` (Reddit OAuth + HN Algolia, 1 comptage/sujet/jour), table `trend_points`.
+- `TrendProvider` (SerpApi, 1 requête/sujet/semaine), `SocialProvider` (HN Algolia + Stack Exchange, 1 comptage/sujet/jour ; Reddit exclu), table `trend_points`.
 - `EmbeddingProvider`, embeddings des titres et des angles demandés, clustering en sujets (cosinus ≥ 0,85), page Sujets à valider.
 - Répartition des 100 recherches YouTube quotidiennes sur les requêtes des sujets prioritaires.
 - Porte : chaque niche a ≥ 20 sujets actifs avec au moins deux séries sur 30 jours.

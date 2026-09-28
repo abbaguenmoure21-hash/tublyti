@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ResendAlertSender, ConsoleAlertSender } from '@/lib/email/resend-alerts';
+import { timingSafeCompare } from '@/lib/auth/timing-safe';
 
 export async function POST(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (!timingSafeCompare(authHeader ?? '', `Bearer ${process.env.CRON_SECRET}`)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 

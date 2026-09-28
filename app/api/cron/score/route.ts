@@ -3,10 +3,11 @@ import { createServiceClient } from '@/lib/supabase/server';
 import { SupabaseJobRunner } from '@/lib/jobs/supabase-runner';
 import { runScore } from '@/lib/scoring/score-service';
 import { ResendAlertSender, ConsoleAlertSender } from '@/lib/email/resend-alerts';
+import { timingSafeCompare } from '@/lib/auth/timing-safe';
 
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (!timingSafeCompare(authHeader ?? '', `Bearer ${process.env.CRON_SECRET}`)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
@@ -45,12 +46,13 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ ok: true, ...result });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('[Cron score]', message);
     await runner.finish(job.id, {
       quotaUsed: 0,
       itemsProcessed: 0,
       error: message,
     });
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: 'Internal error during score job.' }, { status: 500 });
   } finally {
     await runner.releaseLock('score');
   }

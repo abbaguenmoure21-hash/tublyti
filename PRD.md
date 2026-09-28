@@ -15,7 +15,7 @@ Un seul en version 1 : ABBA, opérateur de trois chaînes YouTube faceless anglo
 - **Chaîne surveillée** : une chaîne YouTube dont on suit les uploads et les métriques.
 - **Vidéo** : une vidéo découverte, rattachée à une chaîne et (si possible) à un sujet, avec des snapshots de métriques datés.
 - **Commentaire classé** : un commentaire avec un label de frustration et l'angle demandé extrait.
-- **Signal externe** : un point daté (Trends, Reddit, HN) pour un sujet.
+- **Signal externe** : un point daté (Trends, HN, Stack Exchange) pour un sujet.
 - **Angle** : une proposition de vidéo (titre, hook, justification) générée pour un sujet, avec un statut (idée, en production, publiée).
 
 ## Fonctionnalités de la version 1
@@ -26,7 +26,7 @@ Un seul en version 1 : ABBA, opérateur de trois chaînes YouTube faceless anglo
 - Découverte des nouvelles vidéos via la playlist uploads de chaque chaîne.
 - Snapshot quotidien des vues, likes, commentaires de chaque vidéo de moins de 90 jours ; hebdomadaire au-delà.
 - Ingestion des 200 à 500 commentaires les plus pertinents des vidéos de moins de 60 jours.
-- Une requête Google Trends par sujet par semaine ; un comptage Reddit + Hacker News par sujet par jour.
+- Une requête Google Trends par sujet par semaine ; un comptage Hacker News + Stack Exchange par sujet par jour.
 - 100 recherches YouTube par jour, réparties sur les requêtes des sujets, par ordre de priorité (sujets en phase 0-2 d'abord).
 
 ### Analyse (automatique, nuit)
@@ -56,7 +56,7 @@ Un seul en version 1 : ABBA, opérateur de trois chaînes YouTube faceless anglo
 
 ## Hors périmètre de la version 1
 
-Paiements, multi-comptes, landing page, TikTok, scraping headless, transcriptions, analyse de miniatures, extension Chrome, application mobile, prédiction XGBoost.
+Paiements, multi-comptes, landing page, TikTok, scraping headless, transcriptions, analyse de miniatures, application mobile, prédiction XGBoost.
 
 ## Critères de succès de la version 1
 
@@ -65,3 +65,7 @@ Paiements, multi-comptes, landing page, TikTok, scraping headless, transcription
 - Coût IA mensuel < 30 $.
 - ≥ 80 % de précision sur 100 commentaires relus à la main.
 - Au moins 2 vidéos sur 3 issues de TubLyTI au-dessus de la médiane de vues à J+30 de leur chaîne.
+
+## Version 2
+
+Voir `PLAN_V2.md` : fluidité, design system clair (`DESIGN.md`), page Aujourd'hui, palette ⌘K, pipeline, réglages, digest, MCP v2 et extension Chrome (panneau latéral + badge, sans lecture du HTML de YouTube).

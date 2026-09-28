@@ -4,12 +4,15 @@ import {
   computeDemand,
   computeFrustration,
   computeSupplyQualified,
+  computeConfidence,
   DEFAULT_MGI_WEIGHTS,
   type MGIWeights,
   type TopicSignals,
 } from './mgi';
 import { computePhase } from './phase';
+import { computeFeasibility } from './feasibility';
 import type { AlertSender } from '../email/alerts';
+import { evaluateAlertRules } from '../alerts/evaluate';
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -17,6 +20,8 @@ export interface ScoreResult {
   topicsScored: number;
   burnDownAlerts: number;
   silentCollectionAlert: boolean;
+  alertEventsCreated: number;
+  alertInstantEmails: number;
 }
 
 interface ActiveTopic {
@@ -25,6 +30,7 @@ interface ActiveTopic {
   niche_id: string;
   status: string;
   rpm_coefficient: number;
+  owner_channel: string | null;
 }
 
 // ── Settings defaults ────────────────────────────────────────────────
@@ -59,26 +65,27 @@ export async function runScore(
   db: SupabaseClient,
   alertSender: AlertSender,
 ): Promise<ScoreResult> {
-  const result: ScoreResult = { topicsScored: 0, burnDownAlerts: 0, silentCollectionAlert: false };
+  const result: ScoreResult = { topicsScored: 0, burnDownAlerts: 0, silentCollectionAlert: false, alertEventsCreated: 0, alertInstantEmails: 0 };
   const today = new Date().toISOString().slice(0, 10);
   const weights = await getWeights(db);
 
   // ── Load active topics with niche info ──────────────────────────
   const { data: topicsRaw } = await db
     .from('topics')
-    .select('id, label, niche_id, status, niches!inner(rpm_coefficient)')
+    .select('id, label, niche_id, status, niches!inner(rpm_coefficient, owner_channel)')
     .in('status', ['active', 'in_production']);
 
   if (!topicsRaw || topicsRaw.length === 0) return result;
 
   const topics: ActiveTopic[] = topicsRaw.map((t) => {
-    const niche = t.niches as unknown as { rpm_coefficient: number };
+    const niche = t.niches as unknown as { rpm_coefficient: number; owner_channel: string | null };
     return {
       id: t.id,
       label: t.label,
       niche_id: t.niche_id,
       status: t.status,
       rpm_coefficient: niche.rpm_coefficient ?? 1.0,
+      owner_channel: niche.owner_channel ?? null,
     };
   });
 
@@ -295,6 +302,79 @@ export async function runScore(
     }
   }
 
+  // ── Feasibility: owner channel subs + competitor subs per topic ─
+  // Get unique owner channel IDs across niches
+  const ownerChannelIds = [...new Set(topics.map((t) => t.owner_channel).filter(Boolean))] as string[];
+  const ownerSubsByChannel = new Map<string, number>();
+  if (ownerChannelIds.length > 0) {
+    const { data: ownerChannels } = await db
+      .from('channels')
+      .select('id, subscriber_count')
+      .in('id', ownerChannelIds);
+    for (const ch of ownerChannels ?? []) {
+      ownerSubsByChannel.set(ch.id, Number(ch.subscriber_count) || 0);
+    }
+  }
+
+  // Get competitor channel subscriber counts for qualified videos per topic
+  const competitorSubsByTopic = new Map<string, number[]>();
+  if (recentQualified && recentQualified.length > 0) {
+    const qualVideoIds = recentQualified.map((v) => v.id);
+    const { data: qualVideosWithChannels } = await db
+      .from('videos')
+      .select('id, topic_id, channel_id, channels!inner(subscriber_count)')
+      .in('id', qualVideoIds);
+
+    for (const v of qualVideosWithChannels ?? []) {
+      if (!v.topic_id) continue;
+      const subs = Number((v.channels as unknown as { subscriber_count: number | null })?.subscriber_count ?? 0);
+      if (!competitorSubsByTopic.has(v.topic_id)) competitorSubsByTopic.set(v.topic_id, []);
+      competitorSubsByTopic.get(v.topic_id)!.push(subs);
+    }
+  }
+
+  // ── Data age per topic (hours since last trend_point) ──────────
+  const { data: latestCaptures } = await db
+    .from('trend_points')
+    .select('topic_id, captured_at')
+    .in('topic_id', topicIds)
+    .order('captured_at', { ascending: false });
+
+  const dataAgeByTopic = new Map<string, number>();
+  for (const p of latestCaptures ?? []) {
+    if (!dataAgeByTopic.has(p.topic_id)) {
+      const ageMs = Date.now() - new Date(p.captured_at).getTime();
+      dataAgeByTopic.set(p.topic_id, ageMs / 3_600_000);
+    }
+  }
+
+  // ── Load previous phases for alert rule evaluation ─────────────
+  const previousPhaseByTopic = new Map<string, number>();
+  {
+    const { data: prevScores } = await db
+      .from('topic_scores')
+      .select('topic_id, phase')
+      .in('topic_id', topicIds)
+      .lt('scored_at', today)
+      .order('scored_at', { ascending: false });
+
+    for (const s of prevScores ?? []) {
+      if (!previousPhaseByTopic.has(s.topic_id)) {
+        previousPhaseByTopic.set(s.topic_id, s.phase as number);
+      }
+    }
+  }
+
+  // Collect scored topics for alert evaluation
+  const scoredTopicsForAlerts: {
+    id: string;
+    label: string;
+    niche_id: string;
+    phase: number;
+    previousPhase: number | null;
+    qualifiedIn72h: number;
+  }[] = [];
+
   // ── Score each topic ────────────────────────────────────────────
   for (let i = 0; i < topics.length; i++) {
     const topic = topics[i];
@@ -324,6 +404,21 @@ export async function runScore(
       qualifiedIn72h,
     });
 
+    // Compute confidence
+    const demandSourceCount = [signals.trends, signals.ytViews, signals.social]
+      .filter((v) => v !== null).length
+      + (latestSignal.has(`${topic.id}:hn`) ? 1 : 0);
+    const confidence = computeConfidence({
+      commentCount: frustData.total,
+      demandSourceCount,
+      dataAgeHours: dataAgeByTopic.get(topic.id) ?? 999,
+    });
+
+    // Compute feasibility
+    const ownerSubs = topic.owner_channel ? (ownerSubsByChannel.get(topic.owner_channel) ?? null) : null;
+    const compSubs = competitorSubsByTopic.get(topic.id) ?? [];
+    const feasibility = computeFeasibility(ownerSubs, compSubs, qualifiedRecent);
+
     // Write topic_scores row
     await db.from('topic_scores').upsert(
       {
@@ -335,6 +430,10 @@ export async function runScore(
         monetization: topic.rpm_coefficient,
         mgi,
         phase,
+        confidence: confidence.level,
+        confidence_reason: confidence.reason,
+        feasibility_grade: feasibility.grade,
+        feasibility_reason: feasibility.reason,
       },
       { onConflict: 'topic_id,scored_at' },
     );
@@ -346,6 +445,16 @@ export async function runScore(
       .eq('id', topic.id);
 
     result.topicsScored++;
+
+    // Collect for alert evaluation
+    scoredTopicsForAlerts.push({
+      id: topic.id,
+      label: topic.label,
+      niche_id: topic.niche_id,
+      phase,
+      previousPhase: previousPhaseByTopic.get(topic.id) ?? null,
+      qualifiedIn72h,
+    });
 
     // ── Burn-down detection ─────────────────────────────────────
     if (qualifiedIn72h >= 5 && topic.status === 'in_production') {
@@ -378,6 +487,52 @@ export async function runScore(
       actionLabel: 'Voir les jobs',
     });
     result.silentCollectionAlert = true;
+  }
+
+  // ── Evaluate alert rules ──────────────────────────────────────
+  // Gather video outlier data for video_outlier rules
+  const videoOutliersForAlerts: {
+    videoId: string;
+    title: string;
+    views: number;
+    channelTitle: string;
+    subscriberCount: number;
+    avgViews: number;
+  }[] = [];
+
+  const { data: recentOutliers } = await db
+    .from('video_outliers')
+    .select('video_id, score, baseline, videos!inner(title, channel_id, channels!inner(title, subscriber_count))')
+    .gte('score', 3)
+    .gte('computed_at', new Date(Date.now() - 24 * 3_600_000).toISOString());
+
+  for (const o of recentOutliers ?? []) {
+    const video = o.videos as unknown as {
+      title: string;
+      channel_id: string;
+      channels: { title: string; subscriber_count: number | null };
+    };
+    videoOutliersForAlerts.push({
+      videoId: o.video_id,
+      title: video.title,
+      views: Math.round(Number(o.score) * Number(o.baseline)),
+      channelTitle: video.channels.title,
+      subscriberCount: Number(video.channels.subscriber_count) || 0,
+      avgViews: Math.round(Number(o.baseline)),
+    });
+  }
+
+  try {
+    const alertResult = await evaluateAlertRules(
+      db,
+      alertSender,
+      scoredTopicsForAlerts,
+      videoOutliersForAlerts,
+    );
+    result.alertEventsCreated = alertResult.eventsCreated;
+    result.alertInstantEmails = alertResult.instantEmailsSent;
+  } catch (err) {
+    console.error('[Score] Alert evaluation failed:', err instanceof Error ? err.message : err);
   }
 
   return result;

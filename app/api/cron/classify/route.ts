@@ -2,13 +2,15 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
 import { SupabaseJobRunner } from '@/lib/jobs/supabase-runner';
 import { runClassify } from '@/lib/nlp/classify-service';
+import { extractTitlePatterns } from '@/lib/nlp/title-patterns';
 import { ResendAlertSender, ConsoleAlertSender } from '@/lib/email/resend-alerts';
+import { timingSafeCompare } from '@/lib/auth/timing-safe';
 
 const MAX_DURATION_MS = 4 * 60 * 1000; // 4 minutes
 
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (!timingSafeCompare(authHeader ?? '', `Bearer ${process.env.CRON_SECRET}`)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
@@ -39,20 +41,29 @@ export async function GET(request: NextRequest) {
   try {
     const result = await runClassify(db, deadline);
 
+    // Extract title patterns from outlier videos (Batch API)
+    let titlePatternResult;
+    try {
+      titlePatternResult = await extractTitlePatterns(db);
+    } catch (err) {
+      console.error('[Classify] Title pattern extraction failed:', err instanceof Error ? err.message : err);
+    }
+
     await runner.finish(job.id, {
       quotaUsed: 0,
-      itemsProcessed: result.labelsStored + result.commentsSubmitted,
+      itemsProcessed: result.labelsStored + result.commentsSubmitted + (titlePatternResult?.patternsStored ?? 0),
     });
 
-    return NextResponse.json({ ok: true, ...result });
+    return NextResponse.json({ ok: true, ...result, titlePatterns: titlePatternResult });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('[Cron classify]', message);
     await runner.finish(job.id, {
       quotaUsed: 0,
       itemsProcessed: 0,
       error: message,
     });
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: 'Internal error during classify job.' }, { status: 500 });
   } finally {
     await runner.releaseLock('classify');
   }

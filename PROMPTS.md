@@ -65,12 +65,12 @@ Montre-moi 20 exemples classés avec leur label pour que je vérifie la qualité
 
 ---
 
-## P5 — Signaux externes (Trends, Reddit, Hacker News)
+## P5 — Signaux externes (Trends, Hacker News, Stack Exchange)
 
 Implémente `TrendProvider` et `SocialProvider` et leur intégration dans `collect` (Phase 3).
 
 - `TrendProvider` : implémentation SerpApi (moteur google_trends, `interest_over_time`, 90 jours, région US) ; une requête par sujet actif par semaine ; stockage des points dans `trend_points` (source `trends`). Prévoir une seconde implémentation SearchApi vide mais câblée, sélection par `TREND_PROVIDER`.
-- `SocialProvider` : Reddit (OAuth script, `search` sur les subreddits configurés par niche, comptage des posts des 30 derniers jours par sujet, respect de 100 requêtes/minute) et Hacker News (API Algolia, `search_by_date`, comptage 30 jours). Un comptage par sujet par jour, source `reddit` et `hn`.
+- `SocialProvider` : deux implémentations, Hacker News (API Algolia, `search_by_date`, comptage 30 jours, source `hn`) et Stack Exchange (API officielle v2.3, clé gratuite facultative, sites money.stackexchange.com, cogsci.stackexchange.com, ai.stackexchange.com, recherche `/search/advanced` par titre, comptage 30 jours, source `stackexchange`). Reddit est EXCLU : l'accès API a été refusé par Reddit (Responsible Builder Policy) et aucun scraping n'est autorisé. Un comptage par sujet par jour et par source.
 - Source `yt_views` : somme quotidienne des vues des vidéos du sujet, divisée par le nombre de vidéos, calculée depuis `video_snapshots`.
 - Sur la fiche sujet, afficher les quatre séries sur 90 jours.
 
@@ -134,7 +134,7 @@ Contexte fourni au modèle : label du sujet, niche et coefficient RPM, les 20 fr
 
 Prompt à placer dans lib/nlp/prompts/angles_v1.md :
 
-« Tu es stratège éditorial pour des chaînes YouTube. À partir des frustrations réelles des spectateurs et des vidéos concurrentes ci-dessous, propose exactement 5 angles de vidéo originaux (8 à 20 minutes) qui répondent à une frustration précise sans reprendre un angle concurrent. Chaque angle : title (≤ 60 caractères, en anglais), hook (2 phrases), rationale (quelle frustration il résout, quel angle concurrent il évite, en français). Réponds en JSON strict. Pas de clickbait mensonger, pas de promesse de gain chiffrée. »
+« Tu es stratège éditorial pour une chaîne YouTube faceless anglophone. À partir des frustrations réelles des spectateurs et des vidéos concurrentes ci-dessous, propose exactement 5 angles de vidéo originaux (8 à 20 minutes) qui répondent à une frustration précise sans reprendre un angle concurrent. Chaque angle : title (≤ 60 caractères, en anglais), hook (2 phrases), rationale (quelle frustration il résout, quel angle concurrent il évite, en français). Réponds en JSON strict. Pas de clickbait mensonger, pas de promesse de gain chiffrée. »
 
 - Stocker dans `angles`, afficher sur la fiche sujet, permettre de régénérer (coût affiché avant) et d'exporter un angle en brief Markdown (sujet, angle, 10 frustrations sources, concurrents) via un bouton « Copier le brief ».
 
@@ -157,7 +157,7 @@ Fournis la configuration à coller dans Claude Desktop / Claude Cowork, et teste
 Avant que je déploie cette version, fais un audit de sécurité complet en jouant le rôle d'une personne malveillante. Vérifie et liste tout, même mineur :
 
 - RLS active sur les 13 tables, politiques testées avec un second utilisateur qui ne doit rien voir.
-- Aucune clé (YouTube, Anthropic, service role, SerpApi, Reddit) accessible côté client ou dans le bundle.
+- Aucune clé (YouTube, Anthropic, service role, SerpApi) accessible côté client ou dans le bundle.
 - Routes cron et MCP inaccessibles sans jeton ; jetons comparés en temps constant.
 - Validation Zod sur toutes les entrées ; aucune injection possible via les URLs de chaînes ou les requêtes de sujets.
 - Aucun secret ni fichier .env dans l'historique git.

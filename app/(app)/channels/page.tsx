@@ -1,16 +1,14 @@
-'use client';
-
-import { useEffect, useState, useCallback } from 'react';
-import { Tv, Plus, Trash2, AlertTriangle } from 'lucide-react';
+import Link from 'next/link';
+import { Tv } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Skeleton } from '@/components/ui/skeleton';
+import { createClient } from '@/lib/supabase/server';
+import { AddChannelForm } from './_components/add-channel-form';
+import { DeleteChannelButton } from './_components/delete-channel-button';
 
 interface Channel {
   id: string;
-  title: string;
+  title: string | null;
   subscriber_count: number | null;
   last_checked_at: string | null;
   niche_id: string;
@@ -22,193 +20,88 @@ interface Niche {
   name: string;
 }
 
-export default function ChannelsPage() {
-  const [channels, setChannels] = useState<Channel[]>([]);
-  const [niches, setNiches] = useState<Niche[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [url, setUrl] = useState('');
-  const [nicheId, setNicheId] = useState('');
-  const [adding, setAdding] = useState(false);
-  const [deleting, setDeleting] = useState<string | null>(null);
+function formatDate(d: string | null) {
+  if (!d) return 'Jamais';
+  return new Date(d).toLocaleString('fr-FR', {
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
 
-  const fetchChannels = useCallback(async () => {
-    try {
-      const res = await fetch('/api/channels');
-      if (!res.ok) throw new Error('Impossible de charger les chaînes');
-      const data = await res.json();
-      setChannels(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erreur inconnue');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+export default async function ChannelsPage() {
+  const db = await createClient();
 
-  useEffect(() => {
-    fetchChannels();
-    // Fetch niches for the select
-    fetch('/api/niches')
-      .then((r) => r.json())
-      .then((data) => {
-        if (Array.isArray(data)) setNiches(data);
-      })
-      .catch(() => {});
-  }, [fetchChannels]);
+  const [channelsResult, nichesResult] = await Promise.all([
+    db
+      .from('channels')
+      .select('id, title, subscriber_count, last_checked_at, niche_id, niches(name)')
+      .order('last_checked_at', { ascending: true, nullsFirst: true }),
+    db.from('niches').select('id, name').order('name'),
+  ]);
 
-  async function handleAdd(e: React.FormEvent) {
-    e.preventDefault();
-    if (!url || !nicheId) return;
-    setAdding(true);
-    setError(null);
-    try {
-      const res = await fetch('/api/channels', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url, niche_id: nicheId }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-      setUrl('');
-      await fetchChannels();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Erreur lors de l'ajout");
-    } finally {
-      setAdding(false);
-    }
-  }
-
-  async function handleDelete(id: string) {
-    if (deleting) return;
-    setDeleting(id);
-    try {
-      const res = await fetch('/api/channels', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id }),
-      });
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error);
-      }
-      await fetchChannels();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erreur lors de la suppression');
-    } finally {
-      setDeleting(null);
-    }
-  }
-
-  function formatDate(d: string | null) {
-    if (!d) return 'Jamais';
-    return new Date(d).toLocaleString('fr-FR', {
-      day: '2-digit',
-      month: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  }
+  const channels = (channelsResult.data ?? []) as unknown as Channel[];
+  const niches = (nichesResult.data ?? []) as unknown as Niche[];
+  const fetchError = channelsResult.error?.message ?? null;
 
   return (
     <div className="p-6 md:p-8 max-w-5xl mx-auto space-y-6">
       {/* Page header */}
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Chaines surveillees</h1>
-        <p className="text-muted-foreground text-sm mt-1">
-          Ajoutez les chaines YouTube de votre niche. TubLyTI analysera leurs videos
-          et les commentaires de leur audience pour detecter les opportunites.
-        </p>
+      <div className="flex items-end justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Quelles chaînes surveiller ?</h1>
+          <p className="text-muted-foreground text-sm mt-1">
+            Ajoutez les chaînes YouTube de votre niche. TubLyTI analysera leurs vidéos
+            et les commentaires de leur audience pour détecter les opportunités.
+          </p>
+        </div>
+        <Link
+          href="/channels/candidates"
+          className="h-9 px-3.5 rounded-lg border border-border text-sm font-medium flex items-center hover:bg-muted transition-colors shrink-0"
+        >
+          Chaînes candidates
+        </Link>
       </div>
 
-      {/* Add channel form */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Ajouter une chaine</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleAdd} className="flex flex-col sm:flex-row gap-3">
-            <Input
-              type="text"
-              placeholder="URL ou ID de la chaine"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              className="flex-1"
-            />
-            <select
-              value={nicheId}
-              onChange={(e) => setNicheId(e.target.value)}
-              className="h-8 rounded-lg border border-input bg-background px-3 text-sm"
-            >
-              <option value="">Niche...</option>
-              {niches.map((n) => (
-                <option key={n.id} value={n.id}>
-                  {n.name}
-                </option>
-              ))}
-            </select>
-            <Button type="submit" disabled={adding || !url || !nicheId}>
-              <Plus className="size-4" />
-              {adding ? 'Ajout...' : 'Ajouter'}
-            </Button>
-          </form>
-          {error && (
-            <p className="text-destructive mt-3 text-sm flex items-center gap-1.5">
-              <AlertTriangle className="size-3.5 shrink-0" />
-              {error}
-            </p>
-          )}
-        </CardContent>
-      </Card>
+      {/* Add channel form (client island) */}
+      <AddChannelForm niches={niches} />
 
       {/* Channel list */}
-      {loading ? (
-        <Card>
-          <CardContent className="space-y-4 pt-2">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="flex items-center gap-4">
-                <Skeleton className="h-4 w-40" />
-                <Skeleton className="h-5 w-20" />
-                <Skeleton className="h-4 w-24" />
-                <Skeleton className="h-4 w-28 ml-auto" />
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      ) : error && channels.length === 0 ? (
+      {fetchError && channels.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-16 text-center">
-            <AlertTriangle className="size-10 text-destructive mb-3" />
             <p className="text-sm font-medium text-destructive">
-              Impossible de charger les chaines
+              Impossible de charger les chaînes
             </p>
-            <p className="text-xs text-muted-foreground mt-1">{error}</p>
+            <p className="text-xs text-muted-foreground mt-1">{fetchError}</p>
           </CardContent>
         </Card>
       ) : channels.length === 0 ? (
         <Card className="border-dashed border-2 border-primary/20">
           <CardContent className="flex flex-col items-center justify-center py-16 text-center">
-            <div className="flex items-center justify-center w-12 h-12 rounded-2xl bg-primary/10 text-primary mb-4">
+            <div className="flex items-center justify-center w-12 h-12 rounded-2xl bg-primary-soft text-primary-ink mb-4">
               <Tv className="size-6" />
             </div>
             <p className="font-semibold text-foreground">
-              Aucune chaine suivie pour l&apos;instant
+              Aucune chaîne suivie pour l&apos;instant
             </p>
             <p className="text-sm text-muted-foreground mt-2 max-w-md">
-              Collez l&apos;URL ou l&apos;ID d&apos;une chaine YouTube dans le formulaire ci-dessus,
-              choisissez sa niche, et cliquez sur Ajouter. TubLyTI commencera a analyser
-              ses videos et les commentaires de son audience.
+              Collez l&apos;URL ou l&apos;ID d&apos;une chaîne YouTube dans le formulaire ci-dessus,
+              choisissez sa niche, et cliquez sur Ajouter. TubLyTI commencera à analyser
+              ses vidéos et les commentaires de son audience.
             </p>
             <div className="flex flex-col items-start gap-2 mt-6 text-sm text-muted-foreground">
               <p className="flex items-center gap-2">
-                <span className="flex items-center justify-center w-5 h-5 rounded-full bg-primary/10 text-primary text-xs font-bold">1</span>
-                Copiez l&apos;URL d&apos;une chaine YouTube
+                <span className="flex items-center justify-center w-5 h-5 rounded-full bg-primary-soft text-primary-ink text-xs font-bold">1</span>
+                Copiez l&apos;URL d&apos;une chaîne YouTube
               </p>
               <p className="flex items-center gap-2">
-                <span className="flex items-center justify-center w-5 h-5 rounded-full bg-primary/10 text-primary text-xs font-bold">2</span>
-                Selectionnez la niche correspondante
+                <span className="flex items-center justify-center w-5 h-5 rounded-full bg-primary-soft text-primary-ink text-xs font-bold">2</span>
+                Sélectionnez la niche correspondante
               </p>
               <p className="flex items-center gap-2">
-                <span className="flex items-center justify-center w-5 h-5 rounded-full bg-primary/10 text-primary text-xs font-bold">3</span>
+                <span className="flex items-center justify-center w-5 h-5 rounded-full bg-primary-soft text-primary-ink text-xs font-bold">3</span>
                 Cliquez sur Ajouter — c&apos;est tout !
               </p>
             </div>
@@ -218,7 +111,7 @@ export default function ChannelsPage() {
         <Card>
           <CardHeader>
             <CardTitle>
-              {channels.length} chaine{channels.length > 1 ? 's' : ''}
+              {channels.length} chaîne{channels.length > 1 ? 's' : ''}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -226,10 +119,10 @@ export default function ChannelsPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-muted/50 text-muted-foreground text-left">
-                    <th className="px-3 py-2.5 font-medium rounded-tl-md">Chaine</th>
+                    <th className="px-3 py-2.5 font-medium rounded-tl-md">Chaîne</th>
                     <th className="px-3 py-2.5 font-medium">Niche</th>
-                    <th className="px-3 py-2.5 font-medium">Abonnes</th>
-                    <th className="px-3 py-2.5 font-medium">Derniere verification</th>
+                    <th className="px-3 py-2.5 font-medium">Abonnés</th>
+                    <th className="px-3 py-2.5 font-medium">Dernière vérification</th>
                     <th className="px-3 py-2.5 font-medium rounded-tr-md w-10"></th>
                   </tr>
                 </thead>
@@ -256,19 +149,10 @@ export default function ChannelsPage() {
                         {formatDate(ch.last_checked_at)}
                       </td>
                       <td className="px-3 py-2.5">
-                        <Button
-                          variant="ghost"
-                          size="icon-xs"
-                          className="text-muted-foreground hover:text-destructive"
-                          disabled={deleting === ch.id}
-                          onClick={() => {
-                            if (confirm(`Supprimer \u00AB ${ch.title ?? ch.id} \u00BB ?`)) {
-                              handleDelete(ch.id);
-                            }
-                          }}
-                        >
-                          <Trash2 className="size-3.5" />
-                        </Button>
+                        <DeleteChannelButton
+                          channelId={ch.id}
+                          channelTitle={ch.title ?? ch.id}
+                        />
                       </td>
                     </tr>
                   ))}

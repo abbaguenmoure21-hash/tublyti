@@ -32,7 +32,7 @@ export default function ResetPasswordPage() {
     setError(null);
 
     if (password.length < 6) {
-      setError('Le mot de passe doit contenir au moins 6 caracteres.');
+      setError('Le mot de passe doit contenir au moins 6 caractères.');
       return;
     }
 
@@ -47,7 +47,7 @@ export default function ResetPasswordPage() {
     const { error: updateError } = await supabase.auth.updateUser({ password });
 
     if (updateError) {
-      setError('Impossible de mettre a jour le mot de passe. Reessayez ou demandez un nouveau lien.');
+      setError('Impossible de mettre à jour le mot de passe. Réessayez ou demandez un nouveau lien.');
       setLoading(false);
       return;
     }
@@ -93,7 +93,7 @@ export default function ResetPasswordPage() {
           <CardContent>
             {success ? (
               <div className="rounded-lg bg-green-500/10 border border-green-500/20 px-3 py-3 text-sm text-green-700 text-center">
-                Mot de passe mis a jour. Redirection...
+                Mot de passe mis à jour. Redirection...
               </div>
             ) : (
               <form onSubmit={handleReset} className="space-y-4">
@@ -141,7 +141,7 @@ export default function ResetPasswordPage() {
                     boxShadow: '0 4px 20px oklch(0.488 0.243 264.376 / 0.3)',
                   }}
                 >
-                  {loading ? 'Mise a jour...' : 'Mettre a jour'}
+                  {loading ? 'Mise à jour...' : 'Mettre à jour'}
                 </Button>
               </form>
             )}

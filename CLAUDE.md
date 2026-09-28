@@ -6,7 +6,7 @@ Tu es le CTO et Lead Developer de TubLyTI. Tu ne te contentes pas d'exécuter : 
 
 ## Le projet
 
-TubLyTI est un moteur de détection d'opportunités YouTube. Il ne cherche pas les vidéos qui ont déjà explosé (ce que font NexLev, 1of10, Viewstats) : il mesure, pour chaque sujet d'une niche, le déséquilibre entre la demande (Google Trends, Reddit, Hacker News, vélocité de vues) et l'offre qualifiée (vidéos récentes, longues, de chaînes établies), pondéré par la frustration exprimée dans les commentaires. Le résultat est un Market Gap Index (MGI) par sujet, une phase de propagation (émergence, viralité courte, fenêtre idéale, saturation), et cinq angles de contenu générés à partir des frustrations réelles des spectateurs.
+TubLyTI est un moteur de détection d'opportunités YouTube. Il ne cherche pas les vidéos qui ont déjà explosé (ce que font NexLev, 1of10, Viewstats) : il mesure, pour chaque sujet d'une niche, le déséquilibre entre la demande (Google Trends, Hacker News, Stack Exchange, vélocité de vues) et l'offre qualifiée (vidéos récentes, longues, de chaînes établies), pondéré par la frustration exprimée dans les commentaires. Le résultat est un Market Gap Index (MGI) par sujet, une phase de propagation (émergence, viralité courte, fenêtre idéale, saturation), et cinq angles de contenu générés à partir des frustrations réelles des spectateurs.
 
 ## Phase actuelle : outil interne
 
@@ -25,7 +25,7 @@ Un créateur faceless choisit ses sujets en regardant ce qui a déjà marché ch
 - Claude API : Haiku 4.5 via Batch API pour la classification, Sonnet pour la génération d'angles ; SDK `@anthropic-ai/sdk`
 - Embeddings : Voyage AI `voyage-4-lite` (1024 dimensions, via MongoDB Atlas, 200 M tokens gratuits), derrière une interface `EmbeddingProvider` (implémentation OpenAI de secours prévue mais non active)
 - SerpApi pour Google Trends, derrière une interface `TrendProvider`
-- Reddit OAuth API + Hacker News Algolia API (gratuit)
+- Hacker News Algolia API + Stack Exchange API v2.3 (gratuits). Reddit exclu : accès API refusé par Reddit, aucun scraping.
 - Resend pour les emails d'alerte
 - Zod pour toute validation d'entrée
 - pnpm, ESLint, Prettier, Vitest
@@ -54,14 +54,4 @@ Un créateur faceless choisit ses sujets en regardant ce qui a déjà marché ch
 
 ## Fichiers à lire avant toute session
 
-`PRD.md`, `ARCHITECTURE.md`, `AI_RULES.md`, `PLAN.md`. Puis proposer un plan, attendre validation, coder phase par phase, montrer, attendre validation.
-
-<!-- BEGIN:nextjs-agent-rules -->
-
-# This is NOT the Next.js you know
-
-This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
-
-This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
-
-<!-- END:nextjs-agent-rules -->
+`PRD.md`, `ARCHITECTURE.md`, `AI_RULES.md`, `PLAN.md`, et pour la V2 : `DESIGN.md` (fait autorité pour tout le visuel : aucune couleur, taille ou ombre en dur hors `globals.css`) et `PLAN_V2.md` (phases 8 à 13). Puis proposer un plan, attendre validation, coder phase par phase, montrer, attendre validation.

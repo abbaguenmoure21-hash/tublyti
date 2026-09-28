@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
 import { createServiceClient } from '@/lib/supabase/server';
 import {
   ClaudeAngleGenerator,
@@ -6,6 +7,8 @@ import {
   estimateAngleCostUSD,
 } from '@/lib/nlp/angle-generator';
 import type { AngleInput } from '@/lib/nlp/angle-generator';
+
+const uuidSchema = z.string().uuid();
 
 function monthKey(): string {
   const d = new Date();
@@ -17,6 +20,11 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
+
+  if (!uuidSchema.safeParse(id).success) {
+    return NextResponse.json({ error: 'Identifiant invalide.' }, { status: 400 });
+  }
+
   const db = createServiceClient();
 
   // ── Load topic ────────────────────────────────────────────────
@@ -107,6 +115,29 @@ export async function POST(
     }),
   );
 
+  // ── Load title patterns for niche ────────────────────────────
+  const { data: nicheRow } = await db
+    .from('topics')
+    .select('niche_id')
+    .eq('id', id)
+    .single();
+
+  let titlePatterns: AngleInput['titlePatterns'] = [];
+  if (nicheRow?.niche_id) {
+    const { data: patterns } = await db
+      .from('title_patterns')
+      .select('formula, description, examples')
+      .eq('niche_id', nicheRow.niche_id)
+      .order('frequency', { ascending: false })
+      .limit(10);
+
+    titlePatterns = (patterns ?? []).map((p: Record<string, unknown>) => ({
+      formula: p.formula as string,
+      description: p.description as string,
+      examples: (p.examples as string[]) ?? [],
+    }));
+  }
+
   // ── Generate angles ───────────────────────────────────────────
   const generator = process.env.ANTHROPIC_API_KEY
     ? new ClaudeAngleGenerator()
@@ -119,6 +150,7 @@ export async function POST(
     phase: (topic.phase as number) ?? null,
     frustrations,
     competitors,
+    titlePatterns,
   };
 
   const result = await generator.generate(input);
@@ -129,6 +161,8 @@ export async function POST(
     title: a.title,
     hook: a.hook,
     rationale: a.rationale,
+    formula: a.formula,
+    frustration_resolved: a.frustration_resolved,
     status: 'idea',
   }));
 
@@ -144,6 +178,17 @@ export async function POST(
   await db
     .from('settings')
     .upsert({ key: mk, value: currentSpend + result.costUSD });
+
+  // Record in ai_spend table for detailed tracking
+  await db.from('ai_spend').insert({
+    action: 'generate_angles',
+    model: result.model,
+    tokens_in: result.tokensIn,
+    tokens_out: result.tokensOut,
+    cost_usd: result.costUSD,
+    topic_id: id,
+    meta: { topic_label: topic.label, niche: niche.name },
+  });
 
   // ── Return result ─────────────────────────────────────────────
   return NextResponse.json({

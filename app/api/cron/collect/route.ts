@@ -6,15 +6,18 @@ import { runCollect } from '@/lib/youtube/collect';
 import { collectSignals } from '@/lib/signals/collect-signals';
 import { runClustering } from '@/lib/topics/cluster-service';
 import { runYouTubeSearch } from '@/lib/youtube/search';
+import { discoverChannels, retrieveDiscoveryBatches } from '@/lib/youtube/discover-channels';
+import { computeChannelEmbeddings } from '@/lib/youtube/channel-embeddings';
 import { VoyageEmbeddingProvider } from '@/lib/providers/voyage-embeddings';
 import { FakeEmbeddingProvider } from '@/lib/providers/embeddings';
 import { ResendAlertSender, ConsoleAlertSender } from '@/lib/email/resend-alerts';
+import { timingSafeCompare } from '@/lib/auth/timing-safe';
 
 const MAX_DURATION_MS = 4 * 60 * 1000; // 4 minutes
 
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (!timingSafeCompare(authHeader ?? '', `Bearer ${process.env.CRON_SECRET}`)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
@@ -53,11 +56,17 @@ export async function GET(request: NextRequest) {
 
     // Embedding + topic clustering if time permits
     let clustering = { videosEmbedded: 0, anglesEmbedded: 0, videosAttached: 0, topicsProposed: 0 };
+    let channelEmbeddings = { channelsEmbedded: 0 };
     if (!result.stoppedByTimeout && !result.stoppedByQuota) {
       const embedder = process.env.VOYAGE_API_KEY
         ? new VoyageEmbeddingProvider()
         : new FakeEmbeddingProvider();
       clustering = await runClustering(db, embedder, deadline);
+
+      // Channel embeddings for similarity search
+      if (Date.now() < deadline) {
+        channelEmbeddings = await computeChannelEmbeddings(db, embedder, deadline);
+      }
     }
 
     // YouTube search for videos outside followed channels
@@ -66,23 +75,38 @@ export async function GET(request: NextRequest) {
       search = await runYouTubeSearch(db, deadline, result.quotaUsed);
     }
 
+    // Channel discovery (weekly, max 30 searches) + retrieve pending faceless batches
+    let discovery = { searchesPerformed: 0, channelsDiscovered: 0, facelessEstimated: 0 };
+    let facelessUpdated = 0;
+    if (Date.now() < deadline) {
+      facelessUpdated = await retrieveDiscoveryBatches(db);
+      const discoveryResult = await discoverChannels(db, deadline, result.quotaUsed + search.searchesPerformed * 100);
+      discovery = {
+        searchesPerformed: discoveryResult.searchesPerformed,
+        channelsDiscovered: discoveryResult.channelsDiscovered,
+        facelessEstimated: discoveryResult.facelessEstimated,
+      };
+    }
+
     await runner.finish(job.id, {
       quotaUsed: result.quotaUsed,
       itemsProcessed:
         result.channelsUpdated + result.videosDiscovered + result.snapshotsTaken
         + signals.trendPointsCollected + signals.socialPointsCollected + signals.ytViewPointsCollected
-        + clustering.videosEmbedded + clustering.videosAttached + search.videosDiscovered,
+        + clustering.videosEmbedded + clustering.videosAttached + search.videosDiscovered
+        + discovery.channelsDiscovered,
     });
 
-    return NextResponse.json({ ok: true, ...result, ...signals, ...clustering, ...search });
+    return NextResponse.json({ ok: true, ...result, ...signals, ...clustering, ...channelEmbeddings, ...search, discovery, facelessUpdated });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('[Cron collect]', message);
     await runner.finish(job.id, {
       quotaUsed: 0,
       itemsProcessed: 0,
       error: message,
     });
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: 'Internal error during collect job.' }, { status: 500 });
   } finally {
     await runner.releaseLock('collect');
   }

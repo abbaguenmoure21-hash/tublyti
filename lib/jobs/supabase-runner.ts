@@ -88,14 +88,30 @@ export class SupabaseJobRunner implements JobRunner {
   }
 
   async acquireLock(kind: string): Promise<boolean> {
-    if (await this.isLocked(kind)) return false;
+    // Atomic lock acquisition: single upsert that only succeeds if not currently locked
+    // This eliminates the TOCTOU race between isLocked() and upsert()
+    const now = new Date().toISOString();
+    const staleCutoff = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    const key = `lock_${kind}`;
 
-    const { error } = await this.db.from('settings').upsert({
-      key: `lock_${kind}`,
-      value: { locked: true, at: new Date().toISOString() },
+    // Try to insert a new lock (if key doesn't exist) or update if unlocked/stale
+    const { data, error } = await this.db.rpc('acquire_job_lock', {
+      p_key: key,
+      p_now: now,
+      p_stale_cutoff: staleCutoff,
     });
 
-    return !error;
+    if (error) {
+      // Fallback: RPC not yet deployed, use old logic with isLocked guard
+      if (await this.isLocked(kind)) return false;
+      const { error: upsertErr } = await this.db.from('settings').upsert({
+        key,
+        value: { locked: true, at: now },
+      });
+      return !upsertErr;
+    }
+
+    return data === true;
   }
 
   async releaseLock(kind: string): Promise<void> {

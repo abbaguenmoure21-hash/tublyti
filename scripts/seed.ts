@@ -1,7 +1,21 @@
 import { createClient } from '@supabase/supabase-js';
-import { readFileSync } from 'fs';
+import { readFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
 import { RealYouTubeClient } from '../lib/youtube/client';
+
+// Load .env.local if present (scripts run outside Next.js)
+const envPath = resolve(process.cwd(), '.env.local');
+if (existsSync(envPath)) {
+  for (const line of readFileSync(envPath, 'utf-8').split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eqIdx = trimmed.indexOf('=');
+    if (eqIdx < 0) continue;
+    const key = trimmed.slice(0, eqIdx).trim();
+    const val = trimmed.slice(eqIdx + 1).trim().replace(/^["']|["']$/g, '');
+    if (!process.env[key]) process.env[key] = val;
+  }
+}
 
 // ── CSV parser (simple, no dependency) ──────────────────────────────
 function parseCSV(content: string): Record<string, string>[] {
@@ -48,38 +62,60 @@ async function main() {
 
   const seedDir = resolve(process.cwd(), 'seed');
 
+  // ── 0. Rename old niches if they exist ──────────────────────────
+  const renames: [string, string][] = [
+    ['Dividend & passive income investing', 'Personal Finance & Investing'],
+    ['Cognitive biases & self-mastery', 'Psychology & Self-Improvement'],
+    ['AI agents & automation tools', 'AI Tools & Automation'],
+  ];
+  for (const [oldName, newName] of renames) {
+    const { data: old } = await db.from('niches').select('id').eq('name', oldName).single();
+    if (old) {
+      await db.from('niches').update({ name: newName }).eq('id', old.id);
+      console.log(`  Renamed: ${oldName} → ${newName}`);
+    }
+  }
+
   // ── 1. Niches ───────────────────────────────────────────────────
   console.log('Seeding niches...');
   const niches = parseCSV(readFileSync(resolve(seedDir, 'niches.csv'), 'utf-8'));
   const nicheMap = new Map<string, string>(); // name → id
 
   for (const n of niches) {
-    const { data, error } = await db
+    // Core fields (always present in schema)
+    const corePayload = {
+      name: n.name,
+      category: n.category,
+      rpm_coefficient: parseFloat(n.rpm_coefficient),
+      owner_channel: n.owner_channel || null,
+      workspace_id: '00000000-0000-0000-0000-000000000001',
+    };
+
+    // RPM detail fields (added in migration 00004, may not exist yet)
+    const rpmPayload = {
+      rpm_low: n.rpm_low ? parseFloat(n.rpm_low) : null,
+      rpm_high: n.rpm_high ? parseFloat(n.rpm_high) : null,
+      rpm_source: n.rpm_source || null,
+    };
+
+    // Check if niche already exists by name
+    const { data: existing } = await db
       .from('niches')
-      .upsert(
-        {
-          name: n.name,
-          category: n.category,
-          rpm_coefficient: parseFloat(n.rpm_coefficient),
-          owner_channel: n.owner_channel || null,
-          workspace_id: '00000000-0000-0000-0000-000000000001',
-        },
-        { onConflict: 'id' },
-      )
       .select('id, name')
+      .eq('name', n.name)
       .single();
 
-    if (error) {
-      // Try insert instead (first time)
+    let nicheId: string;
+
+    if (existing) {
+      nicheId = existing.id;
+      await db.from('niches').update(corePayload).eq('id', nicheId);
+      nicheMap.set(existing.name, nicheId);
+      console.log(`  ~ ${existing.name} (${nicheId}) updated`);
+    } else {
       const { data: inserted, error: insertErr } = await db
         .from('niches')
-        .insert({
-          name: n.name,
-          category: n.category,
-          rpm_coefficient: parseFloat(n.rpm_coefficient),
-          owner_channel: n.owner_channel || null,
-          workspace_id: '00000000-0000-0000-0000-000000000001',
-        })
+        .insert(corePayload)
         .select('id, name')
         .single();
 
@@ -87,11 +123,17 @@ async function main() {
         console.error(`  Failed to insert niche ${n.name}: ${insertErr.message}`);
         continue;
       }
-      nicheMap.set(inserted!.name, inserted!.id);
-      console.log(`  + ${inserted!.name} (${inserted!.id})`);
-    } else {
-      nicheMap.set(data.name, data.id);
-      console.log(`  + ${data.name} (${data.id})`);
+      nicheId = inserted!.id;
+      nicheMap.set(inserted!.name, nicheId);
+      console.log(`  + ${inserted!.name} (${nicheId})`);
+    }
+
+    // Try to set RPM details (silently skip if columns don't exist)
+    if (rpmPayload.rpm_low !== null) {
+      const { error: rpmErr } = await db.from('niches').update(rpmPayload).eq('id', nicheId);
+      if (rpmErr && !rpmErr.message.includes('column')) {
+        console.error(`  RPM update failed for ${n.name}: ${rpmErr.message}`);
+      }
     }
   }
 
@@ -174,26 +216,51 @@ async function main() {
       continue;
     }
 
-    // Create a topic for each unique query_text (simplified for seeds)
-    const { data: topic, error: topicErr } = await db
+    // Check if topic already exists for this label + niche
+    const { data: existingTopic } = await db
       .from('topics')
-      .insert({
-        workspace_id: '00000000-0000-0000-0000-000000000001',
-        niche_id: nicheId,
-        label: q.query_text,
-        status: 'active',
-      })
       .select('id')
+      .eq('label', q.query_text)
+      .eq('niche_id', nicheId)
       .single();
 
-    if (topicErr) {
-      console.error(`  Failed topic ${q.query_text}: ${topicErr.message}`);
-      continue;
+    let topicId: string;
+    if (existingTopic) {
+      topicId = existingTopic.id;
+      console.log(`  ~ ${q.query_text} (exists)`);
+    } else {
+      const { data: topic, error: topicErr } = await db
+        .from('topics')
+        .insert({
+          workspace_id: '00000000-0000-0000-0000-000000000001',
+          niche_id: nicheId,
+          label: q.query_text,
+          status: 'active',
+        })
+        .select('id')
+        .single();
+
+      if (topicErr) {
+        console.error(`  Failed topic ${q.query_text}: ${topicErr.message}`);
+        continue;
+      }
+      topicId = topic!.id;
     }
+
+    // Check if query already exists
+    const { data: existingQuery } = await db
+      .from('topic_queries')
+      .select('id')
+      .eq('topic_id', topicId)
+      .eq('source', q.source)
+      .eq('query_text', q.query_text)
+      .single();
+
+    if (existingQuery) continue;
 
     const { error: queryErr } = await db.from('topic_queries').insert({
       workspace_id: '00000000-0000-0000-0000-000000000001',
-      topic_id: topic!.id,
+      topic_id: topicId,
       source: q.source,
       query_text: q.query_text,
       priority: parseInt(q.priority ?? '1', 10),

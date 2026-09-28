@@ -10,17 +10,17 @@ interface SignalChartProps {
 }
 
 const COLORS: Record<string, string> = {
-  trends: '#3b82f6',    // blue
-  reddit: '#f97316',    // orange
-  hn: '#8b5cf6',        // purple
-  yt_views: '#ef4444',  // red
+  trends: 'var(--chart-1)',
+  yt_views: 'var(--chart-2)',
+  hn: 'var(--chart-3)',
+  stackexchange: 'var(--chart-4)',
 };
 
 const LABELS: Record<string, string> = {
   trends: 'Google Trends',
-  reddit: 'Reddit',
-  hn: 'Hacker News',
   yt_views: 'Vues YouTube',
+  hn: 'Hacker News',
+  stackexchange: 'Stack Exchange',
 };
 
 const W = 600;
@@ -34,7 +34,7 @@ export function SignalChart({ series }: SignalChartProps) {
 
   if (allSources.length === 0) {
     return (
-      <p className="text-sm text-gray-400 italic">
+      <p className="text-sm text-muted-foreground italic">
         Aucune donnée de signal pour ce sujet.
       </p>
     );
@@ -71,7 +71,7 @@ export function SignalChart({ series }: SignalChartProps) {
               y1={y}
               x2={W - PAD}
               y2={y}
-              stroke="#e5e7eb"
+              stroke="var(--border)"
               strokeWidth={0.5}
             />
           );
@@ -99,7 +99,7 @@ export function SignalChart({ series }: SignalChartProps) {
               key={source}
               d={pathData}
               fill="none"
-              stroke={COLORS[source] ?? '#999'}
+              stroke={COLORS[source] ?? 'var(--muted-foreground)'}
               strokeWidth={2}
               opacity={0.8}
             />
@@ -115,7 +115,7 @@ export function SignalChart({ series }: SignalChartProps) {
               x={toX(date)}
               y={H + 5}
               textAnchor="middle"
-              className="fill-gray-400"
+              className="fill-muted-foreground"
               fontSize={10}
             >
               {date.slice(5)}
@@ -129,9 +129,9 @@ export function SignalChart({ series }: SignalChartProps) {
           <div key={source} className="flex items-center gap-1">
             <span
               className="inline-block w-3 h-0.5 rounded"
-              style={{ backgroundColor: COLORS[source] ?? '#999' }}
+              style={{ backgroundColor: COLORS[source] ?? 'var(--muted-foreground)' }}
             />
-            <span className="text-gray-600">
+            <span className="text-muted-foreground">
               {LABELS[source] ?? source} ({series[source].length} pts)
             </span>
           </div>

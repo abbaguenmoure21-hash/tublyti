@@ -1,11 +1,14 @@
-'use client';
-
-import { useEffect, useState, useCallback } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Skeleton } from '@/components/ui/skeleton';
-import { MessageSquareWarning, AlertTriangle, ThumbsUp } from 'lucide-react';
+import { MessageSquareWarning, AlertTriangle, ThumbsUp, TrendingUp } from 'lucide-react';
+import { createServiceClient } from '@/lib/supabase/server';
+import { LabelCorrector } from './_components/label-corrector';
+import { NicheFilter } from './_components/niche-filter';
+import { OutlierBadge } from '@/components/tublyti/outlier-badge';
+
+/* ------------------------------------------------------------------ */
+/*  Types & constants                                                  */
+/* ------------------------------------------------------------------ */
 
 interface FrustrationItem {
   commentId: string;
@@ -23,101 +26,273 @@ interface FrustrationItem {
 
 const LABEL_NAMES: Record<string, string> = {
   no_one_explains: 'Personne ne traite',
-  wish_video_on: 'Souhait de video',
+  wish_video_on: 'Souhait de vidéo',
   stopped_too_early: 'Trop court',
   searched_long: 'Longue recherche',
   none: 'Aucun',
 };
 
-const LABEL_COLORS: Record<string, string> = {
-  no_one_explains: 'bg-red-100 text-red-800',
-  wish_video_on: 'bg-blue-100 text-blue-800',
-  stopped_too_early: 'bg-amber-100 text-amber-800',
-  searched_long: 'bg-purple-100 text-purple-800',
-  none: 'bg-gray-100 text-gray-600',
-};
-
-const ALL_LABELS = [
-  'no_one_explains',
-  'wish_video_on',
-  'stopped_too_early',
-  'searched_long',
-  'none',
-] as const;
-
 function LabelBadge({ label }: { label: string }) {
   const name = LABEL_NAMES[label] ?? label;
 
-  switch (label) {
-    case 'no_one_explains':
-      return <Badge variant="destructive">{name}</Badge>;
-    case 'wish_video_on':
-      return <Badge variant="default">{name}</Badge>;
-    case 'stopped_too_early':
-      return (
-        <Badge variant="secondary" className="bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">
-          {name}
-        </Badge>
-      );
-    case 'searched_long':
-      return (
-        <Badge variant="outline" className="border-purple-300 text-purple-700 dark:border-purple-600 dark:text-purple-400">
-          {name}
-        </Badge>
-      );
-    default:
-      return <Badge variant="secondary">{name}</Badge>;
-  }
-}
-
-export default function FrustrationsPage() {
-  const [items, setItems] = useState<FrustrationItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [filterNiche, setFilterNiche] = useState<string>('');
-  const [editing, setEditing] = useState<string | null>(null);
-
-  const fetchData = useCallback(async () => {
-    try {
-      const res = await fetch('/api/frustrations');
-      if (!res.ok) throw new Error('Erreur lors du chargement');
-      const data = await res.json();
-      setItems(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erreur inconnue');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
-
-  const handleCorrect = async (
-    commentId: string,
-    newLabel: string,
-  ) => {
-    try {
-      const res = await fetch(`/api/frustrations/${commentId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ label: newLabel }),
-      });
-      if (!res.ok) throw new Error('Erreur de correction');
-      setEditing(null);
-      fetchData();
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Erreur');
-    }
+  const LABEL_CLASSES: Record<string, string> = {
+    no_one_explains: 'bg-phase-3-soft text-phase-3-ink',
+    wish_video_on: 'bg-primary-soft text-primary-ink',
+    stopped_too_early: 'bg-phase-1-soft text-phase-1-ink',
+    searched_long: 'bg-phase-0-soft text-phase-0-ink',
   };
 
+  const classes = LABEL_CLASSES[label];
+  if (classes) {
+    return <Badge className={classes}>{name}</Badge>;
+  }
+  return <Badge variant="secondary">{name}</Badge>;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Data fetching                                                      */
+/* ------------------------------------------------------------------ */
+
+async function getFrustrations(): Promise<FrustrationItem[]> {
+  const db = createServiceClient();
+
+  const { data, error } = await db
+    .from('comment_labels')
+    .select(
+      `
+      comment_id,
+      label,
+      requested_angle,
+      confidence,
+      model,
+      labeled_at,
+      comments!inner (
+        id,
+        text,
+        like_count,
+        published_at,
+        video_id,
+        videos!inner (
+          id,
+          title,
+          channel_id,
+          channels!inner (
+            title,
+            niche_id,
+            niches!inner ( name )
+          )
+        )
+      )
+    `,
+    )
+    .neq('label', 'none')
+    .order('labeled_at', { ascending: false })
+    .limit(200);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  const items: FrustrationItem[] = (data ?? []).map(
+    (row: Record<string, unknown>) => {
+      const comment = row.comments as Record<string, unknown>;
+      const video = comment.videos as Record<string, unknown>;
+      const channel = video.channels as Record<string, unknown>;
+      const niche = channel.niches as Record<string, unknown>;
+
+      return {
+        commentId: row.comment_id as string,
+        label: row.label as string,
+        requestedAngle: (row.requested_angle as string) ?? null,
+        confidence: row.confidence as number,
+        model: row.model as string,
+        commentText: comment.text as string,
+        likeCount: (comment.like_count as number) ?? 0,
+        videoId: video.id as string,
+        videoTitle: video.title as string,
+        channelTitle: channel.title as string,
+        nicheName: niche.name as string,
+      };
+    },
+  );
+
+  items.sort((a, b) => b.likeCount - a.likeCount);
+
+  return items;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Outlier types & fetch                                              */
+/* ------------------------------------------------------------------ */
+
+interface OutlierVideo {
+  videoId: string;
+  videoTitle: string;
+  channelTitle: string;
+  subscriberCount: number;
+  score: number;
+  baseline: number;
+  ageDays: number;
+  method: 'same_age' | 'approximate';
+  views: number;
+}
+
+async function getSmallChannelOutliers(): Promise<OutlierVideo[]> {
+  const db = createServiceClient();
+
+  const { data, error } = await db
+    .from('video_outliers')
+    .select(`
+      video_id, score, baseline, age_days, method,
+      videos!inner (
+        id, title,
+        channels!inner (
+          title, subscriber_count
+        )
+      )
+    `)
+    .gte('score', 1.5)
+    .order('score', { ascending: false })
+    .limit(100);
+
+  if (error) return [];
+
+  const items: OutlierVideo[] = [];
+  for (const row of data ?? []) {
+    const video = row.videos as unknown as {
+      id: string; title: string;
+      channels: { title: string; subscriber_count: number | null };
+    };
+    const subs = video.channels?.subscriber_count ?? 0;
+    if (subs > 50_000) continue; // Only ≤50k
+
+    // Get latest views for this video
+    const { data: snaps } = await db
+      .from('video_snapshots')
+      .select('views')
+      .eq('video_id', row.video_id)
+      .order('captured_at', { ascending: false })
+      .limit(1);
+
+    items.push({
+      videoId: row.video_id as string,
+      videoTitle: video.title,
+      channelTitle: video.channels.title,
+      subscriberCount: subs,
+      score: Number(row.score),
+      baseline: Number(row.baseline),
+      ageDays: row.age_days as number,
+      method: row.method as 'same_age' | 'approximate',
+      views: snaps?.[0]?.views ?? 0,
+    });
+  }
+
+  return items.slice(0, 30);
+}
+
+function formatSubs(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)} M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)} k`;
+  return String(n);
+}
+
+function formatOutlierViews(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)} M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)} k`;
+  return String(n);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Page                                                               */
+/* ------------------------------------------------------------------ */
+
+export default async function FrustrationsPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const params = await searchParams;
+  const filterNiche =
+    typeof params.niche === 'string' ? params.niche : '';
+  const tab = typeof params.tab === 'string' ? params.tab : 'frustrations';
+
+  let items: FrustrationItem[];
+  let fetchError: string | null = null;
+  let outlierVideos: OutlierVideo[] = [];
+
+  try {
+    const [frustrationItems, outliers] = await Promise.all([
+      getFrustrations(),
+      getSmallChannelOutliers(),
+    ]);
+    items = frustrationItems;
+    outlierVideos = outliers;
+  } catch (err) {
+    items = [];
+    fetchError =
+      err instanceof Error ? err.message : 'Erreur inconnue';
+  }
+
+  /* ---------------------------------------------------------------- */
+  /*  Error state                                                      */
+  /* ---------------------------------------------------------------- */
+  if (fetchError) {
+    return (
+      <div className="p-6 md:p-8 max-w-6xl mx-auto space-y-6">
+        <h1 className="text-2xl font-bold tracking-tight">Que réclament les spectateurs ?</h1>
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center py-16 text-center">
+            <AlertTriangle className="size-10 text-destructive mb-4" />
+            <p className="text-sm font-medium text-destructive">
+              {fetchError}
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Vérifiez votre connexion et rechargez la page.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  /* ---------------------------------------------------------------- */
+  /*  Empty state                                                      */
+  /* ---------------------------------------------------------------- */
+  if (items.length === 0) {
+    return (
+      <div className="p-6 md:p-8 max-w-6xl mx-auto space-y-6">
+        <h1 className="text-2xl font-bold tracking-tight">Que réclament les spectateurs ?</h1>
+        <Card className="border-dashed border-2 border-primary/20">
+          <CardContent className="flex flex-col items-center justify-center py-16 text-center">
+            <div className="flex items-center justify-center w-12 h-12 rounded-2xl bg-primary/10 text-primary mb-4">
+              <MessageSquareWarning className="size-6" />
+            </div>
+            <p className="font-semibold text-foreground">
+              Aucune frustration détectée pour l&apos;instant
+            </p>
+            <p className="text-sm text-muted-foreground mt-2 max-w-md">
+              TubLyTI analyse les commentaires YouTube pour détecter les besoins
+              non satisfaits des spectateurs : sujets non traités, vidéos trop
+              courtes, demandes explicites.
+            </p>
+            <p className="text-xs text-muted-foreground mt-4">
+              Les frustrations apparaîtront automatiquement après la prochaine
+              collecte et classification.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  /* ---------------------------------------------------------------- */
+  /*  Filter & group                                                   */
+  /* ---------------------------------------------------------------- */
   const niches = [...new Set(items.map((i) => i.nicheName))];
   const filtered = filterNiche
     ? items.filter((i) => i.nicheName === filterNiche)
     : items;
 
-  // Group by niche then by video
   const grouped = new Map<string, Map<string, FrustrationItem[]>>();
   for (const item of filtered) {
     if (!grouped.has(item.nicheName)) grouped.set(item.nicheName, new Map());
@@ -127,93 +302,17 @@ export default function FrustrationsPage() {
     nicheGroup.get(videoKey)!.push(item);
   }
 
-  /* ------------------------------------------------------------------ */
-  /*  Loading state                                                      */
-  /* ------------------------------------------------------------------ */
-  if (loading) {
-    return (
-      <div className="p-6 md:p-8 max-w-6xl mx-auto space-y-6">
-        <div className="space-y-2">
-          <Skeleton className="h-8 w-48" />
-          <Skeleton className="h-4 w-80" />
-        </div>
-        <div className="space-y-4">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Card key={i}>
-              <CardContent className="space-y-3 pt-4">
-                <Skeleton className="h-4 w-full" />
-                <Skeleton className="h-4 w-3/4" />
-                <div className="flex items-center gap-2">
-                  <Skeleton className="h-5 w-24 rounded-full" />
-                  <Skeleton className="h-4 w-16" />
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  /* ------------------------------------------------------------------ */
-  /*  Error state                                                        */
-  /* ------------------------------------------------------------------ */
-  if (error) {
-    return (
-      <div className="p-6 md:p-8 max-w-6xl mx-auto space-y-6">
-        <h1 className="text-2xl font-bold tracking-tight">Frustrations</h1>
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-16 text-center">
-            <AlertTriangle className="size-10 text-destructive mb-4" />
-            <p className="text-sm font-medium text-destructive">{error}</p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Verifiez votre connexion et rechargez la page.
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
-  /* ------------------------------------------------------------------ */
-  /*  Empty state                                                        */
-  /* ------------------------------------------------------------------ */
-  if (items.length === 0) {
-    return (
-      <div className="p-6 md:p-8 max-w-6xl mx-auto space-y-6">
-        <h1 className="text-2xl font-bold tracking-tight">Frustrations</h1>
-        <Card className="border-dashed border-2 border-primary/20">
-          <CardContent className="flex flex-col items-center justify-center py-16 text-center">
-            <div className="flex items-center justify-center w-12 h-12 rounded-2xl bg-primary/10 text-primary mb-4">
-              <MessageSquareWarning className="size-6" />
-            </div>
-            <p className="font-semibold text-foreground">
-              Aucune frustration detectee pour l&apos;instant
-            </p>
-            <p className="text-sm text-muted-foreground mt-2 max-w-md">
-              TubLyTI analyse les commentaires YouTube pour detecter les besoins non satisfaits
-              des spectateurs : sujets non traites, videos trop courtes, demandes explicites.
-            </p>
-            <p className="text-xs text-muted-foreground mt-4">
-              Les frustrations apparaitront automatiquement apres la prochaine collecte et classification.
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
-  /* ------------------------------------------------------------------ */
-  /*  Main content                                                       */
-  /* ------------------------------------------------------------------ */
+  /* ---------------------------------------------------------------- */
+  /*  Main content                                                     */
+  /* ---------------------------------------------------------------- */
   return (
     <div className="p-6 md:p-8 max-w-6xl mx-auto space-y-6">
       {/* Page header */}
       <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Frustrations</h1>
+          <h1 className="text-2xl font-bold tracking-tight">Que réclament les spectateurs ?</h1>
           <p className="text-sm text-muted-foreground">
-            Commentaires exprimant un besoin non satisfait
+            Commentaires qui expriment un besoin non satisfait
           </p>
         </div>
 
@@ -221,23 +320,88 @@ export default function FrustrationsPage() {
           <Badge variant="secondary">
             {filtered.length} commentaire{filtered.length > 1 ? 's' : ''}
           </Badge>
-          <select
-            value={filterNiche}
-            onChange={(e) => setFilterNiche(e.target.value)}
-            className="h-8 rounded-lg border border-input bg-background px-3 text-sm"
-          >
-            <option value="">Toutes les niches</option>
-            {niches.map((n) => (
-              <option key={n} value={n}>
-                {n}
-              </option>
-            ))}
-          </select>
+          <NicheFilter niches={niches} />
         </div>
       </div>
 
-      {/* Grouped content */}
-      {[...grouped.entries()].map(([nicheName, videos]) => {
+      {/* Tab bar */}
+      <div className="flex gap-1 p-[3px] bg-muted rounded-[9px] w-fit">
+        <a
+          href="/frustrations"
+          className={`h-[30px] px-3 rounded-[7px] text-[13px] font-medium transition-colors flex items-center gap-1.5 ${
+            tab !== 'outliers'
+              ? 'bg-card text-foreground font-semibold shadow-[0_1px_2px_rgba(20,24,34,0.10)]'
+              : 'text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          <MessageSquareWarning className="w-3.5 h-3.5" />
+          Frustrations
+        </a>
+        <a
+          href="/frustrations?tab=outliers"
+          className={`h-[30px] px-3 rounded-[7px] text-[13px] font-medium transition-colors flex items-center gap-1.5 ${
+            tab === 'outliers'
+              ? 'bg-card text-foreground font-semibold shadow-[0_1px_2px_rgba(20,24,34,0.10)]'
+              : 'text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          <TrendingUp className="w-3.5 h-3.5" />
+          Outliers petites chaînes
+          {outlierVideos.length > 0 && (
+            <Badge variant="secondary" className="ml-1 text-[11px] h-5">{outlierVideos.length}</Badge>
+          )}
+        </a>
+      </div>
+
+      {/* Outliers tab content */}
+      {tab === 'outliers' && (
+        <div className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Vidéos de chaînes ≤ 50 k abonnés qui surperforment la médiane de leur chaîne.
+          </p>
+          {outlierVideos.length === 0 ? (
+            <Card>
+              <CardContent className="py-8 text-center text-sm text-muted-foreground">
+                Aucun outlier de petite chaîne détecté.
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="bg-card border border-border rounded-[10px] shadow-[0_1px_2px_rgba(20,24,34,0.06)] overflow-hidden">
+              <div
+                className="grid h-10 items-center px-[18px] bg-background border-b border-border text-[12px] font-medium text-muted-foreground"
+                style={{ gridTemplateColumns: '2.5fr 1.2fr 0.8fr 0.8fr 0.7fr' }}
+              >
+                <span>Vidéo</span>
+                <span>Chaîne</span>
+                <span>Vues</span>
+                <span>Abonnés</span>
+                <span>Score</span>
+              </div>
+              {outlierVideos.map((v) => (
+                <a
+                  key={v.videoId}
+                  href={`https://www.youtube.com/watch?v=${v.videoId}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="grid h-11 items-center px-[18px] border-b border-muted text-[14px] text-foreground transition-colors hover:bg-muted/50 last:border-0"
+                  style={{ gridTemplateColumns: '2.5fr 1.2fr 0.8fr 0.8fr 0.7fr' }}
+                >
+                  <span className="font-medium truncate">{v.videoTitle}</span>
+                  <span className="text-muted-foreground truncate">{v.channelTitle}</span>
+                  <span className="tabular-nums text-muted-foreground">{formatOutlierViews(v.views)}</span>
+                  <span className="tabular-nums text-muted-foreground">{formatSubs(v.subscriberCount)}</span>
+                  <span>
+                    <OutlierBadge score={v.score} ageDays={v.ageDays} method={v.method} baseline={v.baseline} />
+                  </span>
+                </a>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Frustrations tab content */}
+      {tab !== 'outliers' && [...grouped.entries()].map(([nicheName, videos]) => {
         const nicheCount = [...videos.values()].reduce(
           (sum, arr) => sum + arr.length,
           0,
@@ -272,7 +436,7 @@ export default function FrustrationsPage() {
                             {item.commentText}
                           </p>
                           {item.requestedAngle && (
-                            <p className="mt-1.5 text-xs text-indigo-600 italic dark:text-indigo-400">
+                            <p className="mt-1.5 text-xs text-primary-ink italic">
                               Angle : {item.requestedAngle}
                             </p>
                           )}
@@ -286,46 +450,14 @@ export default function FrustrationsPage() {
                             <ThumbsUp className="size-3" />
                             {item.likeCount}
                             {' · '}
-                            {Math.round(item.confidence * 100)}%
-                            {item.model === 'human' && ' · corrige'}
+                            {Math.round(item.confidence * 100)} %
+                            {item.model === 'human' && ' · corrigé'}
                           </span>
 
-                          {editing === item.commentId ? (
-                            <div className="flex flex-wrap gap-1">
-                              {ALL_LABELS.map((l) => (
-                                <Button
-                                  key={l}
-                                  variant="outline"
-                                  size="xs"
-                                  onClick={() =>
-                                    handleCorrect(item.commentId, l)
-                                  }
-                                  className={
-                                    l === item.label
-                                      ? 'ring-2 ring-primary'
-                                      : ''
-                                  }
-                                >
-                                  {LABEL_NAMES[l]}
-                                </Button>
-                              ))}
-                              <Button
-                                variant="ghost"
-                                size="xs"
-                                onClick={() => setEditing(null)}
-                              >
-                                annuler
-                              </Button>
-                            </div>
-                          ) : (
-                            <Button
-                              variant="ghost"
-                              size="xs"
-                              onClick={() => setEditing(item.commentId)}
-                            >
-                              corriger
-                            </Button>
-                          )}
+                          <LabelCorrector
+                            commentId={item.commentId}
+                            currentLabel={item.label}
+                          />
                         </div>
                       </div>
                     </CardContent>

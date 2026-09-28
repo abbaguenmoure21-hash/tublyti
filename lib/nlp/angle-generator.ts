@@ -3,17 +3,26 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 
 // ── Constants ────────────────────────────────────────────────────────
-const PROMPT_VERSION = 'angles_v1';
+const PROMPT_VERSION = 'angles_v2';
 const MODEL = 'claude-sonnet-4-20250514';
 const MODEL_TAG = `sonnet-4-${PROMPT_VERSION}`;
+
+import { estimateAngleCostUSD } from './angle-costs';
+
+// Re-export for API route consumers
+export { estimateAngleCostUSD } from './angle-costs';
 
 // Sonnet pricing per million tokens
 const INPUT_COST_PER_MTOK = 3.0;
 const OUTPUT_COST_PER_MTOK = 15.0;
-const EST_INPUT_TOKENS = 2000; // system + context
-const EST_OUTPUT_TOKENS = 1200; // 5 angles JSON
 
 // ── Types ────────────────────────────────────────────────────────────
+
+export interface TitlePattern {
+  formula: string;
+  description: string;
+  examples: string[];
+}
 
 export interface AngleInput {
   topicLabel: string;
@@ -22,18 +31,23 @@ export interface AngleInput {
   phase: number | null;
   frustrations: { text: string; label: string; requestedAngle: string | null; likeCount: number }[];
   competitors: { title: string; channelTitle: string }[];
+  titlePatterns?: TitlePattern[];
 }
 
 export interface GeneratedAngle {
   title: string;
   hook: string;
   rationale: string;
+  formula: string | null;
+  frustration_resolved: string | null;
 }
 
 export interface AngleGenerationResult {
   angles: GeneratedAngle[];
   model: string;
   costUSD: number;
+  tokensIn: number;
+  tokensOut: number;
 }
 
 // ── Interface ────────────────────────────────────────────────────────
@@ -47,7 +61,7 @@ export interface AngleGenerator {
 
 function loadSystemPrompt(): string {
   return readFileSync(
-    join(process.cwd(), 'lib/nlp/prompts/angles_v1.md'),
+    join(process.cwd(), 'lib/nlp/prompts/angles_v2.md'),
     'utf-8',
   );
 }
@@ -78,13 +92,17 @@ function buildUserMessage(input: AngleInput): string {
     lines.push(`- ${c.title} (${c.channelTitle})`);
   }
 
-  return lines.join('\n');
-}
+  if (input.titlePatterns && input.titlePatterns.length > 0) {
+    lines.push('', '## Formules de titres dominantes dans la niche');
+    for (const p of input.titlePatterns) {
+      lines.push(`- **${p.formula}** : ${p.description}`);
+      if (p.examples.length > 0) {
+        lines.push(`  Exemples : ${p.examples.slice(0, 3).join(' | ')}`);
+      }
+    }
+  }
 
-export function estimateAngleCostUSD(): number {
-  const inputCost = (EST_INPUT_TOKENS * INPUT_COST_PER_MTOK) / 1_000_000;
-  const outputCost = (EST_OUTPUT_TOKENS * OUTPUT_COST_PER_MTOK) / 1_000_000;
-  return inputCost + outputCost;
+  return lines.join('\n');
 }
 
 export class ClaudeAngleGenerator implements AngleGenerator {
@@ -125,6 +143,8 @@ export class ClaudeAngleGenerator implements AngleGenerator {
         title: String(a.title ?? '').slice(0, 60),
         hook: String(a.hook ?? ''),
         rationale: String(a.rationale ?? ''),
+        formula: a.formula ? String(a.formula) : null,
+        frustration_resolved: a.frustration_resolved ? String(a.frustration_resolved) : null,
       };
     });
 
@@ -135,7 +155,7 @@ export class ClaudeAngleGenerator implements AngleGenerator {
       (inputTokens * INPUT_COST_PER_MTOK) / 1_000_000 +
       (outputTokens * OUTPUT_COST_PER_MTOK) / 1_000_000;
 
-    return { angles, model: MODEL_TAG, costUSD };
+    return { angles, model: MODEL_TAG, costUSD, tokensIn: inputTokens, tokensOut: outputTokens };
   }
 }
 
@@ -151,30 +171,42 @@ export class FakeAngleGenerator implements AngleGenerator {
           title: `The Truth About ${input.topicLabel}`,
           hook: 'Nobody talks about this. Here is what you need to know.',
           rationale: 'Repond a la frustration de manque de couverture.',
+          formula: 'revelation',
+          frustration_resolved: 'Manque de couverture du sujet',
         },
         {
           title: `${input.topicLabel} Explained Simply`,
           hook: 'This topic confuses everyone. Let me break it down.',
           rationale: 'Repond a la demande de clarification.',
+          formula: 'how_i',
+          frustration_resolved: 'Contenu trop complexe',
         },
         {
           title: `Why ${input.topicLabel} Matters Now`,
           hook: 'The timing is perfect. Here is why.',
           rationale: 'Repond a la frustration de timing.',
+          formula: 'why',
+          frustration_resolved: 'Timing et pertinence',
         },
         {
           title: `${input.topicLabel}: What Experts Hide`,
           hook: 'Most guides skip this crucial step.',
           rationale: 'Repond a la frustration de contenu incomplet.',
+          formula: 'negative',
+          frustration_resolved: 'Contenu incomplet des experts',
         },
         {
           title: `Complete Guide to ${input.topicLabel}`,
           hook: 'Everything in one place. No fluff.',
           rationale: 'Repond a la demande de guide complet.',
+          formula: 'authority',
+          frustration_resolved: 'Absence de guide complet',
         },
       ],
       model: 'fake',
       costUSD: 0,
+      tokensIn: 0,
+      tokensOut: 0,
     };
   }
 }

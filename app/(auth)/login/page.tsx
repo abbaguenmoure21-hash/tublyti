@@ -85,7 +85,7 @@ export default function LoginPage() {
     });
 
     if (authError) {
-      setError('Identifiants incorrects. Veuillez reessayer.');
+      setError('Identifiants incorrects. Veuillez réessayer.');
       setLoading(false);
       return;
     }
@@ -101,7 +101,7 @@ export default function LoginPage() {
     setSuccess(null);
 
     if (password.length < 6) {
-      setError('Le mot de passe doit contenir au moins 6 caracteres.');
+      setError('Le mot de passe doit contenir au moins 6 caractères.');
       setLoading(false);
       return;
     }
@@ -114,7 +114,7 @@ export default function LoginPage() {
       return;
     }
 
-    setSuccess('Compte cree. Verifiez votre email pour confirmer, puis connectez-vous.');
+    setSuccess('Compte créé. Vérifiez votre email pour confirmer, puis connectez-vous.');
     setMode('login');
     setLoading(false);
   }
@@ -131,12 +131,12 @@ export default function LoginPage() {
     });
 
     if (resetError) {
-      setError('Impossible d\u2019envoyer le lien. Verifiez votre adresse email.');
+      setError('Impossible d\u2019envoyer le lien. Vérifiez votre adresse email.');
       setLoading(false);
       return;
     }
 
-    setSuccess('Un lien de reinitialisation a ete envoye a votre adresse email.');
+    setSuccess('Un lien de réinitialisation a été envoyé à votre adresse email.');
     setLoading(false);
   }
 
@@ -224,7 +224,7 @@ export default function LoginPage() {
           <div className="text-center">
             <h1 className="text-3xl font-bold tracking-tight">TubLyTI</h1>
             <p className="text-sm text-muted-foreground mt-1">
-              Detectez les opportunites YouTube avant tout le monde
+              Détectez les opportunités YouTube avant tout le monde
             </p>
           </div>
         </div>
@@ -232,14 +232,14 @@ export default function LoginPage() {
         <Card className="glass border-border/30 shadow-2xl shadow-primary/10">
           <CardHeader className="pb-4">
             <CardTitle className="text-lg">
-              {mode === 'login' ? 'Connexion' : mode === 'signup' ? 'Inscription' : 'Mot de passe oublie'}
+              {mode === 'login' ? 'Connexion' : mode === 'signup' ? 'Inscription' : 'Mot de passe oublié'}
             </CardTitle>
             <CardDescription>
               {mode === 'login'
-                ? 'Accedez a votre tableau de bord'
+                ? 'Accédez à votre tableau de bord'
                 : mode === 'signup'
-                  ? 'Creez votre compte TubLyTI'
-                  : 'Entrez votre email pour recevoir un lien de reinitialisation'}
+                  ? 'Créez votre compte TubLyTI'
+                  : 'Entrez votre email pour recevoir un lien de réinitialisation'}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -285,7 +285,7 @@ export default function LoginPage() {
                     onClick={() => { setMode('forgot'); setError(null); setSuccess(null); }}
                     className="text-xs text-muted-foreground hover:text-primary cursor-pointer"
                   >
-                    Mot de passe oublie ?
+                    Mot de passe oublié ?
                   </button>
                 </div>
               )}
@@ -344,7 +344,7 @@ export default function LoginPage() {
                       onClick={() => { setMode('login'); setError(null); setSuccess(null); }}
                       className="text-primary font-medium hover:underline cursor-pointer"
                     >
-                      Retour a la connexion
+                      Retour à la connexion
                     </button>
                   </>
                 )}

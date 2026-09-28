@@ -14,6 +14,7 @@ export interface VideoInfo {
   title: string;
   publishedAt: string;
   durationSeconds: number;
+  thumbnailUrl: string | null;
 }
 
 export interface VideoSnapshot {
@@ -21,6 +22,8 @@ export interface VideoSnapshot {
   views: number;
   likes: number;
   comments: number;
+  title?: string;
+  thumbnailUrl?: string;
 }
 
 export interface CommentThread {
@@ -162,14 +165,17 @@ export class RealYouTubeClient implements YouTubeClient {
       })) as { items?: Array<Record<string, unknown>> };
 
       for (const item of data.items ?? []) {
-        const snippet = item.snippet as Record<string, string>;
+        const snippet = item.snippet as Record<string, unknown>;
         const cd = item.contentDetails as Record<string, string>;
+        const thumbnails = snippet.thumbnails as Record<string, { url?: string }> | undefined;
+        const thumbUrl = thumbnails?.medium?.url ?? thumbnails?.default?.url ?? null;
         results.push({
           id: item.id as string,
-          channelId: snippet.channelId,
-          title: snippet.title,
-          publishedAt: snippet.publishedAt,
+          channelId: snippet.channelId as string,
+          title: snippet.title as string,
+          publishedAt: snippet.publishedAt as string,
           durationSeconds: parseDuration(cd.duration ?? ''),
+          thumbnailUrl: thumbUrl,
         });
       }
     }
@@ -182,18 +188,22 @@ export class RealYouTubeClient implements YouTubeClient {
       const batch = ids.slice(i, i + 50);
       this.checkQuota(1);
       const data = (await this.fetch('videos', {
-        part: 'statistics',
+        part: 'snippet,statistics',
         id: batch.join(','),
         maxResults: '50',
       })) as { items?: Array<Record<string, unknown>> };
 
       for (const item of data.items ?? []) {
         const stats = item.statistics as Record<string, string>;
+        const snippet = item.snippet as Record<string, unknown> | undefined;
+        const thumbnails = snippet?.thumbnails as Record<string, { url?: string }> | undefined;
         results.push({
           videoId: item.id as string,
           views: parseInt(stats.viewCount ?? '0', 10),
           likes: parseInt(stats.likeCount ?? '0', 10),
           comments: parseInt(stats.commentCount ?? '0', 10),
+          title: snippet?.title as string | undefined,
+          thumbnailUrl: thumbnails?.medium?.url ?? thumbnails?.default?.url,
         });
       }
     }

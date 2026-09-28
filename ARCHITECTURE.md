@@ -3,7 +3,7 @@
 ## Vue d'ensemble
 
 ```
-[YouTube Data API] [Reddit API] [HN Algolia] [SerpApi Trends]
+[YouTube Data API] [Stack Exchange] [HN Algolia] [SerpApi Trends]
         │               │            │             │
         └───────────────┴─────┬──────┴─────────────┘
                               ▼
@@ -39,7 +39,7 @@ lib/
   youtube/client.ts                YouTubeClient (fetch + comptage quota)
   youtube/quota.ts
   providers/trends.ts              TrendProvider (SerpApi, SearchApi)
-  providers/social.ts              SocialProvider (Reddit, HN)
+  providers/social.ts              SocialProvider (HN, Stack Exchange)
   providers/embeddings.ts          EmbeddingProvider
   nlp/classifier.ts                LLMClassifier (Haiku Batch)
   nlp/prompts/                     prompts versionnés
@@ -87,7 +87,7 @@ create table topic_queries (
   id uuid primary key default gen_random_uuid(),
   workspace_id uuid not null,
   topic_id uuid references topics(id) on delete cascade,
-  source text not null,                  -- youtube, trends, reddit, hn
+  source text not null,                  -- youtube, trends, hn, stackexchange
   query_text text not null,
   priority smallint default 1
 );
@@ -143,7 +143,7 @@ create table comment_labels (
 
 create table trend_points (
   topic_id uuid references topics(id) on delete cascade,
-  source text not null,                  -- trends, reddit, hn, yt_views
+  source text not null,                  -- trends, hn, stackexchange, yt_views
   captured_at date not null,
   value numeric not null,
   primary key (topic_id, source, captured_at)
@@ -192,11 +192,11 @@ create index on topics using ivfflat (embedding vector_cosine_ops);
 
 Voir `lib/scoring/mgi.ts`. Formule : `MGI = D × (1 + F) / (1 + O_q) × P`.
 
-- `D` = moyenne pondérée (0,4 Trends 90 j, 0,3 vues/vidéo 30 j, 0,3 Reddit+HN 30 j), chaque signal converti en percentile parmi les sujets actifs du workspace. Poids dans `settings.mgi_weights`.
+- `D` = moyenne pondérée (0,4 Trends 90 j, 0,3 vues/vidéo 30 j, 0,3 HN+Stack Exchange 30 j), chaque signal converti en percentile parmi les sujets actifs du workspace. Poids dans `settings.mgi_weights`.
 - `F` = part des commentaires du sujet avec label ≠ `none` et `confidence ≥ 0,7`.
 - `O_q` = nombre de vidéos qualifiées publiées sur 180 j + 0,3 × nombre de vidéos anciennes (≥ 2 ans) faisant encore ≥ 10 000 vues/mois.
 - `P` = `niches.rpm_coefficient`.
-- Phase : 0 si Reddit/HN en hausse et O_q = 0 ; 2 si Trends +30 % sur 90 j et O_q ≤ 3 ; 3 si ≥ 5 vidéos qualifiées en 72 h ; sinon 1.
+- Phase : 0 si HN/Stack Exchange en hausse et O_q = 0 ; 2 si Trends +30 % sur 90 j et O_q ≤ 3 ; 3 si ≥ 5 vidéos qualifiées en 72 h ; sinon 1.
 
 ## Budget quota YouTube par nuit (cible < 3 000 unités)
 
@@ -218,7 +218,7 @@ YOUTUBE_API_KEY, YT_QUOTA_SOFT_LIMIT=8000
 ANTHROPIC_API_KEY, AI_BUDGET_USD=30
 VOYAGE_API_KEY, EMBEDDING_PROVIDER=voyage, EMBEDDING_MODEL=voyage-4-lite, EMBEDDING_BASE_URL=https://ai.mongodb.com/v1
 SERPAPI_KEY, TREND_PROVIDER=serpapi
-REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, REDDIT_USER_AGENT
+STACKEXCHANGE_KEY (facultatif)
 RESEND_API_KEY, ALERT_EMAIL
 CRON_SECRET, MCP_TOKEN
 ```

@@ -1,6 +1,7 @@
 import { SupabaseClient } from '@supabase/supabase-js';
 import type { YouTubeClient } from './client';
 import { QuotaSoftLimitReached } from './quota';
+import { detectChanges, detectSpikes, recordEvents, recordNewUploads } from './detect-events';
 
 const SUBSCRIBER_THRESHOLD = 10000;
 const DURATION_THRESHOLD = 480;
@@ -15,6 +16,7 @@ export interface CollectResult {
   snapshotsTaken: number;
   commentsImported: number;
   commentsPurged: number;
+  eventsRecorded: number;
   quotaUsed: number;
   stoppedByQuota: boolean;
   stoppedByTimeout: boolean;
@@ -31,6 +33,7 @@ export async function runCollect(
     snapshotsTaken: 0,
     commentsImported: 0,
     commentsPurged: 0,
+    eventsRecorded: 0,
     quotaUsed: 0,
     stoppedByQuota: false,
     stoppedByTimeout: false,
@@ -130,9 +133,16 @@ export async function runCollect(
           title: video.title,
           published_at: video.publishedAt,
           duration_s: video.durationSeconds,
+          thumbnail_url: video.thumbnailUrl,
           is_qualified: isQualified,
         });
         result.videosDiscovered++;
+      }
+
+      // Record new_upload events
+      if (newIds.length > 0) {
+        const recorded = await recordNewUploads(db, newIds);
+        result.eventsRecorded += recorded;
       }
     }
 
@@ -202,6 +212,17 @@ export async function runCollect(
           { onConflict: 'video_id,captured_at' },
         );
         result.snapshotsTaken++;
+      }
+
+      // Detect title/thumbnail changes and view spikes
+      const [changeEvents, spikeEvents] = await Promise.all([
+        detectChanges(db, snapshots),
+        detectSpikes(db, snapshots),
+      ]);
+      const allEvents = [...changeEvents, ...spikeEvents];
+      if (allEvents.length > 0) {
+        const recorded = await recordEvents(db, allEvents);
+        result.eventsRecorded += recorded;
       }
 
       // Update is_qualified with view ratio — batch-fetch video & channel data

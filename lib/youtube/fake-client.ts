@@ -57,6 +57,7 @@ export class FakeYouTubeClient implements YouTubeClient {
       title: `Fake Video ${id}`,
       publishedAt: new Date().toISOString(),
       durationSeconds: 600,
+      thumbnailUrl: null,
     }));
   }
 
