@@ -7,3 +7,10 @@ node_modules/
 *.log
 .DS_Store
 tsconfig.tsbuildinfo
+
+# Temp scripts
+query*.ts
+test_*.ts
+test-score.ts
+page_output.html
+supabase/.temp/

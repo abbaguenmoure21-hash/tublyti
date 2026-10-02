@@ -1,8 +1,17 @@
 export { PhaseBadge, phaseColor, PHASE_LABELS } from './phase-badge';
+export { PhaseBadgeAnimated } from './phase-badge-animated';
+export { PHASE_LABELS as PHASE_LABELS_V2 } from './phase-badge-animated';
 export { MgiScore } from './mgi-score';
+export { LiquidMgiDial } from './liquid-mgi-dial';
 export { KpiCard } from './kpi-card';
 export { PageHeader } from './page-header';
 export { EmptyState } from './empty-state';
 export { ErrorState } from './error-state';
 export { DataTable } from './data-table';
 export type { Column } from './data-table';
+export { JuicyCard } from './juicy-card';
+export { GlassPanel } from './glass-panel';
+export { SegmentedControl } from './segmented-control';
+export { HapticButton } from './haptic-button';
+export { SparklineChart } from './sparkline-chart';
+export { QuotaDial } from './quota-dial';

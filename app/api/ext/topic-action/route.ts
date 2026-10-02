@@ -70,6 +70,9 @@ export async function POST(request: NextRequest) {
 
         const angleRes = await fetch(`${baseUrl}/api/topics/${topic_id}/angles`, {
           method: 'POST',
+          headers: {
+            Authorization: `Bearer ${process.env.CRON_SECRET}`
+          }
         });
 
         if (!angleRes.ok) {

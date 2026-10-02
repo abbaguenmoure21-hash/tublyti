@@ -5,6 +5,7 @@ import {
   computeFrustration,
   computeSupplyQualified,
   computeConfidence,
+  computePercentile,
   DEFAULT_MGI_WEIGHTS,
   type MGIWeights,
   type TopicSignals,
@@ -309,10 +310,10 @@ export async function runScore(
   if (ownerChannelIds.length > 0) {
     const { data: ownerChannels } = await db
       .from('channels')
-      .select('id, subscriber_count')
-      .in('id', ownerChannelIds);
+      .select('title, subscriber_count')
+      .in('title', ownerChannelIds);
     for (const ch of ownerChannels ?? []) {
-      ownerSubsByChannel.set(ch.id, Number(ch.subscriber_count) || 0);
+      ownerSubsByChannel.set(ch.title, Number(ch.subscriber_count) || 0);
     }
   }
 
@@ -375,7 +376,21 @@ export async function runScore(
     qualifiedIn72h: number;
   }[] = [];
 
-  // ── Score each topic ────────────────────────────────────────────
+  // ── Pass 1: Compute raw scores for all topics ──────────────────
+  interface ComputedScore {
+    topicIndex: number;
+    demand: number;
+    frustration: number;
+    supplyQualified: number;
+    rawMgi: number;
+    phase: number;
+    confidence: ReturnType<typeof computeConfidence>;
+    feasibility: ReturnType<typeof computeFeasibility>;
+    qualifiedIn72h: number;
+  }
+
+  const computed: ComputedScore[] = [];
+
   for (let i = 0; i < topics.length; i++) {
     const topic = topics[i];
     const signals = allSignals[i];
@@ -389,7 +404,7 @@ export async function runScore(
     const oldHighView = oldHighViewByTopic.get(topic.id) ?? 0;
     const supplyQualified = computeSupplyQualified(qualifiedRecent, oldHighView);
 
-    const mgi = computeMGI({
+    const rawMgi = computeMGI({
       demand,
       frustration,
       supplyQualified,
@@ -404,7 +419,6 @@ export async function runScore(
       qualifiedIn72h,
     });
 
-    // Compute confidence
     const demandSourceCount = [signals.trends, signals.ytViews, signals.social]
       .filter((v) => v !== null).length
       + (latestSignal.has(`${topic.id}:hn`) ? 1 : 0);
@@ -414,26 +428,52 @@ export async function runScore(
       dataAgeHours: dataAgeByTopic.get(topic.id) ?? 999,
     });
 
-    // Compute feasibility
     const ownerSubs = topic.owner_channel ? (ownerSubsByChannel.get(topic.owner_channel) ?? null) : null;
     const compSubs = competitorSubsByTopic.get(topic.id) ?? [];
     const feasibility = computeFeasibility(ownerSubs, compSubs, qualifiedRecent);
+
+    computed.push({
+      topicIndex: i,
+      demand,
+      frustration,
+      supplyQualified,
+      rawMgi,
+      phase,
+      confidence,
+      feasibility,
+      qualifiedIn72h,
+    });
+  }
+
+  // ── Pass 2: Normalize MGI to 0-100 percentile within each niche ──
+  const rawMgiByNiche = new Map<string, number[]>();
+  for (const c of computed) {
+    const nicheId = topics[c.topicIndex].niche_id;
+    if (!rawMgiByNiche.has(nicheId)) rawMgiByNiche.set(nicheId, []);
+    rawMgiByNiche.get(nicheId)!.push(c.rawMgi);
+  }
+
+  // ── Pass 3: Write scores to DB ───────────────────────────────────
+  for (const c of computed) {
+    const topic = topics[c.topicIndex];
+    const nicheRawValues = rawMgiByNiche.get(topic.niche_id) ?? [c.rawMgi];
+    const mgi = computePercentile(c.rawMgi, nicheRawValues);
 
     // Write topic_scores row
     await db.from('topic_scores').upsert(
       {
         topic_id: topic.id,
         scored_at: today,
-        demand,
-        frustration,
-        supply_q: supplyQualified,
+        demand: c.demand,
+        frustration: c.frustration,
+        supply_q: c.supplyQualified,
         monetization: topic.rpm_coefficient,
         mgi,
-        phase,
-        confidence: confidence.level,
-        confidence_reason: confidence.reason,
-        feasibility_grade: feasibility.grade,
-        feasibility_reason: feasibility.reason,
+        phase: c.phase,
+        confidence: c.confidence.level,
+        confidence_reason: c.confidence.reason,
+        feasibility_grade: c.feasibility.grade,
+        feasibility_reason: c.feasibility.reason,
       },
       { onConflict: 'topic_id,scored_at' },
     );
@@ -441,7 +481,7 @@ export async function runScore(
     // Update topic phase
     await db
       .from('topics')
-      .update({ phase })
+      .update({ phase: c.phase })
       .eq('id', topic.id);
 
     result.topicsScored++;
@@ -451,18 +491,18 @@ export async function runScore(
       id: topic.id,
       label: topic.label,
       niche_id: topic.niche_id,
-      phase,
+      phase: c.phase,
       previousPhase: previousPhaseByTopic.get(topic.id) ?? null,
-      qualifiedIn72h,
+      qualifiedIn72h: c.qualifiedIn72h,
     });
 
     // ── Burn-down detection ─────────────────────────────────────
-    if (qualifiedIn72h >= 5 && topic.status === 'in_production') {
+    if (c.qualifiedIn72h >= 5 && topic.status === 'in_production') {
       const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://tublyti.vercel.app';
       await alertSender.send({
         kind: 'burn_down',
-        subject: `Sujet ${topic.label} : ${qualifiedIn72h} chaines ont publie en 72 h`,
-        body: `Sujet « ${topic.label} » : ${qualifiedIn72h} videos qualifiees publiees dans les 72 dernieres heures. Fenetre en train de se fermer.`,
+        subject: `Sujet ${topic.label} : ${c.qualifiedIn72h} chaines ont publie en 72 h`,
+        body: `Sujet « ${topic.label} » : ${c.qualifiedIn72h} videos qualifiees publiees dans les 72 dernieres heures. Fenetre en train de se fermer.`,
         actionUrl: `${baseUrl}/topics/${topic.id}`,
         actionLabel: 'Voir la fiche sujet',
       });

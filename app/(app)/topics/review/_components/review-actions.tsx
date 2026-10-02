@@ -47,19 +47,20 @@ export function ReviewActions({ topicId, mergeTargets }: ReviewActionsProps) {
         <Button
           onClick={() => handleAction('accept')}
           disabled={isActing}
-          className="bg-success hover:bg-success/90 text-white"
+          className="haptic-btn h-[32px] px-4 rounded-full bg-success/10 hover:bg-success/20 text-success border border-success/20 shadow-sm font-bold text-[13px] transition-all"
         >
           <Check className="size-4" />
           {currentAction === 'accept' ? 'Validation...' : 'Accepter'}
         </Button>
 
         <Button
-          variant="destructive"
+          variant="outline"
           size="sm"
           onClick={() => handleAction('reject')}
           disabled={isActing}
+          className="haptic-btn h-[32px] px-4 rounded-full bg-destructive/5 hover:bg-destructive/10 text-destructive border border-destructive/20 shadow-sm font-bold text-[13px] transition-all"
         >
-          <X className="size-3.5" />
+          <X className="size-4" />
           {currentAction === 'reject' ? 'Rejet...' : 'Rejeter'}
         </Button>
       </div>
@@ -69,7 +70,7 @@ export function ReviewActions({ topicId, mergeTargets }: ReviewActionsProps) {
         <select
           value={mergeTarget}
           onChange={(e) => setMergeTarget(e.target.value)}
-          className="h-8 rounded-lg border border-border bg-background px-2 text-sm max-w-[250px] focus:outline-none focus:ring-2 focus:ring-ring/50"
+          className="h-[32px] rounded-full border border-black/10 dark:border-white/10 bg-white/50 dark:bg-[#1C1C1E] px-3 text-[13px] font-medium max-w-[250px] shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all cursor-pointer"
         >
           <option value="">Fusionner avec...</option>
           {mergeTargets.map((t) => (
@@ -81,6 +82,7 @@ export function ReviewActions({ topicId, mergeTargets }: ReviewActionsProps) {
         </select>
         <Button
           variant="outline"
+          size="sm"
           onClick={() => {
             if (!mergeTarget) {
               toast.warning('Sélectionnez un sujet cible pour la fusion.');
@@ -89,6 +91,7 @@ export function ReviewActions({ topicId, mergeTargets }: ReviewActionsProps) {
             handleAction('merge', mergeTarget);
           }}
           disabled={isActing || !mergeTarget}
+          className="haptic-btn h-[32px] px-4 rounded-full font-bold text-[13px] shadow-sm transition-all bg-white dark:bg-white/10 hover:bg-black/5 dark:hover:bg-white/20 border-black/10 dark:border-white/10 text-foreground"
         >
           <GitMerge className="size-4" />
           {currentAction === 'merge' ? 'Fusion...' : 'Fusionner'}

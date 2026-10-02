@@ -17,12 +17,40 @@ if (existsSync(envPath)) {
   }
 }
 
-// ── CSV parser (simple, no dependency) ──────────────────────────────
+// ── CSV parser (handles quoted fields, no dependency) ────────────────
+function splitCSVLine(line: string): string[] {
+  const fields: string[] = [];
+  let current = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQuotes) {
+      if (ch === '"' && line[i + 1] === '"') {
+        current += '"';
+        i++;
+      } else if (ch === '"') {
+        inQuotes = false;
+      } else {
+        current += ch;
+      }
+    } else if (ch === '"') {
+      inQuotes = true;
+    } else if (ch === ',') {
+      fields.push(current.trim());
+      current = '';
+    } else {
+      current += ch;
+    }
+  }
+  fields.push(current.trim());
+  return fields;
+}
+
 function parseCSV(content: string): Record<string, string>[] {
   const lines = content.trim().split('\n');
-  const headers = lines[0].split(',').map((h) => h.trim());
-  return lines.slice(1).map((line) => {
-    const values = line.split(',').map((v) => v.trim());
+  const headers = splitCSVLine(lines[0]);
+  return lines.slice(1).filter((l) => l.trim()).map((line) => {
+    const values = splitCSVLine(line);
     const row: Record<string, string> = {};
     headers.forEach((h, i) => {
       row[h] = values[i] ?? '';
@@ -139,7 +167,8 @@ async function main() {
 
   // ── 2. Channels ─────────────────────────────────────────────────
   console.log('\nSeeding channels...');
-  const channelsCSV = parseCSV(readFileSync(resolve(seedDir, 'channels.csv'), 'utf-8'));
+  const channelsFile = process.argv[2] || 'channels.csv';
+  const channelsCSV = parseCSV(readFileSync(resolve(seedDir, channelsFile), 'utf-8'));
 
   const handleEntries: { handle: string; niche: string }[] = [];
   const idEntries: { id: string; niche: string }[] = [];

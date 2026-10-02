@@ -40,7 +40,7 @@ export function CandidateActions({
       <select
         value={selectedNiche}
         onChange={(e) => setSelectedNiche(e.target.value)}
-        className="h-[30px] px-2 rounded-md border border-border bg-card text-[13px] text-foreground"
+        className="h-[32px] rounded-full border border-black/10 dark:border-white/10 bg-white/50 dark:bg-[#1C1C1E] px-3 text-[12px] font-bold max-w-[120px] shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all cursor-pointer truncate"
         disabled={isPending}
       >
         {niches.map((n) => (
@@ -57,7 +57,7 @@ export function CandidateActions({
           });
         }}
         disabled={isPending || !selectedNiche}
-        className="h-[30px] px-3 rounded-md bg-primary text-primary-foreground text-[13px] font-medium hover:bg-primary/90 transition-colors disabled:opacity-50 cursor-pointer"
+        className="haptic-btn h-[32px] px-3 rounded-full bg-success/10 text-success border border-success/20 text-[12px] font-bold hover:bg-success/20 transition-all shadow-sm disabled:opacity-50 cursor-pointer"
       >
         Suivre
       </button>
@@ -69,7 +69,7 @@ export function CandidateActions({
           });
         }}
         disabled={isPending}
-        className="h-[30px] px-3 rounded-md border border-border text-[13px] font-medium hover:bg-muted transition-colors disabled:opacity-50 cursor-pointer"
+        className="haptic-btn h-[32px] px-3 rounded-full border border-black/10 dark:border-white/10 bg-white dark:bg-white/10 text-foreground text-[12px] font-bold hover:bg-black/5 dark:hover:bg-white/20 transition-all shadow-sm disabled:opacity-50 cursor-pointer"
       >
         Ignorer
       </button>

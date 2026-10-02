@@ -1,8 +1,11 @@
 /**
- * Additional channel discovery sources beyond search.list:
+ * Channel discovery sources:
  * - channelSections.list: recommended channels by followed channels
- * - trending videos: mostPopular by category
- * - comment authors: active channel owners commenting on niche videos
+ * - (search results: handled by search.ts, channels appear in search_results)
+ * - (manual/vidIQ import: handled by seed.ts)
+ *
+ * REMOVED: trending (mostPopular) and comment authors — these bring
+ * irrelevant channels from outside the niche.
  *
  * All discovered channels go to candidate_channels for triage.
  */
@@ -45,7 +48,7 @@ export async function discoverFromChannelSections(
   // Get followed channels, prioritize those not yet scanned for sections
   const { data: channels } = await db
     .from('channels')
-    .select('id')
+    .select('id, niche_id')
     .order('last_checked_at', { ascending: true, nullsFirst: true })
     .limit(50);
 
@@ -78,12 +81,17 @@ export async function discoverFromChannelSections(
           if (knownIds.has(channelId)) continue;
           knownIds.add(channelId);
 
-          await db.from('candidate_channels').upsert({
+          const { error } = await db.from('candidate_channels').upsert({
             id: channelId,
             discovered_via: 'channel_section',
+            niche_id: channel.niche_id,
             status: 'pending',
           }, { onConflict: 'id' });
-          result.channelsDiscovered++;
+          if (error) {
+            console.error(`candidate_channels upsert error: ${error.message}`);
+          } else {
+            result.channelsDiscovered++;
+          }
         }
       }
     } catch {
@@ -95,21 +103,13 @@ export async function discoverFromChannelSections(
 }
 
 /**
- * Discover channels from trending/mostPopular videos by category.
- * Categories: Education (27), Science & Technology (28), News & Politics (25), Entertainment (24)
- * Countries: US, GB, CA, AU
- * Cost: 1 quota unit per category×country combination.
+ * Discover channels from search_results that are not yet followed or candidates.
+ * Zero quota — reads from existing search_results table.
  */
-export async function discoverFromTrending(
+export async function discoverFromSearchResults(
   db: SupabaseClient,
-  deadlineMs: number,
-  quotaBudget: number,
 ): Promise<DiscoverySourceResult> {
-  const result: DiscoverySourceResult = { channelsDiscovered: 0, quotaUsed: 0, source: 'trending' };
-  const isTimedOut = () => Date.now() >= deadlineMs;
-
-  const categories = ['27', '28', '25', '24']; // Education, Sci&Tech, News, Entertainment
-  const countries = ['US', 'GB', 'CA', 'AU'];
+  const result: DiscoverySourceResult = { channelsDiscovered: 0, quotaUsed: 0, source: 'search' };
 
   // Get known channel IDs
   const [{ data: followed }, { data: candidates }] = await Promise.all([
@@ -121,68 +121,36 @@ export async function discoverFromTrending(
     ...(candidates ?? []).map((c) => c.id),
   ]);
 
-  for (const category of categories) {
-    for (const country of countries) {
-      if (isTimedOut()) return result;
-      if (result.quotaUsed >= quotaBudget) return result;
+  // Get distinct channel IDs from search_results with decent metrics
+  const { data: searchChannels } = await db
+    .from('search_results')
+    .select('channel_id, channel_title, channel_subscribers, topic_id, topics!inner(niche_id)')
+    .gte('channel_subscribers', 3000)
+    .order('channel_subscribers', { ascending: false })
+    .limit(200);
 
-      try {
-        const data = await ytFetch('videos', {
-          part: 'snippet',
-          chart: 'mostPopular',
-          videoCategoryId: category,
-          regionCode: country,
-          maxResults: '50',
-        }) as { items?: Array<{ snippet?: { channelId?: string } }> };
-        result.quotaUsed += 1;
+  const seen = new Set<string>();
+  for (const row of searchChannels ?? []) {
+    if (knownIds.has(row.channel_id)) continue;
+    if (seen.has(row.channel_id)) continue;
+    seen.add(row.channel_id);
 
-        for (const item of data.items ?? []) {
-          const channelId = item.snippet?.channelId;
-          if (!channelId || knownIds.has(channelId)) continue;
-          knownIds.add(channelId);
+    const nicheId = (row.topics as unknown as { niche_id: string })?.niche_id;
 
-          await db.from('candidate_channels').upsert({
-            id: channelId,
-            discovered_via: 'trending',
-            status: 'pending',
-          }, { onConflict: 'id' });
-          result.channelsDiscovered++;
-        }
-      } catch {
-        // Skip on error
-      }
+    const { error } = await db.from('candidate_channels').upsert({
+      id: row.channel_id,
+      title: row.channel_title,
+      subscriber_count: row.channel_subscribers,
+      discovered_via: 'search',
+      niche_id: nicheId ?? null,
+      status: 'pending',
+    }, { onConflict: 'id' });
+    if (error) {
+      console.error(`candidate_channels upsert error: ${error.message}`);
+    } else {
+      result.channelsDiscovered++;
     }
   }
-
-  return result;
-}
-
-/**
- * Discover channels from comment authors on niche videos.
- * Samples top commenters on phase 0/1/2 videos and checks if they run active channels.
- * Cost: 0 extra quota (comment data already collected), but needs channels.list to verify (1 per 50).
- */
-export async function discoverFromCommentAuthors(
-  db: SupabaseClient,
-  deadlineMs: number,
-  quotaBudget: number,
-): Promise<DiscoverySourceResult> {
-  const result: DiscoverySourceResult = { channelsDiscovered: 0, quotaUsed: 0, source: 'comment_author' };
-  const isTimedOut = () => Date.now() >= deadlineMs;
-
-  // Get distinct channel IDs from comments that have high engagement
-  // YouTube comment IDs contain the channel ID of the commenter
-  // Format: Ug... (legacy) or channelId.commentId
-  // We can extract author channel IDs from the comment API data if stored,
-  // but since we only store comment text/id, we skip this source for now
-  // until we add author_channel_id to the comments table.
-
-  // For now, this is a placeholder that will be activated when
-  // comments table includes author_channel_id column.
-  void db;
-  void deadlineMs;
-  void quotaBudget;
-  void isTimedOut;
 
   return result;
 }
@@ -196,17 +164,10 @@ export async function runDiscoverySources(
   discoveryBudget: number,
 ): Promise<{
   channelSections: DiscoverySourceResult;
-  trending: DiscoverySourceResult;
-  commentAuthors: DiscoverySourceResult;
+  searchResults: DiscoverySourceResult;
 }> {
-  // Split budget: 40% channel sections, 40% trending, 20% comment authors
-  const sectionBudget = Math.floor(discoveryBudget * 0.4);
-  const trendingBudget = Math.floor(discoveryBudget * 0.4);
-  const commentBudget = Math.floor(discoveryBudget * 0.2);
+  const channelSections = await discoverFromChannelSections(db, deadlineMs, discoveryBudget);
+  const searchResults = await discoverFromSearchResults(db);
 
-  const channelSections = await discoverFromChannelSections(db, deadlineMs, sectionBudget);
-  const trending = await discoverFromTrending(db, deadlineMs, trendingBudget);
-  const commentAuthors = await discoverFromCommentAuthors(db, deadlineMs, commentBudget);
-
-  return { channelSections, trending, commentAuthors };
+  return { channelSections, searchResults };
 }

@@ -1,7 +1,9 @@
 'use client';
 
 import { useQueryState, parseAsString, parseAsBoolean, parseAsInteger } from 'nuqs';
-import { Bookmark } from 'lucide-react';
+import { Bookmark, Sparkles, Waves, Shield, LayoutGrid } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 
 interface Channel {
   id: string;
@@ -35,6 +37,18 @@ export function MatriceFilters({ channels }: { channels: Channel[] }) {
     parseAsBoolean.withDefault(false).withOptions({ shallow: false }),
   );
 
+  // Determine which channels to show in the static tab list
+  const staticCount = 3;
+  let visibleChannels = channels.slice(0, staticCount);
+  
+  if (selectedNiche && !visibleChannels.find((c) => c.nicheId === selectedNiche)) {
+    const selectedChannel = channels.find((c) => c.nicheId === selectedNiche);
+    if (selectedChannel) {
+      // Replace the last visible slot with the selected one
+      visibleChannels = [...channels.slice(0, staticCount - 1), selectedChannel];
+    }
+  }
+
   const CHANNEL_SIZES = [
     { value: '0-10000', label: '< 10 k' },
     { value: '10000-50000', label: '10–50 k' },
@@ -52,130 +66,209 @@ export function MatriceFilters({ channels }: { channels: Channel[] }) {
   return (
     <div className="space-y-5">
       {/* Title + channel tabs */}
-      <div className="flex items-end justify-between gap-4 flex-wrap">
-        <div className="space-y-1.5">
-          <h1 className="text-[28px] font-semibold tracking-[-0.02em] leading-tight">
+      <div className="flex items-end justify-between gap-6 flex-wrap">
+        <div className="space-y-2">
+          <h1 className="text-[28px] font-bold leading-tight tracking-[-0.015em] text-foreground">
             Où sont les océans bleus ?
           </h1>
-          <p className="text-[15px] text-muted-foreground">
-            En haut à gauche : beaucoup de demande, presque aucune vidéo de qualité.
+          <p className="text-[15px] font-medium text-muted-foreground/80">
+            En haut à gauche : demande massive, presque aucune vidéo de qualité.
           </p>
         </div>
-        <div
-          role="tablist"
-          aria-label="Chaîne"
-          className="flex p-[3px] gap-0.5 bg-muted rounded-[9px]"
-        >
-          <button
-            type="button"
-            role="tab"
-            aria-selected={!selectedNiche}
-            onClick={() => setSelectedNiche(null)}
-            className={`h-[30px] px-3 rounded-[7px] text-[13px] font-medium transition-colors cursor-pointer ${
-              !selectedNiche
-                ? 'bg-card text-foreground font-semibold shadow-[0_1px_2px_rgba(20,24,34,0.10)]'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
+
+        {/* Channel tabs — premium segment control */}
+        <div className="flex items-center gap-2 max-w-full flex-wrap">
+          <div
+            role="tablist"
+            aria-label="Chaîne"
+            className="relative flex flex-wrap p-1 gap-1 bg-black/5 dark:bg-white/5 backdrop-blur-xl rounded-[14px] border border-black/5 dark:border-white/5 shadow-inner"
           >
-            Tous
-          </button>
-          {channels.map((ch) => (
             <button
-              key={ch.id}
               type="button"
               role="tab"
-              aria-selected={selectedNiche === ch.nicheId}
-              onClick={() => setSelectedNiche(selectedNiche === ch.nicheId ? null : ch.nicheId)}
-              className={`h-[30px] px-3 rounded-[7px] text-[13px] font-medium transition-colors cursor-pointer ${
-                selectedNiche === ch.nicheId
-                  ? 'bg-card text-foreground font-semibold shadow-[0_1px_2px_rgba(20,24,34,0.10)]'
-                  : 'text-muted-foreground hover:text-foreground'
+              aria-selected={!selectedNiche}
+              onClick={() => setSelectedNiche(null)}
+              className={`relative z-10 h-[34px] px-4 rounded-[10px] text-[13px] font-medium transition-all duration-200 cursor-pointer whitespace-nowrap ${
+                !selectedNiche
+                  ? 'bg-white dark:bg-[#1C1C1E] text-foreground font-semibold shadow-[0_2px_8px_rgba(0,0,0,0.08)] border border-black/5 dark:border-white/10 scale-100'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5 scale-[0.98]'
               }`}
             >
-              {ch.title}
+              Tous
             </button>
-          ))}
+            {visibleChannels.map((ch) => (
+              <button
+                key={ch.id}
+                type="button"
+                role="tab"
+                aria-selected={selectedNiche === ch.nicheId}
+                onClick={() => setSelectedNiche(selectedNiche === ch.nicheId ? null : ch.nicheId)}
+                className={`relative z-10 h-[34px] px-4 rounded-[10px] text-[13px] font-medium transition-all duration-200 cursor-pointer whitespace-nowrap ${
+                  selectedNiche === ch.nicheId
+                    ? 'bg-white dark:bg-[#1C1C1E] text-foreground font-semibold shadow-[0_2px_8px_rgba(0,0,0,0.08)] border border-black/5 dark:border-white/10 scale-100'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5 scale-[0.98]'
+                }`}
+              >
+                {ch.title}
+              </button>
+            ))}
+          </div>
+
+          <Dialog>
+            <DialogTrigger
+              className="flex-shrink-0 h-[42px] px-3.5 flex items-center gap-2 bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 text-foreground rounded-[14px] font-medium text-[13px] transition-colors border border-black/5 dark:border-white/5"
+            >
+              <LayoutGrid className="w-4 h-4 text-muted-foreground" />
+              <span className="hidden sm:inline">Tout voir</span>
+            </DialogTrigger>
+            <DialogContent className="max-w-2xl bg-white/70 dark:bg-[#08090C]/70 backdrop-blur-2xl border-glass shadow-[0_8px_40px_rgba(0,0,0,0.12)]">
+              <DialogHeader>
+                <DialogTitle className="text-xl">Toutes les niches</DialogTitle>
+              </DialogHeader>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-4 max-h-[60vh] overflow-y-auto pr-2 pb-2">
+                <button
+                  type="button"
+                  onClick={() => setSelectedNiche(null)}
+                  className={`text-left p-3 rounded-xl border transition-all ${
+                    !selectedNiche
+                      ? 'bg-black/5 dark:bg-white/10 border-transparent font-bold text-foreground'
+                      : 'border-black/5 dark:border-white/10 hover:bg-black/5 dark:hover:bg-white/5 text-muted-foreground font-medium'
+                  }`}
+                >
+                  Toutes les niches
+                </button>
+                {channels.map((ch) => (
+                  <button
+                    key={ch.id}
+                    type="button"
+                    onClick={() => setSelectedNiche(selectedNiche === ch.nicheId ? null : ch.nicheId)}
+                    className={`text-left p-3 rounded-xl border transition-all ${
+                      selectedNiche === ch.nicheId
+                        ? 'bg-black/5 dark:bg-white/10 border-transparent font-bold text-foreground'
+                        : 'border-black/5 dark:border-white/10 hover:bg-black/5 dark:hover:bg-white/5 text-muted-foreground font-medium'
+                    }`}
+                  >
+                    {ch.title}
+                  </button>
+                ))}
+              </div>
+            </DialogContent>
+          </Dialog>
         </div>
       </div>
 
-      {/* Phase filter pills */}
-      <div className="flex items-center gap-2 flex-wrap">
-        <button
-          type="button"
+      {/* Filter pills — Apple-style capsules with spring animation */}
+      <div className="flex items-center gap-2.5 flex-wrap bg-white/40 dark:bg-[#08090C]/40 backdrop-blur-md p-2 rounded-2xl border border-[--glass-border] shadow-sm">
+        <FilterPill
+          active={blueOcean}
           onClick={() => setBlueOcean(blueOcean ? null : true)}
-          className={`h-[30px] px-3 rounded-full text-[13px] font-medium transition-colors cursor-pointer ${
-            blueOcean
-              ? 'border border-primary bg-primary-soft text-primary-ink'
-              : 'border border-border bg-card text-foreground hover:bg-muted'
-          }`}
+          activeClass="border-[#30D158]/50 bg-[#30D158]/15 text-[#24a142] dark:text-[#30D158]"
+          icon={<Waves className="w-3.5 h-3.5" />}
         >
-          Océan bleu uniquement
-        </button>
-        <button
-          type="button"
+          Océan bleu
+        </FilterPill>
+
+        <FilterPill
+          active={favFilter}
           onClick={() => setFavFilter(favFilter ? null : true)}
-          className={`h-[30px] px-3 rounded-full text-[13px] font-medium transition-colors cursor-pointer flex items-center gap-1.5 ${
-            favFilter
-              ? 'border border-primary bg-primary-soft text-primary-ink'
-              : 'border border-border bg-card text-foreground hover:bg-muted'
-          }`}
+          activeClass="border-primary/50 bg-primary/15 text-primary"
+          icon={<Bookmark className="w-3.5 h-3.5" fill={favFilter ? 'currentColor' : 'none'} />}
         >
-          <Bookmark className="w-3 h-3" fill={favFilter ? 'currentColor' : 'none'} />
           Favoris
-        </button>
-        <button
-          type="button"
+        </FilterPill>
+
+        <FilterPill
+          active={feasibleOnly}
           onClick={() => setFeasibleOnly(feasibleOnly ? null : true)}
-          className={`h-[30px] px-3 rounded-full text-[13px] font-medium transition-colors cursor-pointer ${
-            feasibleOnly
-              ? 'border border-success bg-success/10 text-success font-medium'
-              : 'border border-border bg-card text-foreground hover:bg-muted'
-          }`}
+          activeClass="border-[#30D158]/50 bg-[#30D158]/15 text-[#24a142] dark:text-[#30D158]"
+          icon={<Shield className="w-3.5 h-3.5" />}
         >
           A–B seulement
-        </button>
-        <span className="w-px h-5 bg-border mx-1" />
+        </FilterPill>
+
+        <span className="w-px h-6 bg-[--glass-border] mx-1.5" />
+
         {PHASES.map((p) => {
           const active = phaseFilter === p.value;
           return (
-            <button
+            <FilterPill
               key={p.value}
-              type="button"
+              active={active}
               onClick={() => setPhaseFilter(active ? null : p.value)}
-              className={`h-[30px] px-3 rounded-full text-[13px] flex items-center gap-1.5 transition-colors cursor-pointer ${
-                active
-                  ? p.value === 2
-                    ? 'border border-phase-2 bg-phase-2-soft text-phase-2-ink font-medium'
-                    : 'border border-primary bg-primary-soft text-primary-ink font-medium'
-                  : 'border border-border bg-card text-foreground hover:bg-muted'
-              }`}
+              activeClass={
+                p.value === 0
+                  ? 'border-[#5E5CE6]/40 bg-[#5E5CE6]/15 text-[#5E5CE6]'
+                  : p.value === 1
+                  ? 'border-[#FF9F0A]/40 bg-[#FF9F0A]/15 text-[#d98504] dark:text-[#FF9F0A]'
+                  : p.value === 2
+                  ? 'border-[#30D158]/40 bg-[#30D158]/15 text-[#24a142] dark:text-[#30D158]'
+                  : 'border-[#FF453A]/40 bg-[#FF453A]/15 text-[#d3332a] dark:text-[#FF453A]'
+              }
+              icon={<span className={`w-2.5 h-2.5 rounded-full ${p.dot} shadow-sm`} />}
             >
-              <span className={`w-2 h-2 rounded-full ${p.dot}`} />
               {p.label}
-            </button>
+            </FilterPill>
           );
         })}
-        <span className="w-px h-5 bg-border mx-1" />
+
+        <span className="w-px h-6 bg-[--glass-border] mx-1.5" />
+
         {CHANNEL_SIZES.map((s) => {
           const active = channelSize === s.value;
           return (
-            <button
+            <FilterPill
               key={s.value}
-              type="button"
+              active={active}
               onClick={() => setChannelSize(active ? null : s.value)}
-              className={`h-[30px] px-3 rounded-full text-[13px] flex items-center gap-1.5 transition-colors cursor-pointer ${
-                active
-                  ? 'border border-primary bg-primary-soft text-primary-ink font-medium'
-                  : 'border border-border bg-card text-foreground hover:bg-muted'
-              }`}
+              activeClass="border-primary/50 bg-primary/15 text-primary"
             >
               {s.label} abo.
-            </button>
+            </FilterPill>
           );
         })}
+
         <div className="flex-1" />
-        <span className="text-[13px] text-muted-foreground">Taille du point = frustration exprimée</span>
+        <span className="text-[12px] font-medium text-muted-foreground/80 px-2">
+          Taille du point = score MGI
+        </span>
       </div>
     </div>
+  );
+}
+
+function FilterPill({
+  active,
+  onClick,
+  activeClass,
+  icon,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  activeClass: string;
+  icon?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <motion.button
+      type="button"
+      onClick={onClick}
+      whileHover={{ scale: 1.03 }}
+      whileTap={{ scale: 0.97 }}
+      transition={{ type: 'spring', stiffness: 450, damping: 28 }}
+      className={`
+        h-[34px] px-3.5 rounded-full text-[13px] font-semibold
+        transition-all duration-200 cursor-pointer
+        flex items-center gap-1.5 shadow-sm
+        border
+        ${active
+          ? activeClass
+          : 'border-black/5 dark:border-white/10 bg-white dark:bg-[#1C1C1E] text-foreground hover:bg-black/5 dark:hover:bg-white/5 hover:border-black/10 dark:hover:border-white/20'
+        }
+      `}
+    >
+      {icon}
+      {children}
+    </motion.button>
   );
 }

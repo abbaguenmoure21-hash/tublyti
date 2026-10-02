@@ -22,6 +22,7 @@ import { collectSignals } from '../lib/signals/collect-signals';
 import { runClustering } from '../lib/topics/cluster-service';
 import { runYouTubeSearch } from '../lib/youtube/search';
 import { runScore } from '../lib/scoring/score-service';
+import { computeAllOutliers } from '../lib/scoring/outlier-service';
 import { runClassify } from '../lib/nlp/classify-service';
 import { extractTitlePatterns } from '../lib/nlp/title-patterns';
 import { VoyageEmbeddingProvider } from '../lib/providers/voyage-embeddings';
@@ -130,15 +131,14 @@ async function main() {
     console.log(`  Videos discovered: ${search.videosDiscovered}`);
   }
 
-  // ── Step 5b: Discovery sources (channelSections, trending) ────
+  // ── Step 5b: Discovery sources (channelSections + search results) ──
   if (shouldRun('discover') && Date.now() < deadline) {
-    console.log('\n=== Channel Discovery (sections, trending) ===');
+    console.log('\n=== Channel Discovery (sections, search results) ===');
     try {
       const discovery = await runDiscoverySources(db, deadline, 200);
       console.log(`  Channel sections: ${discovery.channelSections.channelsDiscovered} channels`);
-      console.log(`  Trending: ${discovery.trending.channelsDiscovered} channels`);
-      console.log(`  Comment authors: ${discovery.commentAuthors.channelsDiscovered} channels`);
-      console.log(`  Quota used: ${discovery.channelSections.quotaUsed + discovery.trending.quotaUsed}`);
+      console.log(`  Search results: ${discovery.searchResults.channelsDiscovered} channels`);
+      console.log(`  Quota used: ${discovery.channelSections.quotaUsed}`);
     } catch (err) {
       console.error(`  Discovery failed: ${err instanceof Error ? err.message : err}`);
     }
@@ -161,11 +161,20 @@ async function main() {
     }
   }
 
-  // ── Step 6: Score all topics ────────────────────────────────────
+  // ── Step 6: Score all topics & Outliers ─────────────────────────
   if (shouldRun('score')) {
     console.log('\n=== Scoring (MGI + phase + feasibility) ===');
     const scoreResult = await runScore(db, alertSender);
     console.log(`  Topics scored: ${scoreResult.topicsScored}`);
+    
+    console.log('\n=== Computing Outliers ===');
+    try {
+      const outliers = await computeAllOutliers(db);
+      console.log(`  Outliers computed: ${outliers.computed}`);
+      console.log(`  Skipped: ${outliers.skipped}`);
+    } catch (err) {
+      console.error(`  Outlier computation failed: ${err instanceof Error ? err.message : err}`);
+    }
   }
 
   // ── Step 7: Classify comments (Anthropic Batch API) ─────────────

@@ -48,7 +48,7 @@ export default async function CandidatesPage({
         sortBy === 'faceless' ? 'faceless_probability' : 'median_views',
         { ascending: false, nullsFirst: false },
       )
-      .limit(50),
+      .limit(1000),
     db
       .from('niches')
       .select('id, name')
@@ -59,9 +59,16 @@ export default async function CandidatesPage({
   const nicheList = (niches ?? []) as { id: string; name: string }[];
 
   return (
-    <div className="flex-1 flex flex-col min-w-0">
-      <header className="h-[60px] shrink-0 flex items-center gap-3 px-8 border-b border-border bg-card text-[14px] text-muted-foreground">
-        <Link href="/channels" className="hover:text-foreground transition-colors">
+    <div className="flex-1 flex flex-col min-h-full relative overflow-x-clip">
+      {/* Background gradients multi-niveaux */}
+      <div className="absolute inset-0 pointer-events-none -z-10">
+        <div className="absolute -top-[20%] -left-[10%] w-[50%] h-[50%] rounded-full bg-blue-400/15 dark:bg-blue-600/15 blur-[100px]" />
+        <div className="absolute top-[20%] -right-[10%] w-[40%] h-[60%] rounded-full bg-purple-400/15 dark:bg-purple-600/15 blur-[120px]" />
+        <div className="absolute -bottom-[20%] left-[20%] w-[60%] h-[50%] rounded-full bg-cyan-400/15 dark:bg-cyan-600/15 blur-[100px]" />
+      </div>
+
+      <header className="sticky top-0 z-20 h-[56px] shrink-0 flex items-center gap-3 px-8 border-b border-[--glass-border] bg-background/80 backdrop-blur-xl text-[13px] text-muted-foreground">
+        <Link href="/channels" className="hover:text-foreground transition-colors p-1 -ml-1">
           <ArrowLeft className="w-4 h-4" />
         </Link>
         <span>Chaînes</span>
@@ -69,24 +76,29 @@ export default async function CandidatesPage({
         <span className="text-foreground font-medium">Candidates</span>
       </header>
 
-      <div className="flex-1 p-7 flex flex-col gap-5">
+      <div className="flex-1 p-6 md:px-12 md:py-10 flex flex-col gap-8 overflow-x-hidden w-full max-w-[1400px] mx-auto">
         <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
-          <div className="space-y-1.5">
-            <h1 className="text-[28px] font-semibold tracking-[-0.02em] leading-tight">
-              Chaînes candidates
-            </h1>
-            <p className="text-[15px] text-muted-foreground">
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center gap-3">
+              <h1 className="text-[32px] font-bold tracking-tight text-foreground leading-tight">
+                Chaînes candidates
+              </h1>
+              <span className="bg-secondary text-secondary-foreground text-[12px] font-bold px-2.5 py-0.5 rounded-full">
+                {(candidates ?? []).length}
+              </span>
+            </div>
+            <p className="text-[16px] font-medium text-muted-foreground/80">
               Chaînes découvertes automatiquement dans les résultats YouTube. Suivez celles qui sont pertinentes pour enrichir vos niches.
             </p>
           </div>
 
-          {/* Sort toggle */}
-          <div className="flex p-[3px] gap-0.5 bg-muted rounded-[9px] shrink-0">
+          {/* Sort toggle (Segmented Control Apple style) */}
+          <div className="flex p-1 bg-black/5 dark:bg-white/5 border border-black/5 dark:border-white/10 rounded-[11px] shrink-0 w-fit backdrop-blur-xl">
             <Link
               href="/channels/candidates?sort=views"
-              className={`h-[30px] px-3 rounded-[7px] text-[13px] font-medium transition-colors ${
+              className={`flex items-center justify-center px-4 py-1.5 rounded-[7px] text-[13px] font-bold transition-all ${
                 sortBy === 'views'
-                  ? 'bg-card text-foreground font-semibold shadow-[0_1px_2px_rgba(20,24,34,0.10)]'
+                  ? 'bg-white dark:bg-[#1C1C1E] text-foreground shadow-[0_1px_4px_rgba(0,0,0,0.12)] ring-1 ring-black/5 dark:ring-white/10'
                   : 'text-muted-foreground hover:text-foreground'
               }`}
             >
@@ -94,9 +106,9 @@ export default async function CandidatesPage({
             </Link>
             <Link
               href="/channels/candidates?sort=faceless"
-              className={`h-[30px] px-3 rounded-[7px] text-[13px] font-medium transition-colors ${
+              className={`flex items-center justify-center px-4 py-1.5 rounded-[7px] text-[13px] font-bold transition-all ${
                 sortBy === 'faceless'
-                  ? 'bg-card text-foreground font-semibold shadow-[0_1px_2px_rgba(20,24,34,0.10)]'
+                  ? 'bg-white dark:bg-[#1C1C1E] text-foreground shadow-[0_1px_4px_rgba(0,0,0,0.12)] ring-1 ring-black/5 dark:ring-white/10'
                   : 'text-muted-foreground hover:text-foreground'
               }`}
             >
@@ -106,18 +118,18 @@ export default async function CandidatesPage({
         </div>
 
         {(candidates ?? []).length > 0 ? (
-          <div className="bg-card border border-border rounded-[10px] shadow-[0_1px_2px_rgba(20,24,34,0.06)] overflow-hidden">
+          <div className="bg-white/60 dark:bg-white/5 backdrop-blur-2xl border border-white/40 dark:border-white/10 shadow-[0_4px_20px_rgb(0,0,0,0.03)] rounded-[24px] overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="bg-muted/50 text-muted-foreground text-left text-[13px]">
-                    <th className="px-4 py-2.5 font-medium">Chaîne</th>
-                    <th className="px-4 py-2.5 font-medium">Abonnés</th>
-                    <th className="px-4 py-2.5 font-medium">Médiane vues</th>
-                    <th className="px-4 py-2.5 font-medium">Vidéos/mois</th>
-                    <th className="px-4 py-2.5 font-medium">Faceless</th>
-                    <th className="px-4 py-2.5 font-medium">Sujet source</th>
-                    <th className="px-4 py-2.5 font-medium">Actions</th>
+                  <tr className="bg-black/5 dark:bg-black/20 text-muted-foreground text-left text-[12px] font-bold uppercase tracking-wider">
+                    <th className="px-5 py-4">Chaîne</th>
+                    <th className="px-5 py-4">Abonnés</th>
+                    <th className="px-5 py-4">Médiane vues</th>
+                    <th className="px-5 py-4">Vidéos/mois</th>
+                    <th className="px-5 py-4">Faceless</th>
+                    <th className="px-5 py-4">Sujet source</th>
+                    <th className="px-5 py-4">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -126,46 +138,46 @@ export default async function CandidatesPage({
                     return (
                       <tr
                         key={c.id as string}
-                        className="border-t border-border/50 hover:bg-muted/30 transition-colors"
+                        className="border-b border-black/5 dark:border-white/10 last:border-0 hover:bg-white/50 dark:hover:bg-white/5 transition-colors"
                       >
-                        <td className="px-4 py-3">
+                        <td className="px-5 py-4">
                           <Link
                             href={`https://youtube.com/channel/${c.id}`}
                             target="_blank"
-                            className="font-medium text-foreground hover:text-primary transition-colors"
+                            className="font-bold text-foreground hover:text-primary transition-colors"
                           >
                             {(c.title as string) || (c.id as string)}
                           </Link>
                         </td>
-                        <td className="px-4 py-3 tabular-nums text-muted-foreground">
+                        <td className="px-5 py-4 tabular-nums font-bold text-foreground/80">
                           {formatNumber(c.subscriber_count as number | null)}
                         </td>
-                        <td className="px-4 py-3 tabular-nums font-medium">
+                        <td className="px-5 py-4 tabular-nums font-bold text-foreground/80">
                           {formatNumber(c.median_views as number | null)}
                         </td>
-                        <td className="px-4 py-3 tabular-nums text-muted-foreground">
+                        <td className="px-5 py-4 tabular-nums text-muted-foreground font-medium">
                           {c.videos_per_month != null ? `${c.videos_per_month as number}` : '—'}
                         </td>
-                        <td className="px-4 py-3">
-                          <div className="flex flex-col gap-0.5">
+                        <td className="px-5 py-4">
+                          <div className="flex flex-col gap-1 items-start">
                             {facelessBadge(c.faceless_probability as number | null)}
                             {(c.faceless_reason as string | null) ? (
-                              <span className="text-[11px] text-muted-foreground/70 max-w-[200px] truncate">
+                              <span className="text-[11px] font-medium text-muted-foreground/70 max-w-[200px] line-clamp-2">
                                 {c.faceless_reason as string}
                               </span>
                             ) : null}
                           </div>
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="px-5 py-4">
                           {topic ? (
-                            <span className="text-[13px] text-muted-foreground">
+                            <span className="text-[13px] font-medium text-muted-foreground">
                               {topic.label}
                             </span>
                           ) : (
                             <span className="text-muted-foreground/50">—</span>
                           )}
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="px-5 py-4">
                           <CandidateActions
                             candidateId={c.id as string}
                             niches={nicheList}
@@ -180,7 +192,7 @@ export default async function CandidatesPage({
           </div>
         ) : (
           <div className="bg-card border border-border rounded-[10px] p-12 shadow-[0_1px_2px_rgba(20,24,34,0.06)] text-center">
-            <Users className="w-8 h-8 text-muted-foreground/40 mx-auto mb-3" />
+            <Users className="w-8 h-8 text-muted-foreground/60 mx-auto mb-3" />
             <p className="text-[15px] font-medium">Aucune chaîne candidate</p>
             <p className="text-sm text-muted-foreground mt-1">
               Les chaînes seront découvertes automatiquement lors de la prochaine collecte,

@@ -7,6 +7,7 @@ import {
   estimateAngleCostUSD,
 } from '@/lib/nlp/angle-generator';
 import type { AngleInput } from '@/lib/nlp/angle-generator';
+import { timingSafeCompare } from '@/lib/auth/timing-safe';
 
 const uuidSchema = z.string().uuid();
 
@@ -23,6 +24,11 @@ export async function POST(
 
   if (!uuidSchema.safeParse(id).success) {
     return NextResponse.json({ error: 'Identifiant invalide.' }, { status: 400 });
+  }
+
+  const authHeader = _request.headers.get('authorization');
+  if (!timingSafeCompare(authHeader ?? '', `Bearer ${process.env.CRON_SECRET}`)) {
+    return NextResponse.json({ error: 'Non autorisé.' }, { status: 401 });
   }
 
   const db = createServiceClient();
@@ -153,16 +159,23 @@ export async function POST(
     titlePatterns,
   };
 
-  const result = await generator.generate(input);
+  let result;
+  try {
+    result = await generator.generate(input);
+  } catch (err: unknown) {
+    console.error('Erreur lors de la generation des angles:', err);
+    return NextResponse.json(
+      { error: 'Le générateur a rencontré une erreur (API ou format de réponse).' },
+      { status: 500 }
+    );
+  }
 
   // ── Store angles ──────────────────────────────────────────────
   const rows = result.angles.map((a) => ({
     topic_id: id,
     title: a.title,
     hook: a.hook,
-    rationale: a.rationale,
-    formula: a.formula,
-    frustration_resolved: a.frustration_resolved,
+    rationale: `Formule: ${a.formula}\nFrustration: ${a.frustration_resolved}\n\n${a.rationale}`,
     status: 'idea',
   }));
 

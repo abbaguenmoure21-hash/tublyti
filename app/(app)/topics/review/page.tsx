@@ -1,5 +1,7 @@
 import { ListChecks, AlertTriangle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+
+export const metadata = { title: 'Revue des sujets' };
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { PhaseBadge } from '@/components/tublyti';
@@ -103,82 +105,89 @@ export default async function TopicsReviewPage() {
   }
 
   return (
-    <div className="p-6 md:p-8 max-w-5xl mx-auto space-y-6">
-      <div className="flex items-center gap-3">
-        <h1 className="text-2xl font-bold tracking-tight">
-          Sujets à valider
-        </h1>
-        <Badge variant="secondary">
-          {proposed.length}
-        </Badge>
-        <p className="hidden sm:block text-sm text-muted-foreground ml-auto">
-          Validez, rejetez ou fusionnez les sujets détectés automatiquement.
-        </p>
+    <div className="flex-1 flex flex-col min-h-full relative overflow-x-clip">
+      {/* Background gradients multi-niveaux */}
+      <div className="absolute inset-0 pointer-events-none -z-10">
+        <div className="absolute -top-[20%] -left-[10%] w-[50%] h-[50%] rounded-full bg-blue-400/15 dark:bg-blue-600/15 blur-[100px]" />
+        <div className="absolute top-[20%] -right-[10%] w-[40%] h-[60%] rounded-full bg-purple-400/15 dark:bg-purple-600/15 blur-[120px]" />
+        <div className="absolute -bottom-[20%] left-[20%] w-[60%] h-[50%] rounded-full bg-cyan-400/15 dark:bg-cyan-600/15 blur-[100px]" />
       </div>
 
-      <div className="space-y-4">
+      <div className="flex-1 p-6 md:px-12 md:py-10 flex flex-col gap-8 w-full max-w-5xl mx-auto">
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center gap-3">
+            <h1 className="text-[32px] font-bold tracking-tight text-foreground leading-tight">
+              Sujets à valider
+            </h1>
+            <Badge variant="secondary" className="rounded-full px-2.5 py-0.5 font-bold">
+              {proposed.length}
+            </Badge>
+          </div>
+          <p className="text-[16px] font-medium text-muted-foreground/80">
+            Validez, rejetez ou fusionnez les sujets détectés automatiquement.
+          </p>
+        </div>
+
+      <div className="space-y-6">
         {proposed.map((topic) => (
-          <Card key={topic.id}>
-            <CardHeader>
-              <div className="flex items-start justify-between gap-4">
-                <div className="space-y-1.5">
-                  <CardTitle className="text-lg font-semibold">
-                    {topic.label}
-                  </CardTitle>
-                  <div className="flex items-center gap-2">
-                    {topic.niches && (
-                      <Badge variant="outline">{topic.niches.name}</Badge>
+          <div key={topic.id} className="bg-white/60 dark:bg-white/5 backdrop-blur-2xl border border-white/40 dark:border-white/10 shadow-[0_4px_20px_rgb(0,0,0,0.03)] rounded-[24px] overflow-hidden transition-all hover:bg-white/80 dark:hover:bg-white/10 hover:border-black/5 dark:hover:border-white/20 flex flex-col">
+            <div className="p-6 pb-4">
+              <h2 className="text-[20px] font-bold text-foreground">
+                {topic.label}
+              </h2>
+              <div className="flex items-center gap-2 mt-3">
+                {topic.niches && (
+                  <span className="text-[12px] font-bold text-muted-foreground bg-white dark:bg-white/10 border border-black/5 dark:border-white/10 shadow-sm rounded-full px-3 py-1 shrink-0">
+                    {topic.niches.name}
+                  </span>
+                )}
+                <PhaseBadge phase={topic.phase} />
+                <span className="text-[12px] font-medium text-muted-foreground ml-2">
+                  {new Date(topic.created_at).toLocaleDateString('fr-FR', {
+                    day: 'numeric',
+                    month: 'long',
+                    year: 'numeric',
+                  })}
+                </span>
+              </div>
+            </div>
+            {topic.videos.length > 0 && (
+              <div className="px-6 pb-6">
+                <div className="bg-black/5 dark:bg-white/5 border border-black/5 dark:border-white/10 rounded-[16px] p-4">
+                  <p className="text-[11px] font-bold text-muted-foreground mb-3 uppercase tracking-wide">
+                    {topic.videos.length} video{topic.videos.length > 1 ? 's' : ''} membre{topic.videos.length > 1 ? 's' : ''}
+                  </p>
+                  <ul className="space-y-2">
+                    {topic.videos.slice(0, 10).map((v) => (
+                      <li
+                        key={v.id}
+                        className="flex items-center gap-2 text-[13px] text-foreground"
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full bg-primary/40 shrink-0" />
+                        <span className="font-medium truncate">{v.title}</span>
+                        {v.channels && (
+                          <span className="text-muted-foreground shrink-0 truncate max-w-[120px] sm:max-w-[200px]">
+                            — {v.channels.title}
+                          </span>
+                        )}
+                      </li>
+                    ))}
+                    {topic.videos.length > 10 && (
+                      <li className="text-[12px] text-muted-foreground italic pl-3.5 mt-2">
+                        et {topic.videos.length - 10} autre{topic.videos.length - 10 > 1 ? 's' : ''}...
+                      </li>
                     )}
-                    <PhaseBadge phase={topic.phase} />
-                    <span className="text-xs text-muted-foreground">
-                      {new Date(topic.created_at).toLocaleDateString('fr-FR', {
-                        day: 'numeric',
-                        month: 'long',
-                        year: 'numeric',
-                      })}
-                    </span>
-                  </div>
+                  </ul>
                 </div>
               </div>
-            </CardHeader>
-
-            {topic.videos.length > 0 && (
-              <CardContent>
-                <p className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wide">
-                  {topic.videos.length} video{topic.videos.length > 1 ? 's' : ''} membre{topic.videos.length > 1 ? 's' : ''}
-                </p>
-                <ul className="space-y-1">
-                  {topic.videos.slice(0, 10).map((v) => (
-                    <li
-                      key={v.id}
-                      className="flex items-center gap-2 text-sm text-foreground"
-                    >
-                      <span className="text-muted-foreground shrink-0">
-                        &bull;
-                      </span>
-                      <span className="truncate">{v.title}</span>
-                      {v.channels && (
-                        <span className="text-xs text-muted-foreground shrink-0">
-                          — {v.channels.title}
-                        </span>
-                      )}
-                    </li>
-                  ))}
-                  {topic.videos.length > 10 && (
-                    <li className="text-xs text-muted-foreground italic pl-4">
-                      et {topic.videos.length - 10} autre{topic.videos.length - 10 > 1 ? 's' : ''}...
-                    </li>
-                  )}
-                </ul>
-              </CardContent>
             )}
 
-            <div className="px-(--card-spacing) pb-(--card-spacing)">
-              <Separator />
+            <div className="px-6 py-4 border-t border-black/5 dark:border-white/10 bg-black/5 dark:bg-transparent">
               <ReviewActions topicId={topic.id} mergeTargets={mergeTargets} />
             </div>
-          </Card>
+          </div>
         ))}
+      </div>
       </div>
     </div>
   );

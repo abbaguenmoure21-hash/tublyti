@@ -21,6 +21,7 @@ interface EventRow {
   meta: Record<string, unknown> | null;
   createdAt: string;
   videoTitle: string;
+  thumbnailUrl: string | null;
   channelTitle: string;
   channelId: string;
   nicheName: string;
@@ -108,7 +109,7 @@ export default async function ActivityPage({
     .from('video_events')
     .select(
       `id, video_id, event_type, old_value, new_value, meta, created_at,
-       videos!inner(id, title, channel_id, channels!inner(id, title, subscriber_count, niche_id, niches!inner(id, name)))`,
+       videos!inner(id, title, thumbnail_url, channel_id, channels!inner(id, title, subscriber_count, niche_id, niches!inner(id, name)))`,
     )
     .gte('created_at', thirtyDaysAgo)
     .order('created_at', { ascending: false })
@@ -128,6 +129,7 @@ export default async function ActivityPage({
     const video = e.videos as unknown as {
       id: string;
       title: string;
+      thumbnail_url: string | null;
       channel_id: string;
       channels: {
         id: string;
@@ -146,6 +148,7 @@ export default async function ActivityPage({
       meta: e.meta as Record<string, unknown> | null,
       createdAt: e.created_at as string,
       videoTitle: video.title,
+      thumbnailUrl: video.thumbnail_url,
       channelTitle: video.channels.title,
       channelId: video.channels.id,
       nicheName: video.channels.niches.name,
@@ -192,17 +195,24 @@ export default async function ActivityPage({
   }
 
   return (
-    <div className="flex-1 flex flex-col min-w-0">
-      <header className="h-[60px] shrink-0 flex items-center gap-3 px-8 border-b border-border bg-card text-[14px] text-muted-foreground">
-        <span>Activité</span>
+    <div className="flex-1 flex flex-col min-h-full relative overflow-x-clip">
+      {/* Background gradients multi-niveaux */}
+      <div className="absolute inset-0 pointer-events-none -z-10">
+        <div className="absolute -top-[20%] -left-[10%] w-[50%] h-[50%] rounded-full bg-blue-400/15 dark:bg-blue-600/15 blur-[100px]" />
+        <div className="absolute top-[20%] -right-[10%] w-[40%] h-[60%] rounded-full bg-purple-400/15 dark:bg-purple-600/15 blur-[120px]" />
+        <div className="absolute -bottom-[20%] left-[20%] w-[60%] h-[50%] rounded-full bg-cyan-400/15 dark:bg-cyan-600/15 blur-[100px]" />
+      </div>
+
+      <header className="sticky top-0 z-20 h-[64px] shrink-0 flex items-center gap-3 px-8 border-b border-black/5 dark:border-white/10 bg-white/60 dark:bg-[#08090C]/60 backdrop-blur-2xl shadow-sm text-[13px] text-muted-foreground">
+        <span className="font-medium text-[16px]">Activité</span>
       </header>
 
-      <div className="flex-1 p-7 flex flex-col gap-5">
-        <div className="space-y-1.5">
-          <h1 className="text-[28px] font-semibold tracking-[-0.02em] leading-tight">
+      <div className="flex-1 p-6 md:px-12 md:py-10 flex flex-col gap-8 overflow-x-hidden w-full max-w-[1400px] mx-auto">
+        <div className="flex flex-col gap-2">
+          <h1 className="text-[32px] font-bold tracking-tight text-foreground leading-tight">
             Fil d&apos;activité
           </h1>
-          <p className="text-[15px] text-muted-foreground">
+          <p className="text-[16px] font-medium text-muted-foreground/80">
             Changements détectés sur les vidéos suivies : uploads, modifications de titre ou miniature, pics de vues.
           </p>
         </div>
@@ -210,7 +220,7 @@ export default async function ActivityPage({
         <ActivityFilters niches={niches ?? []} />
 
         {events.length > 0 ? (
-          <div className="space-y-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 auto-rows-max">
             {events.map((evt) => {
               const Icon = EVENT_ICONS[evt.eventType] ?? Upload;
               const colorClass = EVENT_COLORS[evt.eventType] ?? 'text-muted-foreground bg-muted';
@@ -218,129 +228,98 @@ export default async function ActivityPage({
               return (
                 <div
                   key={evt.id}
-                  className="bg-card border border-border rounded-[10px] p-4 shadow-[0_1px_2px_rgba(20,24,34,0.06)]"
+                  className="group relative px-4 py-3.5 bg-white dark:bg-white/5 border border-black/5 dark:border-white/10 rounded-2xl flex items-start gap-4 transition-all hover:shadow-[0_4px_20px_rgb(0,0,0,0.06)]"
                 >
-                  <div className="flex items-start gap-3">
-                    {/* Icon */}
-                    <div
-                      className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${colorClass}`}
-                    >
-                      <Icon className="w-4 h-4" />
+                  {/* Visual / Thumbnail */}
+                  <div className="flex flex-col gap-1.5 shrink-0 w-[120px] pt-1">
+                    {evt.eventType === 'thumbnail_change' && evt.oldValue && evt.newValue ? (
+                      <div className="flex flex-col gap-1.5">
+                        <div className="relative aspect-video rounded-md overflow-hidden opacity-50 grayscale transition-all group-hover:opacity-100 group-hover:grayscale-0">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={evt.oldValue} alt="" className="object-cover w-full h-full" />
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <span className="text-[9px] uppercase tracking-wider font-bold bg-black/60 text-white px-1.5 py-0.5 rounded backdrop-blur-sm">Avant</span>
+                          </div>
+                        </div>
+                        <div className="relative aspect-video rounded-md overflow-hidden shadow-sm border border-black/10">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={evt.newValue} alt="" className="object-cover w-full h-full" />
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <span className="text-[9px] uppercase tracking-wider font-bold bg-green-500/80 text-white px-1.5 py-0.5 rounded backdrop-blur-sm">Après</span>
+                          </div>
+                        </div>
+                      </div>
+                    ) : evt.thumbnailUrl && (evt.eventType === 'new_upload' || evt.eventType === 'spike') ? (
+                      <div className="relative aspect-video rounded-lg overflow-hidden shadow-sm border border-black/5 mt-0.5">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={evt.thumbnailUrl} alt="" className="object-cover w-full h-full" />
+                        <div
+                          className={`absolute top-1.5 left-1.5 w-6 h-6 rounded-md flex items-center justify-center backdrop-blur-md shadow-sm ${colorClass}`}
+                        >
+                          <Icon className="w-3.5 h-3.5" />
+                        </div>
+                      </div>
+                    ) : (
+                      <div
+                        className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-sm mt-0.5 ${colorClass}`}
+                      >
+                        <Icon className="w-4 h-4" />
+                      </div>
+                    )}
+                    
+                    {/* Niche Badge */}
+                    <div className="flex items-center justify-center bg-black/5 dark:bg-white/5 border border-black/5 dark:border-white/5 rounded py-0.5 px-1.5 w-full overflow-hidden mt-0.5">
+                      <span className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground truncate" title={evt.nicheName}>
+                        {evt.nicheName}
+                      </span>
                     </div>
+                  </div>
 
-                    {/* Content */}
-                    <div className="flex-1 min-w-0 space-y-1.5">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-[13px] font-medium">
-                          {EVENT_LABELS[evt.eventType] ?? evt.eventType}
-                        </span>
-                        <span className="text-[13px] text-muted-foreground">·</span>
-                        <span className="text-[13px] text-muted-foreground">
-                          {evt.channelTitle}
-                        </span>
-                        <span className="text-[13px] text-muted-foreground">·</span>
-                        <span className="text-[12px] text-muted-foreground/70">
-                          {formatDate(evt.createdAt)}
+                  {/* Content */}
+                  <div className="flex-1 min-w-0 flex flex-col justify-center min-h-[40px] py-0.5">
+                    <div className="flex flex-col gap-0.5">
+                      <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider">
+                        <span className={`whitespace-nowrap ${colorClass.split(' ')[0]}`}>{EVENT_LABELS[evt.eventType] ?? evt.eventType}</span>
+                      </div>
+                      <span className="text-[12.5px] font-medium text-muted-foreground truncate">
+                        {evt.channelTitle} <span className="text-[11.5px] opacity-70">({formatNumber(evt.subscriberCount)} abo)</span>
+                      </span>
+                    </div>
+                    <Link
+                      href={`https://youtube.com/watch?v=${evt.videoId}`}
+                      target="_blank"
+                      className="text-[14.5px] font-bold leading-snug mt-1.5 line-clamp-2 text-foreground/90 group-hover:text-foreground hover:text-primary transition-colors block"
+                      title={evt.videoTitle}
+                    >
+                      {evt.videoTitle}
+                    </Link>
+
+                    {evt.eventType === 'spike' && evt.meta && (
+                      <div className="mt-2.5">
+                        <span className="inline-flex items-center gap-1.5 text-[12px] text-destructive font-semibold px-2.5 py-1 rounded-md bg-destructive/10 border border-destructive/20">
+                          <TrendingUp className="w-3.5 h-3.5" />
+                          {evt.meta.multiplier as number}× la médiane
                         </span>
                       </div>
+                    )}
 
-                      <Link
-                        href={`https://youtube.com/watch?v=${evt.videoId}`}
-                        target="_blank"
-                        className="text-[15px] font-semibold text-foreground hover:text-primary transition-colors block truncate"
-                      >
-                        {evt.videoTitle}
-                      </Link>
-
-                      {/* Before/After for title changes */}
-                      {evt.eventType === 'title_change' && evt.oldValue && evt.newValue && (
-                        <div className="flex flex-col sm:flex-row gap-2 mt-2">
-                          <div className="flex-1 rounded-lg border border-border bg-muted/30 px-3 py-2">
-                            <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
-                              Avant
-                            </span>
-                            <p className="text-sm text-muted-foreground line-through mt-0.5">
-                              {evt.oldValue}
-                            </p>
-                          </div>
-                          <div className="flex items-center justify-center shrink-0">
-                            <ArrowRight className="w-4 h-4 text-muted-foreground rotate-90 sm:rotate-0" />
-                          </div>
-                          <div className="flex-1 rounded-lg border border-primary/20 bg-primary-soft/30 px-3 py-2">
-                            <span className="text-[11px] font-medium text-primary uppercase tracking-wide">
-                              Après
-                            </span>
-                            <p className="text-sm font-medium mt-0.5">{evt.newValue}</p>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Before/After for thumbnail changes */}
-                      {evt.eventType === 'thumbnail_change' &&
-                        evt.oldValue &&
-                        evt.newValue && (
-                          <div className="flex flex-col sm:flex-row gap-2 mt-2">
-                            <div className="flex-1 rounded-lg border border-border bg-muted/30 p-2">
-                              <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide block mb-1">
-                                Avant
-                              </span>
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img
-                                src={evt.oldValue}
-                                alt="Ancienne miniature"
-                                className="rounded w-full aspect-video object-cover opacity-60"
-                              />
-                            </div>
-                            <div className="flex items-center justify-center shrink-0">
-                              <ArrowRight className="w-4 h-4 text-muted-foreground rotate-90 sm:rotate-0" />
-                            </div>
-                            <div className="flex-1 rounded-lg border border-primary/20 bg-primary-soft/30 p-2">
-                              <span className="text-[11px] font-medium text-primary uppercase tracking-wide block mb-1">
-                                Après
-                              </span>
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img
-                                src={evt.newValue}
-                                alt="Nouvelle miniature"
-                                className="rounded w-full aspect-video object-cover"
-                              />
-                            </div>
-                          </div>
-                        )}
-
-                      {/* Spike details */}
-                      {evt.eventType === 'spike' && evt.meta && (
-                        <div className="flex gap-4 mt-2 text-sm">
-                          <span className="tabular-nums">
-                            <span className="text-muted-foreground">Vues/h :</span>{' '}
-                            <span className="font-semibold text-destructive">
-                              {formatNumber(evt.meta.views_per_hour as number)}
-                            </span>
-                          </span>
-                          <span className="tabular-nums">
-                            <span className="text-muted-foreground">Médiane :</span>{' '}
-                            {formatNumber(evt.meta.median_vph as number)}/h
-                          </span>
-                          <span className="tabular-nums">
-                            <span className="text-muted-foreground">Multiplicateur :</span>{' '}
-                            <span className="font-semibold">
-                              {evt.meta.multiplier as number}×
-                            </span>
-                          </span>
-                          <span className="tabular-nums">
-                            <span className="text-muted-foreground">Vues totales :</span>{' '}
-                            {formatNumber(evt.meta.current_views as number)}
-                          </span>
-                        </div>
-                      )}
-
+                    {evt.eventType === 'title_change' && evt.oldValue && evt.newValue && (
+                      <div className="mt-2.5 flex flex-col gap-1.5 bg-black/5 dark:bg-white/5 p-2.5 rounded-xl border border-black/5 dark:border-white/5">
+                        <p className="text-[12px] text-muted-foreground line-through opacity-70 truncate" title={evt.oldValue}>
+                          {evt.oldValue}
+                        </p>
+                        <p className="text-[13px] text-foreground font-medium truncate" title={evt.newValue}>
+                          {evt.newValue}
+                        </p>
+                      </div>
+                    )}
                       {/* View evolution after change */}
                       {(evt.eventType === 'title_change' ||
                         evt.eventType === 'thumbnail_change') &&
                         evt.viewsBefore !== null &&
                         evt.viewsAfter !== null && (
-                          <div className="flex items-center gap-2 mt-2 text-sm text-muted-foreground">
-                            <TrendingUp className="w-3.5 h-3.5" />
+                          <div className="flex items-center gap-1.5 mt-2.5 text-[11px] font-semibold text-muted-foreground/80 bg-black/5 dark:bg-white/5 w-fit px-2 py-1 rounded-md">
+                            <TrendingUp className="w-3 h-3" />
                             <span>
                               {formatNumber(evt.viewsBefore)} → {formatNumber(evt.viewsAfter)} vues
                               {evt.viewsAfter > evt.viewsBefore && (
@@ -352,20 +331,14 @@ export default async function ActivityPage({
                           </div>
                         )}
                     </div>
-
-                    {/* Niche badge */}
-                    <span className="text-[12px] text-muted-foreground bg-muted rounded-full px-2.5 py-0.5 shrink-0">
-                      {evt.nicheName}
-                    </span>
-                  </div>
                 </div>
               );
             })}
           </div>
         ) : (
-          <div className="bg-card border border-border rounded-[10px] p-12 shadow-[0_1px_2px_rgba(20,24,34,0.06)] text-center">
-            <ActivityIcon className="w-8 h-8 text-muted-foreground/40 mx-auto mb-3" />
-            <p className="text-[15px] font-medium">Aucun événement détecté</p>
+          <div className="bg-white/60 dark:bg-white/5 backdrop-blur-2xl border border-white/40 dark:border-white/10 shadow-[0_8px_30px_rgb(0,0,0,0.04)] rounded-[24px] p-12 text-center">
+            <ActivityIcon className="w-8 h-8 text-muted-foreground/60 mx-auto mb-3" />
+            <p className="text-[20px] font-bold tracking-tight text-foreground">Aucun événement détecté</p>
             <p className="text-sm text-muted-foreground mt-1">
               Les événements apparaîtront ici après la prochaine collecte.
             </p>

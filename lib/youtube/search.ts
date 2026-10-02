@@ -4,6 +4,15 @@ import { QuotaSoftLimitReached, getQuotaSoftLimit } from './quota';
 /**
  * YouTube search.list — the ONLY file allowed to call search.list.
  * AI_RULES #6: plafonne à 100 appels par jour, journalise chaque appel.
+ *
+ * v2 changes:
+ *   - order=relevance (+ viewCount pass once/week on Sunday)
+ *   - maxResults=50 (same quota cost as 10)
+ *   - videoDuration=medium then long (no Shorts)
+ *   - publishedAfter = 180 days
+ *   - regionCode=US, relevanceLanguage=en
+ *   - Results go to search_results (no FK to channels — external videos)
+ *   - videos.list enrichment (1 unit per 50) for views, duration, subs
  */
 
 const YT_BASE = 'https://www.googleapis.com/youtube/v3';
@@ -20,6 +29,7 @@ export interface SearchResult {
 export interface SearchStats {
   searchesPerformed: number;
   videosDiscovered: number;
+  videosEnriched: number;
 }
 
 export async function runYouTubeSearch(
@@ -28,22 +38,23 @@ export async function runYouTubeSearch(
   currentQuotaUsed: number,
 ): Promise<SearchStats> {
   const apiKey = process.env.YOUTUBE_API_KEY;
-  if (!apiKey) return { searchesPerformed: 0, videosDiscovered: 0 };
+  if (!apiKey) return { searchesPerformed: 0, videosDiscovered: 0, videosEnriched: 0 };
 
   const softLimit = getQuotaSoftLimit();
   const isTimedOut = () => Date.now() >= deadlineMs;
   let quotaUsed = currentQuotaUsed;
 
-  const stats: SearchStats = { searchesPerformed: 0, videosDiscovered: 0 };
+  const stats: SearchStats = { searchesPerformed: 0, videosDiscovered: 0, videosEnriched: 0 };
 
   // Check how many searches we've already done today
   const todayStart = new Date();
   todayStart.setUTCHours(0, 0, 0, 0);
+  const todayKey = todayStart.toISOString().slice(0, 10);
 
   const { data: todaySearchSetting } = await db
     .from('settings')
     .select('value')
-    .eq('key', `search_count_${todayStart.toISOString().slice(0, 10)}`)
+    .eq('key', `search_count_${todayKey}`)
     .single();
   let searchesToday = typeof todaySearchSetting?.value === 'number'
     ? todaySearchSetting.value
@@ -73,91 +84,187 @@ export async function runYouTubeSearch(
     return phaseA - phaseB;
   });
 
-  const thirtyDaysAgo = new Date(Date.now() - 30 * 86_400_000).toISOString();
+  const sixMonthsAgo = new Date(Date.now() - 180 * 86_400_000).toISOString();
 
-  // Get known channel IDs to filter out
-  const { data: knownChannels } = await db
-    .from('channels')
-    .select('id');
-  const knownChannelIds = new Set(
-    (knownChannels ?? []).map((c) => c.id),
-  );
+  // viewCount pass on Sundays, relevance the rest of the week
+  const dayOfWeek = new Date().getUTCDay();
+  const useViewCountOrder = dayOfWeek === 0;
 
   for (const query of sorted) {
     if (isTimedOut()) break;
     if (searchesToday >= DAILY_SEARCH_LIMIT) break;
     if (quotaUsed + SEARCH_QUOTA_COST > softLimit) break;
 
-    try {
-      const url = new URL(`${YT_BASE}/search`);
-      url.searchParams.set('key', apiKey);
-      url.searchParams.set('part', 'snippet');
-      url.searchParams.set('q', query.query_text);
-      url.searchParams.set('type', 'video');
-      url.searchParams.set('order', 'date');
-      url.searchParams.set('publishedAfter', thirtyDaysAgo);
-      url.searchParams.set('maxResults', '10');
-      url.searchParams.set('relevanceLanguage', 'en');
+    const topic = query.topics as unknown as { id: string };
 
-      const res = await fetch(url.toString(), {
-        signal: AbortSignal.timeout(10_000),
-      });
+    // Search for both medium and long durations (no Shorts)
+    for (const duration of ['medium', 'long'] as const) {
+      if (isTimedOut()) break;
+      if (searchesToday >= DAILY_SEARCH_LIMIT) break;
+      if (quotaUsed + SEARCH_QUOTA_COST > softLimit) break;
 
-      quotaUsed += SEARCH_QUOTA_COST;
-      searchesToday++;
-      stats.searchesPerformed++;
+      const order = useViewCountOrder ? 'viewCount' : 'relevance';
 
-      if (!res.ok) {
-        console.error(`YouTube search error ${res.status} for "${query.query_text}"`);
-        continue;
-      }
+      try {
+        const url = new URL(`${YT_BASE}/search`);
+        url.searchParams.set('key', apiKey);
+        url.searchParams.set('part', 'snippet');
+        url.searchParams.set('q', query.query_text);
+        url.searchParams.set('type', 'video');
+        url.searchParams.set('order', order);
+        url.searchParams.set('publishedAfter', sixMonthsAgo);
+        url.searchParams.set('maxResults', '50');
+        url.searchParams.set('videoDuration', duration);
+        url.searchParams.set('regionCode', 'US');
+        url.searchParams.set('relevanceLanguage', 'en');
 
-      const data = await res.json();
-      const items = data.items ?? [];
-
-      const topic = query.topics as unknown as { id: string };
-
-      for (const item of items) {
-        const videoId = item.id?.videoId;
-        if (!videoId) continue;
-
-        const channelId = item.snippet?.channelId;
-        // Only discover videos from channels we don't already follow
-        if (knownChannelIds.has(channelId)) continue;
-
-        // Check if video already exists
-        const { data: existing } = await db
-          .from('videos')
-          .select('id')
-          .eq('id', videoId)
-          .single();
-
-        if (existing) continue;
-
-        // Insert discovered video
-        await db.from('videos').upsert({
-          id: videoId,
-          workspace_id: '00000000-0000-0000-0000-000000000001',
-          channel_id: channelId,
-          topic_id: topic.id,
-          title: item.snippet?.title ?? '',
-          published_at: item.snippet?.publishedAt ?? new Date().toISOString(),
+        const res = await fetch(url.toString(), {
+          signal: AbortSignal.timeout(10_000),
         });
-        stats.videosDiscovered++;
+
+        quotaUsed += SEARCH_QUOTA_COST;
+        searchesToday++;
+        stats.searchesPerformed++;
+
+        if (!res.ok) {
+          console.error(`YouTube search error ${res.status} for "${query.query_text}" (${duration})`);
+          continue;
+        }
+
+        const data = await res.json();
+        const items = data.items ?? [];
+
+        // Collect video IDs for enrichment
+        const videoIds: string[] = [];
+        const videoMeta = new Map<string, { title: string; channelId: string; publishedAt: string; rank: number }>();
+
+        for (let rank = 0; rank < items.length; rank++) {
+          const item = items[rank];
+          const videoId = item.id?.videoId;
+          if (!videoId) continue;
+
+          videoIds.push(videoId);
+          videoMeta.set(videoId, {
+            title: item.snippet?.title ?? '',
+            channelId: item.snippet?.channelId ?? '',
+            publishedAt: item.snippet?.publishedAt ?? new Date().toISOString(),
+            rank: rank + 1,
+          });
+        }
+
+        if (videoIds.length === 0) continue;
+
+        // Check which videos are already in search_results for this topic
+        const { data: existing } = await db
+          .from('search_results')
+          .select('video_id')
+          .eq('topic_id', topic.id)
+          .in('video_id', videoIds);
+        const existingIds = new Set((existing ?? []).map((r) => r.video_id));
+        const newVideoIds = videoIds.filter((id) => !existingIds.has(id));
+
+        if (newVideoIds.length === 0) continue;
+
+        // Enrich with videos.list (1 unit per 50 videos) for views, duration, subs
+        let enrichMap = new Map<string, { views: number; durationS: number; channelTitle: string }>();
+        if (quotaUsed + 1 <= softLimit) {
+          const enrichUrl = new URL(`${YT_BASE}/videos`);
+          enrichUrl.searchParams.set('key', apiKey);
+          enrichUrl.searchParams.set('part', 'statistics,contentDetails,snippet');
+          enrichUrl.searchParams.set('id', newVideoIds.slice(0, 50).join(','));
+
+          const enrichRes = await fetch(enrichUrl.toString(), {
+            signal: AbortSignal.timeout(10_000),
+          });
+          quotaUsed += 1;
+
+          if (enrichRes.ok) {
+            const enrichData = await enrichRes.json();
+            for (const item of enrichData.items ?? []) {
+              const dur = parseDuration(item.contentDetails?.duration ?? '');
+              enrichMap.set(item.id, {
+                views: parseInt(item.statistics?.viewCount ?? '0', 10),
+                durationS: dur,
+                channelTitle: item.snippet?.channelTitle ?? '',
+              });
+            }
+            stats.videosEnriched += enrichMap.size;
+          }
+        }
+
+        // Get channel subscriber counts (batch, 1 unit per 50)
+        const channelIds = [...new Set(newVideoIds.map((id) => videoMeta.get(id)?.channelId).filter(Boolean))] as string[];
+        const channelSubsMap = new Map<string, number>();
+
+        if (channelIds.length > 0 && quotaUsed + 1 <= softLimit) {
+          const chUrl = new URL(`${YT_BASE}/channels`);
+          chUrl.searchParams.set('key', apiKey);
+          chUrl.searchParams.set('part', 'statistics');
+          chUrl.searchParams.set('id', channelIds.slice(0, 50).join(','));
+
+          const chRes = await fetch(chUrl.toString(), { signal: AbortSignal.timeout(10_000) });
+          quotaUsed += 1;
+
+          if (chRes.ok) {
+            const chData = await chRes.json();
+            for (const ch of chData.items ?? []) {
+              channelSubsMap.set(ch.id, parseInt(ch.statistics?.subscriberCount ?? '0', 10));
+            }
+          }
+        }
+
+        // Insert into search_results (NOT videos — no FK violation)
+        for (const videoId of newVideoIds) {
+          const meta = videoMeta.get(videoId);
+          if (!meta) continue;
+          const enriched = enrichMap.get(videoId);
+
+          const { error } = await db.from('search_results').upsert(
+            {
+              workspace_id: '00000000-0000-0000-0000-000000000001',
+              topic_id: topic.id,
+              video_id: videoId,
+              channel_id: meta.channelId,
+              title: meta.title,
+              views: enriched?.views ?? null,
+              duration_s: enriched?.durationS ?? null,
+              published_at: meta.publishedAt,
+              channel_title: enriched?.channelTitle ?? null,
+              channel_subscribers: channelSubsMap.get(meta.channelId) ?? null,
+              rank: meta.rank,
+              searched_at: new Date().toISOString(),
+            },
+            { onConflict: 'topic_id,video_id' },
+          );
+          if (error) {
+            console.error(`search_results upsert error for ${videoId}: ${error.message}`);
+          } else {
+            stats.videosDiscovered++;
+          }
+        }
+      } catch (err) {
+        if (err instanceof QuotaSoftLimitReached) break;
+        console.error(
+          `Search error for "${query.query_text}" (${duration}): ${(err as Error).message}`,
+        );
       }
-    } catch (err) {
-      if (err instanceof QuotaSoftLimitReached) break;
-      console.error(
-        `Search error for "${query.query_text}": ${(err as Error).message}`,
-      );
     }
   }
 
   // Update daily search counter
   await db.from('settings').upsert({
-    key: `search_count_${todayStart.toISOString().slice(0, 10)}`,
+    key: `search_count_${todayKey}`,
     value: searchesToday,
   });
 
   return stats;
+}
+
+/** Parse ISO 8601 duration (PT#H#M#S) to seconds */
+function parseDuration(iso: string): number {
+  const match = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+  if (!match) return 0;
+  return (parseInt(match[1] ?? '0', 10) * 3600)
+    + (parseInt(match[2] ?? '0', 10) * 60)
+    + parseInt(match[3] ?? '0', 10);
 }

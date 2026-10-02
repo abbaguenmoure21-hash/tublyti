@@ -1,5 +1,7 @@
 import Link from 'next/link';
 import { createServiceClient } from '@/lib/supabase/server';
+
+export const metadata = { title: 'Tableau de bord' };
 import { getLatestScoreDate } from '@/lib/scoring/latest-score-date';
 import {
   Zap,
@@ -9,7 +11,7 @@ import {
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { MatriceFilters } from './_components/matrice-filters';
-import { MatriceView } from './_components/matrice-view';
+import { DashboardShell } from './_components/dashboard-shell';
 import { TitlePatternsView } from './_components/title-patterns-view';
 import { getFavoriteIds } from '@/lib/actions/collections';
 
@@ -23,6 +25,7 @@ interface TopicRow {
   monetization: number;
   phase: number;
   feasibilityGrade: string | null;
+  feasibilityReason: string | null;
   sparkline: number[];
   topQuote: string | null;
   rank: number;
@@ -59,7 +62,7 @@ async function fetchMatriceData(nicheId: string | null, blueOcean: boolean, phas
   let query = db
     .from('topic_scores')
     .select(
-      `mgi, demand, frustration, supply_q, monetization, phase, feasibility_grade,
+      `mgi, demand, frustration, supply_q, monetization, phase, feasibility_grade, feasibility_reason,
        topics!inner(id, label, status, niche_id, niches!inner(id, name, rpm_coefficient))`,
     )
     .eq('scored_at', scoredAt)
@@ -149,6 +152,7 @@ async function fetchMatriceData(nicheId: string | null, blueOcean: boolean, phas
       monetization: Number(s.monetization),
       phase: s.phase as number,
       feasibilityGrade: (s.feasibility_grade as string) ?? null,
+      feasibilityReason: (s.feasibility_reason as string) ?? null,
       sparkline: sparklines[topic.id] ?? [],
       topQuote: topQuotes[topic.id] ?? null,
       rank: idx + 1,
@@ -197,20 +201,12 @@ async function fetchMatriceData(nicheId: string | null, blueOcean: boolean, phas
     t.totalInNiche = topics.length;
   });
 
-  // Unique channels for tabs (deduplicated by niche)
-  const seenNiches = new Set<string>();
-  const channelTabs = (channels ?? [])
-    .filter((ch: Record<string, unknown>) => {
-      const niche = ch.niches as unknown as { id: string };
-      if (seenNiches.has(niche.id)) return false;
-      seenNiches.add(niche.id);
-      return true;
-    })
-    .map((ch: Record<string, unknown>) => ({
-      id: ch.id as string,
-      title: ch.title as string,
-      nicheId: (ch.niches as unknown as { id: string }).id,
-    }));
+  // Niche tabs for filtering
+  const channelTabs = (niches ?? []).map((n: Record<string, unknown>) => ({
+    id: n.id as string,
+    title: n.name as string,
+    nicheId: n.id as string,
+  }));
 
   // Title patterns
   let patternsQuery = db
@@ -284,62 +280,169 @@ export default async function MatricePage({
     ? channelTabs.find((ch: { nicheId: string }) => ch.nicheId === nicheId)
     : null;
 
+  // Find top Phase 2 opportunity for Hero card
+  const heroTopic = topics.find((t) => t.phase === 2) ?? topics[0] ?? null;
+
   if (topics.length === 0 && !nicheId && !blueOcean && phaseFilter === null) {
     // Empty state for brand-new users
     return (
       <div className="flex-1 flex flex-col">
-        <header className="h-[60px] shrink-0 flex items-center gap-3 px-8 border-b border-border bg-card text-[14px] text-muted-foreground">
+        <header className="h-[56px] shrink-0 flex items-center gap-3 px-8 border-b border-[--glass-border] bg-[--bg-surface-1] backdrop-blur-xl text-[14px] text-muted-foreground">
           <span>Matrice</span>
         </header>
-        <div className="flex-1 p-7 space-y-6 max-w-3xl mx-auto">
-          <Card className="border-primary/20">
-            <CardContent className="py-10 text-center">
-              <div className="flex items-center justify-center w-14 h-14 rounded-2xl bg-primary text-primary-foreground mx-auto mb-4">
-                <Zap className="w-7 h-7" />
-              </div>
-              <h2 className="text-xl font-bold mb-2">Bienvenue sur TubLyTI</h2>
-              <p className="text-muted-foreground max-w-lg mx-auto">
-                TubLyTI détecte les opportunités YouTube avant tout le monde en mesurant le
-                déséquilibre entre la demande des spectateurs et l&apos;offre de vidéos existantes.
-              </p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Pour commencer</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-1">
+        <div className="flex-1 p-8 space-y-6 max-w-3xl mx-auto">
+          <div className="bento-card text-center !py-12">
+            <div className="flex items-center justify-center w-14 h-14 rounded-2xl bg-primary text-primary-foreground mx-auto mb-4 shadow-[0_2px_12px_rgba(10,132,255,0.3)]">
+              <Zap className="w-7 h-7" />
+            </div>
+            <h2 className="text-title-2 mb-2">Bienvenue sur TubLyTI</h2>
+            <p className="text-muted-foreground max-w-lg mx-auto text-body">
+              TubLyTI détecte les opportunités YouTube avant tout le monde en mesurant le
+              déséquilibre entre la demande des spectateurs et l&apos;offre de vidéos existantes.
+            </p>
+          </div>
+          <div className="bento-card">
+            <h3 className="text-headline mb-4">Pour commencer</h3>
+            <div className="space-y-1">
               <ChecklistItem done={false} label="Ajouter au moins 3 chaînes YouTube" href="/channels" />
               <ChecklistItem done={false} label="Attendre la première collecte (ou lancer dans Admin > Jobs)" href="/admin/jobs" />
               <ChecklistItem done={false} label="Valider les sujets proposés" href="/topics/review" />
               <ChecklistItem done={false} label="Explorer la matrice d'opportunités" />
-            </CardContent>
-          </Card>
+            </div>
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="flex-1 flex flex-col min-w-0">
-      {/* Breadcrumb header */}
-      <header className="h-[60px] shrink-0 flex items-center gap-3 px-8 border-b border-border bg-card text-[14px] text-muted-foreground">
-        <span>Matrice</span>
+    <div className="flex-1 flex flex-col min-w-0 relative">
+      {/* Background gradients multi-niveaux */}
+      <div className="absolute inset-0 pointer-events-none -z-10 overflow-x-clip">
+        <div className="absolute -top-[20%] -left-[10%] w-[50%] h-[50%] rounded-full bg-blue-400/15 dark:bg-blue-600/15 blur-[100px]" />
+        <div className="absolute top-[20%] -right-[10%] w-[40%] h-[60%] rounded-full bg-purple-400/15 dark:bg-purple-600/15 blur-[120px]" />
+        <div className="absolute -bottom-[20%] left-[20%] w-[60%] h-[50%] rounded-full bg-cyan-400/15 dark:bg-cyan-600/15 blur-[100px]" />
+      </div>
+
+      {/* Translucent breadcrumb header */}
+      <header className="sticky top-0 z-20 h-[56px] shrink-0 flex items-center gap-3 px-8 border-b border-[--glass-border] bg-background/80 backdrop-blur-xl text-[13px] text-muted-foreground">
+        <span className="font-medium">Matrice</span>
         {selectedChannel && (
           <>
-            <span className="text-border">/</span>
-            <span className="text-foreground font-medium">{selectedChannel.title}</span>
+            <span className="text-[--glass-border]">/</span>
+            <span className="text-foreground font-semibold">{selectedChannel.title}</span>
           </>
         )}
         <div className="flex-1" />
-        <span>Scores du {formattedDate}, {formattedTime}</span>
+        <span className="text-mono-metric tabular-nums text-[12px]">
+          Scores du {formattedDate}, {formattedTime}
+        </span>
       </header>
 
-      <div className="flex-1 p-7 flex flex-col gap-5">
+      <div className="flex-1 p-6 md:px-12 md:py-10 flex flex-col gap-10 w-full max-w-[1400px] mx-auto">
         <MatriceFilters channels={channelTabs} />
-        <MatriceView topics={topics} />
-        {titlePatterns.length > 0 && <TitlePatternsView patterns={titlePatterns} />}
+
+        {/* Hero Card — Apple Today Tab style for top opportunity */}
+        {heroTopic && (
+          <Link
+            href={`/topics/${heroTopic.id}`}
+            className="group relative block overflow-hidden rounded-[28px] border border-[--glass-border] hover:border-[--glass-border-highlight] transition-all duration-300 shrink-0"
+            style={{ minHeight: 200 }}
+          >
+            {/* Background gradient based on phase */}
+            <div className="absolute inset-0 bg-gradient-to-br from-[--bg-surface-1] via-background to-background" />
+            <div
+              className="absolute top-0 right-0 w-1/2 h-full opacity-30"
+              style={{
+                background: heroTopic.phase === 2
+                  ? 'radial-gradient(ellipse at top right, #30D158, transparent 70%)'
+                  : heroTopic.phase === 0
+                  ? 'radial-gradient(ellipse at top right, #5E5CE6, transparent 70%)'
+                  : heroTopic.phase === 1
+                  ? 'radial-gradient(ellipse at top right, #FF9F0A, transparent 70%)'
+                  : 'radial-gradient(ellipse at top right, #FF453A, transparent 70%)',
+              }}
+            />
+
+            <div className="relative p-8 flex flex-col gap-4">
+              {/* Phase badge */}
+              <div className="flex items-center gap-3">
+                <span className={`
+                  inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold uppercase tracking-wide
+                  border backdrop-blur-md bg-white/[0.04]
+                  ${heroTopic.phase === 2 ? 'border-[#30D158]/30 text-[#5EE07E]' :
+                    heroTopic.phase === 0 ? 'border-[#5E5CE6]/30 text-[#8886F0]' :
+                    heroTopic.phase === 1 ? 'border-[#FF9F0A]/30 text-[#FFB940]' :
+                    'border-[#FF453A]/30 text-[#FF7B73]'}
+                `}>
+                  <span className="relative flex h-2 w-2">
+                    {heroTopic.phase === 2 && (
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#30D158] opacity-75" />
+                    )}
+                    <span className={`relative inline-flex rounded-full h-2 w-2 ${
+                      heroTopic.phase === 2 ? 'bg-[#30D158]' :
+                      heroTopic.phase === 0 ? 'bg-[#5E5CE6]' :
+                      heroTopic.phase === 1 ? 'bg-[#FF9F0A]' : 'bg-[#FF453A]'
+                    }`} />
+                  </span>
+                  {heroTopic.phase === 2 ? 'Fenêtre dorée' : heroTopic.phase === 0 ? 'Émergence' : heroTopic.phase === 1 ? 'Viralité courte' : 'Saturé'}
+                </span>
+                <span className="text-[12px] text-muted-foreground">Opportunité #1</span>
+              </div>
+
+              {/* Title */}
+              <h2 className="text-title-1 max-w-2xl leading-tight group-hover:text-primary transition-colors">
+                {heroTopic.label}
+              </h2>
+
+              {/* Metrics row */}
+              <div className="flex items-center gap-6 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <span className="text-display-giant text-mono-metric tabular-nums" style={{
+                    fontSize: 36,
+                    color: heroTopic.mgi >= 80 ? '#30D158' : heroTopic.mgi >= 60 ? '#0A84FF' : '#FF9F0A',
+                  }}>
+                    {Math.round(heroTopic.mgi)}
+                  </span>
+                  <span className="text-[12px] text-muted-foreground font-medium">MGI / 100</span>
+                </div>
+                <div className="flex items-center gap-4 text-[13px]">
+                  <span className="px-2.5 py-1 rounded-lg bg-[--bg-surface-1] border border-[--glass-border]">
+                    <span className="text-muted-foreground">Demande: </span>
+                    <span className="font-semibold tabular-nums">{Math.round(heroTopic.demand)}e percentile</span>
+                  </span>
+                  <span className="px-2.5 py-1 rounded-lg bg-[--bg-surface-1] border border-[--glass-border]">
+                    <span className="text-muted-foreground">Frustration: </span>
+                    <span className="font-semibold tabular-nums">{Math.round(heroTopic.frustration * 100)}%</span>
+                  </span>
+                  <span className="px-2.5 py-1 rounded-lg bg-[--bg-surface-1] border border-[--glass-border]">
+                    <span className="text-muted-foreground">Offre: </span>
+                    <span className="font-semibold tabular-nums">{heroTopic.supplyQ} vidéos</span>
+                  </span>
+                </div>
+              </div>
+
+              {/* Quote if available */}
+              {heroTopic.topQuote && (
+                <p className="text-[13px] text-muted-foreground max-w-xl italic">
+                  « {heroTopic.topQuote} »
+                </p>
+              )}
+
+              {/* Action hint */}
+              <div className="flex items-center gap-1.5 text-primary text-sm font-medium">
+                Ouvrir la fiche sujet
+                <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
+              </div>
+            </div>
+          </Link>
+        )}
+
+        <DashboardShell topics={topics}>
+          {titlePatterns.length > 0 && <TitlePatternsView patterns={titlePatterns} />}
+        </DashboardShell>
       </div>
     </div>
   );
 }
+

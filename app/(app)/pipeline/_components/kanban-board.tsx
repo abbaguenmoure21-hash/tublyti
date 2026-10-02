@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useTransition } from 'react';
+import { useState, useCallback, useTransition, useId, useEffect } from 'react';
 import {
   DndContext,
   DragOverlay,
@@ -18,6 +18,8 @@ import { KanbanColumn } from './kanban-column';
 import { KanbanCardComponent } from './kanban-card';
 import { PublishDialog } from './publish-dialog';
 import { moveAngleToProduction, moveAngleToIdea, publishAngle } from '@/lib/actions/pipeline';
+import { LayoutGrid } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 
 const COLUMNS: { id: PipelineColumn; label: string; color: string }[] = [
   { id: 'idea', label: 'Idée', color: 'bg-phase-0' },
@@ -38,6 +40,21 @@ export function KanbanBoard({
   const [columns, setColumns] = useState(initialColumns);
   const [activeCard, setActiveCard] = useState<PipelineCard | null>(null);
   const [publishCard, setPublishCard] = useState<PipelineCard | null>(null);
+  const dndId = useId();
+  const [isMounted, setIsMounted] = useState(false);
+
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
+  const staticCount = 3;
+  let visibleNiches = niches.slice(0, staticCount);
+  if (activeNiche && !visibleNiches.find((n) => n.id === activeNiche)) {
+    const selected = niches.find((n) => n.id === activeNiche);
+    if (selected) {
+      visibleNiches = [...niches.slice(0, staticCount - 1), selected];
+    }
+  }
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
 
@@ -180,45 +197,90 @@ export function KanbanBoard({
   return (
     <>
       {/* Header */}
-      <header className="h-[60px] shrink-0 flex items-center justify-between gap-4 px-8 border-b border-border bg-card">
-        <h1 className="text-[18px] font-semibold">Pipeline</h1>
+      <header className="sticky top-0 z-20 h-[64px] shrink-0 flex items-center gap-4 px-6 md:px-8 border-b border-black/5 dark:border-white/10 bg-white/60 dark:bg-[#08090C]/60 backdrop-blur-2xl shadow-sm">
+        <h1 className="text-[20px] font-bold text-foreground tracking-tight shrink-0">Pipeline</h1>
 
         {/* Niche filter */}
         {niches.length > 0 && (
-          <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              onClick={() => router.push('/pipeline')}
-              className={`h-7 px-2.5 rounded-md text-[12px] font-medium transition-colors cursor-pointer ${
-                !activeNiche
-                  ? 'bg-primary text-primary-foreground'
-                  : 'bg-muted text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              Toutes
-            </button>
-            {niches.map((n) => (
+          <div className="flex items-center gap-2 max-w-full">
+            <div className="flex flex-wrap items-center gap-2 pb-1 -mb-1">
               <button
-                key={n.id}
                 type="button"
-                onClick={() => router.push(`/pipeline?niche=${n.id}`)}
-                className={`h-7 px-2.5 rounded-md text-[12px] font-medium transition-colors cursor-pointer ${
-                  activeNiche === n.id
-                    ? 'bg-primary text-primary-foreground'
-                    : 'bg-muted text-muted-foreground hover:text-foreground'
+                onClick={() => router.push('/pipeline')}
+                className={`haptic-btn whitespace-nowrap shrink-0 h-[32px] px-4 rounded-full text-[13px] font-bold transition-all cursor-pointer shadow-sm border ${
+                  !activeNiche
+                    ? 'bg-gradient-to-b from-primary to-blue-600 text-primary-foreground border-primary/20 shadow-[0_2px_8px_rgba(10,132,255,0.4)]'
+                    : 'bg-white dark:bg-white/10 border-black/5 dark:border-white/10 text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/20'
                 }`}
               >
-                {n.channelName || n.name}
+                Toutes
               </button>
-            ))}
+              {visibleNiches.map((n) => (
+                <button
+                  key={n.id}
+                  type="button"
+                  onClick={() => router.push(`/pipeline?niche=${n.id}`)}
+                  className={`haptic-btn whitespace-nowrap shrink-0 h-[32px] px-4 rounded-full text-[13px] font-bold transition-all cursor-pointer shadow-sm border ${
+                    activeNiche === n.id
+                      ? 'bg-gradient-to-b from-primary to-blue-600 text-primary-foreground border-primary/20 shadow-[0_2px_8px_rgba(10,132,255,0.4)]'
+                      : 'bg-white dark:bg-white/10 border-black/5 dark:border-white/10 text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/20'
+                  }`}
+                >
+                  {n.name}
+                </button>
+              ))}
+            </div>
+
+            <Dialog>
+              <DialogTrigger
+                className="haptic-btn flex-shrink-0 h-[32px] px-3.5 flex items-center gap-2 bg-white dark:bg-white/5 hover:bg-black/5 dark:hover:bg-white/10 text-foreground rounded-full font-bold text-[13px] transition-colors border border-black/5 dark:border-white/10 shadow-sm"
+              >
+                <LayoutGrid className="w-4 h-4 text-muted-foreground" />
+                <span className="hidden sm:inline">Tout voir</span>
+              </DialogTrigger>
+              <DialogContent className="max-w-2xl bg-white/70 dark:bg-[#08090C]/70 backdrop-blur-2xl border-glass shadow-[0_8px_40px_rgba(0,0,0,0.12)]">
+                <DialogHeader>
+                  <DialogTitle className="text-xl">Toutes les niches</DialogTitle>
+                </DialogHeader>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-4 max-h-[60vh] overflow-y-auto pr-2 pb-2">
+                  <button
+                    type="button"
+                    onClick={() => router.push('/pipeline')}
+                    className={`text-left p-3 rounded-xl border transition-all ${
+                      !activeNiche
+                        ? 'bg-primary/10 border-primary/20 font-bold text-primary'
+                        : 'border-black/5 dark:border-white/10 hover:bg-black/5 dark:hover:bg-white/5 text-muted-foreground font-medium'
+                    }`}
+                  >
+                    Toutes les niches
+                  </button>
+                  {niches.map((n) => (
+                    <button
+                      key={n.id}
+                      type="button"
+                      onClick={() => router.push(`/pipeline?niche=${n.id}`)}
+                      className={`text-left p-3 rounded-xl border transition-all ${
+                        activeNiche === n.id
+                          ? 'bg-primary/10 border-primary/20 font-bold text-primary'
+                          : 'border-black/5 dark:border-white/10 hover:bg-black/5 dark:hover:bg-white/5 text-muted-foreground font-medium'
+                      }`}
+                    >
+                      {n.name}
+                    </button>
+                  ))}
+                </div>
+              </DialogContent>
+            </Dialog>
           </div>
         )}
       </header>
 
       {/* Kanban */}
       <div className="flex-1 p-6 overflow-x-auto">
-        <DndContext
-          sensors={sensors}
+        {isMounted ? (
+          <DndContext
+            id={dndId}
+            sensors={sensors}
           collisionDetection={closestCenter}
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
@@ -244,6 +306,20 @@ export function KanbanBoard({
             )}
           </DragOverlay>
         </DndContext>
+        ) : (
+          <div className="flex gap-4 min-h-[calc(100vh-160px)]">
+            {COLUMNS.map((col) => (
+              <KanbanColumn
+                key={col.id}
+                id={col.id}
+                label={col.label}
+                color={col.color}
+                count={columns[col.id].length}
+                cards={columns[col.id]}
+              />
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Publish dialog */}

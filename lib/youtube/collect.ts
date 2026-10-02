@@ -337,48 +337,61 @@ export async function runCollect(
     }
 
     // ── Step 4: Comment ingestion ─────────────────────────────────
-    const sixtyDaysAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
+    // Only: long videos (≥8min), ≥10k views, from followed channels,
+    // attached to an active topic, sorted by views desc.
+    // Cooldown: skip videos whose comments were fetched < 7 days ago.
     const sevenDaysAgoForComments = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
+    // Single query: long videos attached to active topics
     const { data: commentCandidates } = await db
       .from('videos')
-      .select(`
-        id,
-        topic_id,
-        topics(phase),
-        video_snapshots(views)
-      `)
-      .gte('published_at', sixtyDaysAgo.toISOString());
+      .select(`id, topic_id, duration_s, topics!inner(phase, status)`)
+      .not('topic_id', 'is', null)
+      .gte('duration_s', DURATION_THRESHOLD)
+      .in('topics.status', ['active', 'in_production']);
 
-    const videosNeedingComments: { id: string; phase: number | null; views: number }[] = [];
+    const candidateIds = (commentCandidates ?? []).map((v) => v.id);
 
-    for (const v of commentCandidates ?? []) {
-      const { data: latestComment } = await db
-        .from('comments')
-        .select('published_at')
-        .eq('video_id', v.id)
-        .order('published_at', { ascending: false })
-        .limit(1);
-
-      if (latestComment && latestComment.length > 0) {
-        const { count } = await db
-          .from('comments')
-          .select('id', { count: 'exact', head: true })
-          .eq('video_id', v.id)
-          .gte('published_at', sevenDaysAgoForComments.toISOString());
-
-        if (count && count > 0) continue;
+    // Batch-fetch latest views per video
+    const viewsByVideo = new Map<string, number>();
+    if (candidateIds.length > 0) {
+      const { data: snaps } = await db
+        .from('video_snapshots')
+        .select('video_id, views')
+        .in('video_id', candidateIds)
+        .order('captured_at', { ascending: false });
+      for (const s of snaps ?? []) {
+        if (!viewsByVideo.has(s.video_id)) viewsByVideo.set(s.video_id, s.views ?? 0);
       }
-
-      const topicsData = v.topics as unknown as { phase: number | null } | null;
-      const phase = topicsData?.phase ?? null;
-      const snaps = v.video_snapshots as unknown as { views: number }[] | null;
-      const views = snaps?.[0]?.views ?? 0;
-
-      videosNeedingComments.push({ id: v.id, phase, views });
     }
 
-    // Sort: phase 0/1/2 first (by phase asc), then by views desc
+    // Batch-fetch last comment date per video
+    const lastCommentDate = new Map<string, string>();
+    if (candidateIds.length > 0) {
+      const { data: latestComments } = await db
+        .from('comments')
+        .select('video_id, published_at')
+        .in('video_id', candidateIds)
+        .order('published_at', { ascending: false });
+      for (const c of latestComments ?? []) {
+        if (!lastCommentDate.has(c.video_id)) lastCommentDate.set(c.video_id, c.published_at);
+      }
+    }
+
+    // Filter: ≥10k views, cooldown respected
+    const videosNeedingComments: { id: string; phase: number | null; views: number }[] = [];
+    for (const v of commentCandidates ?? []) {
+      const views = viewsByVideo.get(v.id) ?? 0;
+      if (views < 10_000) continue;
+
+      const lastFetch = lastCommentDate.get(v.id);
+      if (lastFetch && lastFetch >= sevenDaysAgoForComments.toISOString()) continue;
+
+      const topicsData = v.topics as unknown as { phase: number | null } | null;
+      videosNeedingComments.push({ id: v.id, phase: topicsData?.phase ?? null, views });
+    }
+
+    // Sort: phase 0/1/2 first, then by views desc
     videosNeedingComments.sort((a, b) => {
       const aP = a.phase !== null && a.phase <= 2 ? a.phase : 99;
       const bP = b.phase !== null && b.phase <= 2 ? b.phase : 99;

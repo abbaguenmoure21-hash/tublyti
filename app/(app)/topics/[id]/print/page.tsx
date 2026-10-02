@@ -1,6 +1,15 @@
 import { notFound } from 'next/navigation';
+import type { Metadata } from 'next';
 import { fetchDossierData } from '@/lib/dossier/generate';
 import { getMgiBand } from '@/lib/scoring/mgi';
+import { createServiceClient } from '@/lib/supabase/server';
+
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  const { id } = await params;
+  const db = createServiceClient();
+  const { data } = await db.from('topics').select('label').eq('id', id).single();
+  return { title: data?.label ? `Impression - ${data.label}` : 'Impression' };
+}
 
 const PHASE_LABELS: Record<number, string> = {
   0: 'Émergence',

@@ -32,7 +32,7 @@ export function TopicPreview({
 
   if (!topic) {
     return (
-      <aside className="w-[340px] shrink-0 bg-card border border-border rounded-[10px] shadow-[0_1px_2px_rgba(20,24,34,0.06)] p-5 flex flex-col items-center justify-center text-center gap-3">
+      <aside className="w-[320px] h-full shrink-0 bento-card flex flex-col items-center justify-center text-center gap-3">
         <p className="text-[14px] text-muted-foreground">
           Clique sur un point du graphique ou une ligne du tableau pour voir le détail.
         </p>
@@ -43,14 +43,14 @@ export function TopicPreview({
   const supplyLabel = topic.supplyQ === 1 ? '1 vidéo' : `${topic.supplyQ} vidéos`;
 
   return (
-    <aside className="w-[340px] shrink-0 bg-card border border-border rounded-[10px] shadow-[0_1px_2px_rgba(20,24,34,0.06)] p-5 flex flex-col gap-4">
+    <aside className="w-[320px] h-full shrink-0 bento-card flex flex-col gap-4">
       {/* Phase + bookmark */}
       <div className="flex items-center justify-between">
         <PhaseBadge phase={topic.phase} />
         <button
           type="button"
           aria-label="Ajouter aux favoris"
-          className="w-8 h-8 border border-border rounded-lg bg-card text-muted-foreground flex items-center justify-center hover:bg-muted transition-colors cursor-pointer"
+          className="w-8 h-8 border border-[--glass-border] rounded-lg bg-[--bg-surface-2] text-muted-foreground flex items-center justify-center hover:bg-[--bg-surface-3] transition-colors cursor-pointer"
         >
           <Star className="w-4 h-4" />
         </button>
@@ -91,15 +91,16 @@ export function TopicPreview({
       {/* Actions */}
       <Link
         href={`/topics/${topic.id}`}
-        className="h-[38px] rounded-lg bg-primary text-primary-foreground text-[14px] font-medium flex items-center justify-center hover:bg-primary/90 transition-colors"
+        className="h-[38px] rounded-xl bg-primary text-primary-foreground text-[14px] font-semibold flex items-center justify-center hover:opacity-90 transition-opacity shadow-[0_4px_14px_rgba(10,132,255,0.3)]"
       >
         Ouvrir la fiche
       </Link>
       <button
         type="button"
-        className="h-[38px] border border-border rounded-lg bg-card text-foreground text-[14px] font-medium hover:bg-muted transition-colors cursor-pointer"
+        className="h-[38px] border border-[--glass-border] rounded-xl bg-[--bg-surface-2] text-foreground text-[13px] font-semibold flex items-center justify-center hover:bg-[--bg-surface-3] transition-colors cursor-pointer shadow-[0_1px_2px_rgba(0,0,0,0.1)]"
+        onClick={() => onSelect(null)}
       >
-        Générer 5 angles
+        Fermer
       </button>
     </aside>
   );
@@ -107,7 +108,7 @@ export function TopicPreview({
 
 function MiniStat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="bg-background rounded-lg px-3 py-2.5 flex flex-col gap-0.5">
+    <div className="bg-[--bg-surface-2] border border-[--glass-border] rounded-[10px] px-3 py-2.5 flex flex-col gap-0.5">
       <span className="text-[12px] text-muted-foreground">{label}</span>
       <span className="text-[17px] font-semibold tabular-nums">{value}</span>
     </div>

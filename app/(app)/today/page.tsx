@@ -42,6 +42,7 @@ interface NotableEvent {
   videoTitle: string;
   channelTitle: string;
   videoId: string;
+  thumbnailUrl: string | null;
   meta: Record<string, unknown> | null;
   oldValue: string | null;
   newValue: string | null;
@@ -207,15 +208,16 @@ export default async function TodayPage() {
     }
   }
 
-  // Build channel data
+  // Build niche data (reusing ChannelData interface)
   const channelDataList: ChannelData[] = [];
   for (const [nicheId, niche] of nicheMap) {
-    const topics = (scoresByNiche.get(nicheId) ?? []).slice(0, 3);
+    const allTopics = scoresByNiche.get(nicheId) ?? [];
+    const topics = allTopics.slice(0, 3);
     if (topics.length === 0) continue;
     channelDataList.push({
-      id: niche.channelId,
-      title: niche.channelTitle,
-      nicheName: niche.name,
+      id: niche.id,
+      title: niche.name,
+      nicheName: `${allTopics.length} opportunité(s)`,
       nicheId: niche.id,
       topics: topics.map((t) => {
         const frust = frustrationByTopic[t.topicId];
@@ -342,7 +344,7 @@ export default async function TodayPage() {
     .from('video_events')
     .select(
       `id, video_id, event_type, old_value, new_value, meta, created_at,
-       videos!inner(title, channels!inner(title))`,
+       videos!inner(title, thumbnail_url, channels!inner(title))`,
     )
     .gte('created_at', yesterday)
     .order('created_at', { ascending: false })
@@ -352,13 +354,14 @@ export default async function TodayPage() {
   const eventPriority: Record<string, number> = { spike: 0, thumbnail_change: 1, title_change: 2, new_upload: 3 };
   const notableEvents: NotableEvent[] = (rawNotableEvents ?? [])
     .map((e: Record<string, unknown>) => {
-      const video = e.videos as unknown as { title: string; channels: { title: string } };
+      const video = e.videos as unknown as { title: string; thumbnail_url: string | null; channels: { title: string } };
       return {
         id: e.id as string,
         eventType: e.event_type as string,
         videoTitle: video.title,
         channelTitle: video.channels.title,
         videoId: e.video_id as string,
+        thumbnailUrl: video.thumbnail_url,
         meta: e.meta as Record<string, unknown> | null,
         oldValue: e.old_value as string | null,
         newValue: e.new_value as string | null,
@@ -377,312 +380,401 @@ export default async function TodayPage() {
   if ((newProposed ?? []).length > 0) subtitleParts.push(`${(newProposed ?? []).length} nouveau${(newProposed ?? []).length > 1 ? 'x' : ''} à valider`);
 
   return (
-    <div className="flex flex-col min-h-full">
+    <div className="flex flex-col min-h-full relative overflow-x-clip">
+      {/* Background gradients multi-niveaux */}
+      <div className="absolute inset-0 pointer-events-none -z-10">
+        <div className="absolute -top-[20%] -left-[10%] w-[50%] h-[50%] rounded-full bg-blue-400/15 dark:bg-blue-600/15 blur-[100px]" />
+        <div className="absolute top-[20%] -right-[10%] w-[40%] h-[60%] rounded-full bg-purple-400/15 dark:bg-purple-600/15 blur-[120px]" />
+        <div className="absolute -bottom-[20%] left-[20%] w-[60%] h-[50%] rounded-full bg-cyan-400/15 dark:bg-cyan-600/15 blur-[100px]" />
+      </div>
+
       {/* Last visit tracker (client component that sets cookie) */}
       <LastVisitTracker />
 
-      {/* Top bar */}
-      <header className="h-[60px] shrink-0 flex items-center gap-4 px-6 md:px-8 border-b border-border bg-card">
-        <label className="flex items-center gap-2 w-full max-w-[420px] h-9 px-3 border border-border rounded-lg bg-background text-muted-foreground text-sm">
-          <Search className="size-4 shrink-0" />
+      {/* Top bar — translucent glass */}
+      <header className="sticky top-0 z-20 h-[64px] shrink-0 flex items-center gap-4 px-6 md:px-8 border-b border-black/5 dark:border-white/10 bg-white/60 dark:bg-[#08090C]/60 backdrop-blur-2xl shadow-sm">
+        <label className="flex items-center gap-3 w-full max-w-[420px] h-10 px-4 border border-black/5 dark:border-white/10 rounded-2xl bg-black/5 dark:bg-white/5 shadow-inner text-muted-foreground focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary/30 transition-all cursor-text">
+          <Search className="w-[18px] h-[18px] shrink-0" />
           <input
             type="search"
             placeholder="Rechercher un sujet, une chaîne, une action…"
-            className="flex-1 bg-transparent border-0 outline-none text-foreground placeholder:text-muted-foreground text-sm"
+            className="flex-1 bg-transparent border-0 outline-none text-foreground placeholder:text-muted-foreground/70 text-[14px] font-medium"
             aria-label="Recherche"
             readOnly
           />
-          <kbd className="hidden sm:inline font-mono text-[11px] px-1.5 py-0.5 border border-border rounded bg-card text-muted-foreground">
+          <kbd className="hidden sm:inline font-mono text-[11px] px-2 py-0.5 rounded-[6px] bg-white dark:bg-white/10 border border-black/5 dark:border-white/10 text-muted-foreground shadow-sm">
             ⌘K
           </kbd>
         </label>
         <div className="flex-1" />
         {allJobsOk ? (
-          <span className="hidden md:flex items-center gap-2 text-[13px] text-muted-foreground">
-            <span className="w-2 h-2 rounded-full shrink-0 bg-success" />
-            Collecte de la nuit OK · scores du {scoreDateFormatted}{scoreTime ? `, ${scoreTime}` : ''}
+          <span className="hidden md:flex items-center gap-2 text-[12px] text-muted-foreground">
+            <span className="w-2 h-2 rounded-full shrink-0 bg-success shadow-[0_0_6px_rgba(48,209,88,0.4)]" />
+            Collecte OK · scores du {scoreDateFormatted}{scoreTime ? `, ${scoreTime}` : ''}
           </span>
         ) : (
           <Link
             href="/admin/jobs"
-            className="hidden md:flex items-center gap-2 text-[13px] text-destructive hover:underline"
+            className="hidden md:flex items-center gap-2 text-[12px] text-destructive hover:underline"
           >
-            <span className="w-2 h-2 rounded-full shrink-0 bg-destructive" />
+            <span className="w-2 h-2 rounded-full shrink-0 bg-destructive shadow-[0_0_6px_rgba(255,69,58,0.4)]" />
             Collecte incomplète — voir les jobs
           </Link>
         )}
       </header>
 
       {/* Content */}
-      <div className="flex-1 p-6 md:px-8 md:py-7 flex flex-col gap-6 overflow-x-hidden">
+      <div className="flex-1 p-5 md:px-10 md:py-8 flex flex-col gap-6 overflow-x-hidden w-full max-w-[1400px] mx-auto">
         {/* Title + actions */}
         <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
           <div className="flex flex-col gap-1.5">
-            <h1 className="text-[28px] font-semibold tracking-tight leading-tight">
+            <h1 className="text-[28px] font-bold leading-tight tracking-[-0.02em] text-foreground">
               Quoi tourner cette semaine ?
             </h1>
-            <p className="text-[15px] text-muted-foreground">
+            <p className="text-[15px] font-medium text-muted-foreground/80">
               {subtitleParts.length > 0 ? subtitleParts.join('. ') + '.' : 'Aucun score disponible pour le moment.'}
             </p>
           </div>
-          <div className="flex gap-2 shrink-0">
+          <div className="flex gap-3 shrink-0">
             <Link
               href="/dashboard"
-              className="h-9 px-3.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium flex items-center hover:bg-primary/90 transition-colors"
+              className="haptic-btn h-10 px-4 rounded-xl bg-gradient-to-b from-primary to-blue-600 text-primary-foreground text-[14px] font-bold flex items-center gap-2 hover:opacity-90 transition-opacity shadow-[0_4px_14px_rgba(10,132,255,0.4)]"
             >
               Ouvrir la matrice
             </Link>
           </div>
         </div>
 
-        {/* KPI grid */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="bg-card border border-border rounded-[10px] p-4 shadow-[0_1px_2px_rgba(20,24,34,0.06)] flex flex-col gap-1.5">
-            <span className="text-[13px] text-muted-foreground">Fenêtres idéales</span>
-            <span className="text-[32px] font-semibold tabular-nums tracking-tight leading-none">{idealCount}</span>
+        {/* KPI grid — Premium glass cards */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="bg-white/60 dark:bg-white/5 backdrop-blur-xl border border-white/40 dark:border-white/10 shadow-sm rounded-2xl p-4 flex flex-col gap-1.5">
+            <span className="text-[12px] text-muted-foreground font-semibold">Fenêtres idéales</span>
+            <span className="text-[28px] font-bold text-mono-metric tabular-nums tracking-tight leading-none" style={{ color: idealCount > 0 ? '#30D158' : undefined }}>
+              {idealCount}
+            </span>
           </div>
-          <div className="bg-card border border-border rounded-[10px] p-4 shadow-[0_1px_2px_rgba(20,24,34,0.06)] flex flex-col gap-1.5">
-            <span className="text-[13px] text-muted-foreground">Sujets suivis</span>
-            <span className="text-[32px] font-semibold tabular-nums tracking-tight leading-none">{totalTracked}</span>
-            {(newProposed ?? []).length > 0 && (
-              <span className="text-[13px] text-muted-foreground">{(newProposed ?? []).length} nouveau{(newProposed ?? []).length > 1 ? 'x' : ''} à valider</span>
-            )}
+          <div className="bg-white/60 dark:bg-white/5 backdrop-blur-xl border border-white/40 dark:border-white/10 shadow-sm rounded-2xl p-4 flex flex-col gap-1.5">
+            <span className="text-[12px] text-muted-foreground font-semibold">Sujets suivis</span>
+            <div className="flex items-baseline gap-2">
+              <span className="text-[28px] font-bold text-mono-metric tabular-nums tracking-tight leading-none text-foreground">{totalTracked}</span>
+              {(newProposed ?? []).length > 0 && (
+                <span className="text-[11px] text-phase-0-ink font-semibold">
+                  +{(newProposed ?? []).length} à valider
+                </span>
+              )}
+            </div>
           </div>
-          <div className="bg-card border border-border rounded-[10px] p-4 shadow-[0_1px_2px_rgba(20,24,34,0.06)] flex flex-col gap-1.5">
-            <span className="text-[13px] text-muted-foreground">En production</span>
-            <span className="text-[32px] font-semibold tabular-nums tracking-tight leading-none">{productionList.length}</span>
+          <div className="bg-white/60 dark:bg-white/5 backdrop-blur-xl border border-white/40 dark:border-white/10 shadow-sm rounded-2xl p-4 flex flex-col gap-1.5">
+            <span className="text-[12px] text-muted-foreground font-semibold">En production</span>
+            <span className="text-[28px] font-bold text-mono-metric tabular-nums tracking-tight leading-none text-foreground">{productionList.length}</span>
           </div>
-          <div className="bg-card border border-border rounded-[10px] p-4 shadow-[0_1px_2px_rgba(20,24,34,0.06)] flex flex-col gap-1.5">
-            <span className="text-[13px] text-muted-foreground">Vidéos TubLyTI à J+30</span>
-            <span className="text-[32px] font-semibold tabular-nums tracking-tight leading-none">—</span>
-            <span className="text-[13px] text-muted-foreground">Pas encore de données</span>
+          <div className="bg-white/60 dark:bg-white/5 backdrop-blur-xl border border-white/40 dark:border-white/10 shadow-sm rounded-2xl p-4 flex flex-col gap-1.5">
+            <span className="text-[12px] text-muted-foreground font-semibold">Vidéos TubLyTI <span className="opacity-60 font-medium">J+30</span></span>
+            <div className="flex items-baseline gap-2">
+              <span className="text-[28px] font-bold text-mono-metric tabular-nums tracking-tight leading-none text-muted-foreground/40">—</span>
+              <span className="text-[11px] text-muted-foreground/70 font-medium">Pas encore de données</span>
+            </div>
           </div>
         </div>
 
         {/* Channel columns */}
         {channelDataList.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {channelDataList.map((ch) => (
-              <section
-                key={ch.id}
-                className="bg-card border border-border rounded-[10px] shadow-[0_1px_2px_rgba(20,24,34,0.06)] flex flex-col"
-              >
-                <div className="flex items-center justify-between px-[18px] py-3.5 border-b border-border">
-                  <div className="flex flex-col gap-0.5">
-                    <span className="text-[15px] font-semibold">{ch.title}</span>
-                    <span className="text-xs text-muted-foreground">{ch.nicheName}</span>
-                  </div>
-                  <Link
-                    href={`/dashboard?niche=${ch.nicheId}`}
-                    className="text-[13px] font-medium text-primary hover:underline"
-                  >
-                    Tout voir
-                  </Link>
-                </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {channelDataList.map((ch, idx) => {
+              const gradients = [
+                'from-blue-500/10 to-purple-500/10 dark:from-blue-500/20 dark:to-purple-500/20',
+                'from-emerald-500/10 to-teal-500/10 dark:from-emerald-500/20 dark:to-teal-500/20',
+                'from-orange-500/10 to-red-500/10 dark:from-orange-500/20 dark:to-red-500/20',
+                'from-indigo-500/10 to-cyan-500/10 dark:from-indigo-500/20 dark:to-cyan-500/20',
+                'from-pink-500/10 to-rose-500/10 dark:from-pink-500/20 dark:to-rose-500/20',
+                'from-amber-500/10 to-orange-500/10 dark:from-amber-500/20 dark:to-orange-500/20',
+              ];
+              const headerGradient = gradients[idx % gradients.length];
+              const dotColors = [
+                'bg-blue-500', 'bg-emerald-500', 'bg-orange-500', 'bg-indigo-500', 'bg-pink-500', 'bg-amber-500'
+              ];
+              const dotColor = dotColors[idx % dotColors.length];
 
-                {ch.topics.map((t, i) => (
-                  <article
-                    key={t.id}
-                    className={`px-[18px] py-3.5 flex flex-col gap-2.5 ${
-                      i < ch.topics.length - 1 ? 'border-b border-muted' : ''
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-1.5">
-                        <PhaseBadge phase={t.phase} />
-                        {t.feasibilityGrade && <FeasibilityBadge grade={t.feasibilityGrade} />}
+              return (
+                <section
+                  key={ch.id}
+                  className="bg-white/40 dark:bg-white/5 backdrop-blur-2xl border border-white/60 dark:border-white/10 shadow-[0_8px_30px_rgb(0,0,0,0.04)] flex flex-col rounded-[24px] overflow-hidden relative group/card"
+                >
+                  <div className={`flex items-center justify-between gap-3 px-5 py-4 border-b border-white/50 dark:border-white/5 bg-gradient-to-r ${headerGradient}`}>
+                    <div className="flex flex-col min-w-0">
+                      <div className="flex items-center gap-2">
+                        <div className={`w-2 h-2 rounded-full ${dotColor} shadow-sm`} />
+                        <span className="text-[15px] font-extrabold tracking-tight text-foreground truncate leading-tight">{ch.title}</span>
                       </div>
-                      <MgiScore value={t.mgi} />
+                      <span className="text-[11px] text-muted-foreground font-semibold truncate mt-1 pl-4">{ch.nicheName}</span>
                     </div>
                     <Link
-                      href={`/topics/${t.id}`}
-                      className="text-[15px] font-semibold text-foreground leading-snug hover:text-primary transition-colors"
+                      href={`/dashboard?niche=${ch.nicheId}`}
+                      className="text-[12px] font-bold text-primary hover:text-white hover:bg-primary transition-all bg-white dark:bg-white/10 shadow-sm border border-primary/20 px-3 py-1.5 rounded-full whitespace-nowrap shrink-0"
                     >
-                      {t.label}
+                      Explorer
                     </Link>
-                    {t.quote && (
-                      <p className="text-[13px] leading-[1.45] text-muted-foreground">
-                        « {t.quote} »{' '}
-                        {t.quoteLikes && (
-                          <span className="text-muted-foreground/60">· {t.quoteLikes} likes</span>
-                        )}
-                      </p>
-                    )}
-                    <div className="flex gap-2">
-                      <Link
-                        href={`/topics/${t.id}`}
-                        className="h-[30px] px-3 border border-border rounded-md text-foreground text-[13px] font-medium flex items-center hover:bg-muted transition-colors"
-                      >
-                        Voir
-                      </Link>
-                      <MarkProductionButton topicId={t.id} />
-                    </div>
-                  </article>
-                ))}
-
-                {ch.topics.length === 0 && (
-                  <div className="px-[18px] py-6 text-center text-sm text-muted-foreground">
-                    Aucun sujet scoré
                   </div>
-                )}
-              </section>
-            ))}
+
+                  <div className="flex flex-col p-3 gap-3 bg-black/[0.01] dark:bg-transparent">
+                    {ch.topics.map((t) => (
+                      <article
+                        key={t.id}
+                        className="group relative px-4 py-3.5 bg-white dark:bg-white/5 border border-black/5 dark:border-white/10 rounded-2xl flex flex-col gap-2.5 transition-all hover:shadow-[0_4px_20px_rgb(0,0,0,0.06)] hover:border-primary/20 dark:hover:border-primary/30"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <Link
+                            href={`/topics/${t.id}`}
+                            className="text-[14.5px] font-bold leading-snug hover:text-primary transition-colors pr-6 text-foreground/90 group-hover:text-foreground"
+                          >
+                            <span className="absolute inset-0 z-10" aria-hidden="true" />
+                            {t.label}
+                          </Link>
+                          <div className="shrink-0 relative z-20 mt-[-2px] scale-[0.85] origin-right">
+                            <MgiScore value={t.mgi} />
+                          </div>
+                        </div>
+                        
+                        {t.quote && (
+                          <p className="text-[13px] leading-relaxed text-muted-foreground/80 italic line-clamp-2 -mt-1 bg-black/5 dark:bg-white/5 p-2.5 rounded-xl border border-black/5 dark:border-white/5">
+                            « {t.quote} »
+                          </p>
+                        )}
+
+                        <div className="flex items-center justify-between mt-0.5 relative z-20">
+                          <div className="flex items-center gap-1.5 scale-[0.9] origin-left">
+                            <PhaseBadge phase={t.phase} />
+                            {t.feasibilityGrade && <FeasibilityBadge grade={t.feasibilityGrade} />}
+                          </div>
+                          <div className="opacity-0 group-hover:opacity-100 transition-opacity scale-90 origin-right">
+                            <MarkProductionButton topicId={t.id} />
+                          </div>
+                        </div>
+                      </article>
+                    ))}
+
+                    {ch.topics.length === 0 && (
+                      <div className="px-5 py-8 text-center text-[13px] text-muted-foreground font-medium">
+                        Aucun sujet scoré
+                      </div>
+                    )}
+                  </div>
+                </section>
+              );
+            })}
           </div>
         ) : (
-          <div className="bg-card border border-border rounded-[10px] p-8 shadow-[0_1px_2px_rgba(20,24,34,0.06)] text-center">
-            <Sparkles className="w-8 h-8 text-muted-foreground/40 mx-auto mb-3" />
-            <p className="text-[15px] font-medium">Aucun sujet scoré pour le moment</p>
-            <p className="text-sm text-muted-foreground mt-1">
+          <div className="bg-white/60 dark:bg-white/5 backdrop-blur-2xl border border-white/40 dark:border-white/10 shadow-[0_8px_30px_rgb(0,0,0,0.04)] rounded-[24px] py-12 px-6 text-center">
+            <Sparkles className="w-8 h-8 text-muted-foreground/60 mx-auto mb-4" />
+            <p className="text-[20px] font-bold tracking-tight text-foreground mb-1">Aucun sujet scoré pour le moment</p>
+            <p className="text-[14px] text-muted-foreground mt-1 max-w-sm mx-auto">
               Ajoute des chaînes et lance la collecte pour voir les opportunités.
             </p>
             <Link
               href="/channels"
-              className="inline-flex items-center gap-1 text-sm text-primary font-medium mt-3 hover:underline"
+              className="inline-flex items-center gap-1.5 text-[14px] text-primary font-semibold mt-4 hover:underline"
             >
-              Ajouter des chaînes <ArrowRight className="w-3.5 h-3.5" />
+              Ajouter des chaînes <ArrowRight className="w-4 h-4" />
             </Link>
           </div>
         )}
 
         {/* Notable events */}
         {notableEvents.length > 0 && (
-          <section className="bg-card border border-border rounded-[10px] p-4 shadow-[0_1px_2px_rgba(20,24,34,0.06)] flex flex-col gap-3">
-            <div className="flex items-center justify-between">
-              <h2 className="text-[15px] font-semibold">Événements marquants</h2>
+          <section className="bg-white/40 dark:bg-white/5 backdrop-blur-2xl border border-white/60 dark:border-white/10 shadow-[0_8px_30px_rgb(0,0,0,0.04)] flex flex-col rounded-[24px] overflow-hidden">
+            <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-white/50 dark:border-white/5 bg-gradient-to-r from-blue-500/5 to-purple-500/5">
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full bg-blue-500 shadow-sm" />
+                <h2 className="text-[15px] font-extrabold tracking-tight text-foreground truncate leading-tight">Événements marquants</h2>
+              </div>
               <Link
                 href="/activity"
-                className="text-[13px] font-medium text-primary hover:underline"
+                className="text-[12px] font-bold text-primary hover:text-white hover:bg-primary transition-all bg-white dark:bg-white/10 shadow-sm border border-primary/20 px-3 py-1.5 rounded-full whitespace-nowrap shrink-0"
               >
-                Tout voir
+                Explorer
               </Link>
             </div>
-            {notableEvents.map((evt) => {
-              const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
-                new_upload: Upload,
-                title_change: Type,
-                thumbnail_change: Image,
-                spike: TrendingUp,
-              };
-              const colorMap: Record<string, string> = {
-                new_upload: 'text-phase-0 bg-phase-0/10',
-                title_change: 'text-primary bg-primary/10',
-                thumbnail_change: 'text-phase-2 bg-phase-2/10',
-                spike: 'text-destructive bg-destructive/10',
-              };
-              const labelMap: Record<string, string> = {
-                new_upload: 'Nouvel upload',
-                title_change: 'Titre modifié',
-                thumbnail_change: 'Miniature modifiée',
-                spike: 'Pic de vues',
-              };
-              const Icon = iconMap[evt.eventType] ?? Upload;
-              const color = colorMap[evt.eventType] ?? 'text-muted-foreground bg-muted';
+            
+            <div className="flex flex-col p-3 gap-3 bg-black/[0.01] dark:bg-transparent">
+              {notableEvents.map((evt) => {
+                const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
+                  new_upload: Upload,
+                  title_change: Type,
+                  thumbnail_change: Image,
+                  spike: TrendingUp,
+                };
+                const colorMap: Record<string, string> = {
+                  new_upload: 'text-phase-0-ink bg-phase-0-soft border border-phase-0/20',
+                  title_change: 'text-primary bg-primary/10 border border-primary/20',
+                  thumbnail_change: 'text-phase-2-ink bg-phase-2-soft border border-phase-2/20',
+                  spike: 'text-destructive bg-destructive/10 border border-destructive/20',
+                };
+                const labelMap: Record<string, string> = {
+                  new_upload: 'Nouvel upload',
+                  title_change: 'Titre modifié',
+                  thumbnail_change: 'Miniature modifiée',
+                  spike: 'Pic de vues',
+                };
+                const Icon = iconMap[evt.eventType] ?? Upload;
+                const color = colorMap[evt.eventType] ?? 'text-muted-foreground bg-[--bg-surface-2] border border-[--glass-border]';
 
-              return (
-                <div key={evt.id} className="flex items-start gap-2.5">
-                  <div className={`w-7 h-7 rounded-md flex items-center justify-center shrink-0 ${color}`}>
-                    <Icon className="w-3.5 h-3.5" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5 text-[13px]">
-                      <span className="font-medium">{labelMap[evt.eventType] ?? evt.eventType}</span>
-                      <span className="text-muted-foreground">·</span>
-                      <span className="text-muted-foreground truncate">{evt.channelTitle}</span>
-                    </div>
-                    <p className="text-sm truncate">
-                      {evt.videoTitle}
-                    </p>
-                    {evt.eventType === 'spike' && evt.meta && (
-                      <span className="text-[13px] text-destructive font-medium">
-                        {evt.meta.multiplier as number}× la médiane
-                      </span>
+                return (
+                  <div key={evt.id} className="group relative px-4 py-3.5 bg-white dark:bg-white/5 border border-black/5 dark:border-white/10 rounded-2xl flex items-start gap-4 transition-all hover:shadow-[0_4px_20px_rgb(0,0,0,0.06)]">
+                    
+                    {/* Visual / Thumbnail */}
+                    {evt.eventType === 'thumbnail_change' && evt.oldValue && evt.newValue ? (
+                      <div className="flex flex-col gap-1.5 shrink-0 w-[120px] pt-1">
+                        <div className="relative aspect-video rounded-md overflow-hidden opacity-50 grayscale transition-all group-hover:opacity-100 group-hover:grayscale-0">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={evt.oldValue} alt="" className="object-cover w-full h-full" />
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <span className="text-[9px] uppercase tracking-wider font-bold bg-black/60 text-white px-1.5 py-0.5 rounded backdrop-blur-sm">Avant</span>
+                          </div>
+                        </div>
+                        <div className="relative aspect-video rounded-md overflow-hidden shadow-sm border border-black/10">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={evt.newValue} alt="" className="object-cover w-full h-full" />
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <span className="text-[9px] uppercase tracking-wider font-bold bg-green-500/80 text-white px-1.5 py-0.5 rounded backdrop-blur-sm">Après</span>
+                          </div>
+                        </div>
+                      </div>
+                    ) : evt.thumbnailUrl ? (
+                      <div className="relative aspect-video w-[120px] rounded-lg overflow-hidden shrink-0 shadow-sm border border-black/5 mt-0.5">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={evt.thumbnailUrl} alt="" className="object-cover w-full h-full" />
+                        <div className={`absolute top-1.5 left-1.5 w-6 h-6 rounded-md flex items-center justify-center backdrop-blur-md shadow-sm ${color}`}>
+                          <Icon className="w-3.5 h-3.5" />
+                        </div>
+                      </div>
+                    ) : (
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 shadow-sm mt-0.5 ${color}`}>
+                        <Icon className="w-4 h-4" />
+                      </div>
                     )}
-                    {evt.eventType === 'title_change' && evt.newValue && (
-                      <p className="text-[13px] text-muted-foreground truncate">
-                        → {evt.newValue}
+
+                    {/* Content */}
+                    <div className="flex-1 min-w-0 flex flex-col justify-center min-h-[40px] py-1">
+                      <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider">
+                        <span className={color.split(' ')[0]}>{labelMap[evt.eventType] ?? evt.eventType}</span>
+                        <span className="text-muted-foreground/40">·</span>
+                        <span className="text-muted-foreground truncate">{evt.channelTitle}</span>
+                      </div>
+                      <p className="text-[14.5px] font-bold leading-snug mt-1 truncate text-foreground/90 group-hover:text-foreground transition-colors">
+                        {evt.videoTitle}
                       </p>
-                    )}
+                      
+                      {evt.eventType === 'spike' && evt.meta && (
+                        <div className="mt-2.5">
+                          <span className="inline-flex items-center gap-1.5 text-[12px] text-destructive font-semibold px-2.5 py-1 rounded-md bg-destructive/10 border border-destructive/20">
+                            <TrendingUp className="w-3.5 h-3.5" />
+                            {evt.meta.multiplier as number}× la médiane
+                          </span>
+                        </div>
+                      )}
+                      
+                      {evt.eventType === 'title_change' && evt.oldValue && evt.newValue && (
+                        <div className="mt-2.5 flex flex-col gap-1.5 bg-black/5 dark:bg-white/5 p-2.5 rounded-xl border border-black/5 dark:border-white/5">
+                          <p className="text-[12px] text-muted-foreground line-through opacity-70 truncate" title={evt.oldValue}>
+                            {evt.oldValue}
+                          </p>
+                          <p className="text-[13px] text-foreground font-medium truncate" title={evt.newValue}>
+                            {evt.newValue}
+                          </p>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </section>
         )}
 
         {/* Bottom sections */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {/* Depuis ta dernière visite */}
-          <section className="bg-card border border-border rounded-[10px] p-4 shadow-[0_1px_2px_rgba(20,24,34,0.06)] flex flex-col gap-3">
-            <h2 className="text-[15px] font-semibold">
+          <section className="bg-white/60 dark:bg-white/5 backdrop-blur-2xl border border-white/40 dark:border-white/10 shadow-[0_8px_30px_rgb(0,0,0,0.04)] rounded-[24px] p-6 flex flex-col gap-5">
+            <h2 className="text-[20px] font-bold tracking-tight text-foreground">
               Depuis ta dernière visite
             </h2>
-            {recentChanges.length > 0 ? (
-              recentChanges.map((change, i) => (
-                <div key={i} className="flex items-start gap-2.5 text-sm">
-                  {change.type === 'new_topics' && (
-                    <Sparkles className="w-4 h-4 text-phase-0 shrink-0 mt-0.5" />
-                  )}
-                  {change.type === 'phase_change' && (
-                    <ArrowRight className="w-4 h-4 text-primary shrink-0 mt-0.5" />
-                  )}
-                  {change.type === 'burndown' && (
-                    <TrendingDown className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
-                  )}
-                  <span className="flex-1">
-                    {change.type === 'phase_change' ? (
-                      <>
-                        <Link href={`/topics/${change.topicId}`} className="font-medium text-primary hover:underline">
-                          {change.label}
-                        </Link>
-                        {' '}
-                        <span className="text-muted-foreground">
-                          {PHASE_LABELS[change.fromPhase!] ?? `Phase ${change.fromPhase}`}
-                        </span>
-                        <span className="text-muted-foreground mx-1">→</span>
-                        <span className="font-medium">
-                          {PHASE_LABELS[change.toPhase!] ?? `Phase ${change.toPhase}`}
-                        </span>
-                      </>
-                    ) : (
-                      change.label
+            <div className="flex flex-col gap-4">
+              {recentChanges.length > 0 ? (
+                recentChanges.map((change, i) => (
+                  <div key={i} className="flex items-start gap-3 text-[14px]">
+                    {change.type === 'new_topics' && (
+                      <div className="w-6 h-6 rounded bg-phase-0-soft flex items-center justify-center shrink-0 mt-0.5 border border-phase-0/20">
+                        <Sparkles className="w-3.5 h-3.5 text-phase-0-ink" />
+                      </div>
                     )}
-                  </span>
-                  {change.linkHref && (
-                    <Link href={change.linkHref} className="font-medium text-primary hover:underline shrink-0">
-                      {change.linkLabel}
-                    </Link>
-                  )}
-                </div>
-              ))
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                Rien de nouveau pour le moment.
-              </p>
-            )}
+                    {change.type === 'phase_change' && (
+                      <div className="w-6 h-6 rounded bg-primary/10 flex items-center justify-center shrink-0 mt-0.5 border border-primary/20">
+                        <ArrowRight className="w-3.5 h-3.5 text-primary" />
+                      </div>
+                    )}
+                    {change.type === 'burndown' && (
+                      <div className="w-6 h-6 rounded bg-destructive/10 flex items-center justify-center shrink-0 mt-0.5 border border-destructive/20">
+                        <TrendingDown className="w-3.5 h-3.5 text-destructive" />
+                      </div>
+                    )}
+                    <span className="flex-1 pt-0.5 leading-snug">
+                      {change.type === 'phase_change' ? (
+                        <>
+                          <Link href={`/topics/${change.topicId}`} className="font-semibold text-foreground hover:text-primary transition-colors">
+                            {change.label}
+                          </Link>
+                          {' '}
+                          <span className="text-muted-foreground/80">
+                            {PHASE_LABELS[change.fromPhase!] ?? `Phase ${change.fromPhase}`}
+                          </span>
+                          <span className="text-muted-foreground/60 mx-1.5">→</span>
+                          <span className="font-semibold text-foreground">
+                            {PHASE_LABELS[change.toPhase!] ?? `Phase ${change.toPhase}`}
+                          </span>
+                        </>
+                      ) : (
+                        <span className="text-muted-foreground">{change.label}</span>
+                      )}
+                    </span>
+                    {change.linkHref && (
+                      <Link href={change.linkHref} className="pt-0.5 font-semibold text-primary hover:underline shrink-0">
+                        {change.linkLabel}
+                      </Link>
+                    )}
+                  </div>
+                ))
+              ) : (
+                <p className="text-[14px] text-muted-foreground">
+                  Rien de nouveau pour le moment.
+                </p>
+              )}
+            </div>
           </section>
 
           {/* En production */}
-          <section className="bg-card border border-border rounded-[10px] p-4 shadow-[0_1px_2px_rgba(20,24,34,0.06)] flex flex-col gap-3">
-            <h2 className="text-[15px] font-semibold">En production</h2>
-            {productionList.length > 0 ? (
-              productionList.map((t) => (
-                <Link
-                  key={t.id}
-                  href={`/topics/${t.id}`}
-                  className="flex items-center gap-2.5 text-sm hover:bg-muted/50 -mx-2 px-2 py-1.5 rounded-md transition-colors"
-                >
-                  <span className="flex-1 font-medium">{t.label}</span>
-                  <span className="text-muted-foreground text-xs shrink-0">{t.nicheName}</span>
-                  <span className="tabular-nums text-muted-foreground text-xs font-medium shrink-0">
-                    J+{t.ageDays}
-                  </span>
-                </Link>
-              ))
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                Aucun sujet en production.
-              </p>
-            )}
+          <section className="bg-white/60 dark:bg-white/5 backdrop-blur-2xl border border-white/40 dark:border-white/10 shadow-[0_8px_30px_rgb(0,0,0,0.04)] rounded-[24px] p-6 flex flex-col gap-5">
+            <h2 className="text-[20px] font-bold tracking-tight text-foreground">En production</h2>
+            <div className="flex flex-col gap-1.5">
+              {productionList.length > 0 ? (
+                productionList.map((t) => (
+                  <Link
+                    key={t.id}
+                    href={`/topics/${t.id}`}
+                    className="group flex items-center gap-3 text-[14px] hover:bg-black/5 dark:hover:bg-white/5 -mx-3 px-3 py-3 rounded-[14px] transition-all border border-transparent hover:border-black/5 dark:hover:border-white/10"
+                  >
+                    <span className="flex-1 font-semibold text-foreground group-hover:text-primary transition-colors">{t.label}</span>
+                    <span className="text-[11px] font-bold uppercase tracking-[0.1em] text-muted-foreground/70 shrink-0">{t.nicheName}</span>
+                    <span className="tabular-nums text-mono-metric text-foreground text-[12px] font-bold shrink-0 bg-white dark:bg-white/10 px-2.5 py-1 rounded-md border border-black/5 dark:border-white/10 shadow-sm">
+                      J+{t.ageDays}
+                    </span>
+                  </Link>
+                ))
+              ) : (
+                <p className="text-[14px] text-muted-foreground mt-1">
+                  Aucun sujet en production.
+                </p>
+              )}
+            </div>
           </section>
         </div>
       </div>

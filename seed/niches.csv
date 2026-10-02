@@ -2,3 +2,6 @@ name,category,rpm_coefficient,rpm_low,rpm_high,rpm_source,owner_channel,subreddi
 Personal Finance & Investing,finance,1.8,8,25,Influencer Marketing Hub 2024,Wealth Decoded,dividends;investing;FinancialIndependence;personalfinance;Fire;stocks;bogleheads
 Psychology & Self-Improvement,psychology,1.1,4,12,Influencer Marketing Hub 2024,Mind Unlocked,psychology;getdisciplined;productivity;selfimprovement;Stoicism;DecidingToBeBetter;meditation
 AI Tools & Automation,ai_tools,1.6,6,20,Influencer Marketing Hub 2024,AI Unchained,artificial;ChatGPT;LocalLLaMA;automation;MachineLearning;singularity;AIAgents
+Business & Case Studies,business,1.5,6,18,Estimation à vérifier (niche d'exploration),,
+History & Geopolitics,history,0.9,3,9,Estimation à vérifier (niche d'exploration),,
+"Health, Longevity & Nutrition",health,1.3,5,15,Estimation à vérifier (niche d'exploration),,

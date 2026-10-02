@@ -25,6 +25,7 @@ import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
 import { useState, useCallback, useEffect } from 'react';
 import { useTheme } from 'next-themes';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
   Sheet,
   SheetTrigger,
@@ -86,14 +87,38 @@ function NavLink({
       href={href}
       onClick={onClick}
       title={collapsed ? label : undefined}
-      className={`flex items-center gap-2.5 h-9 rounded-lg px-2.5 text-sm font-medium transition-colors duration-120 ${
-        active
-          ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-          : 'text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground'
-      } ${collapsed ? 'justify-center px-0' : ''}`}
+      className={`
+        relative flex items-center gap-3 h-[42px] rounded-2xl px-3 text-[14px] font-medium
+        transition-all duration-200 cursor-pointer
+        ${active
+          ? 'bg-white dark:bg-[#1C1C1E] text-foreground shadow-[0_2px_10px_rgba(0,0,0,0.06)] border border-black/5 dark:border-white/10 font-semibold'
+          : 'text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5 border border-transparent'
+        }
+        ${collapsed ? 'justify-center px-0' : ''}
+      `}
     >
-      <Icon className="w-4 h-4 shrink-0" />
-      {!collapsed && <span>{label}</span>}
+      {/* Active indicator bar - more subtle and modern */}
+      {active && (
+        <motion.div
+          layoutId="sidebar-active-indicator"
+          className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-r-full bg-primary shadow-[0_0_8px_rgba(10,132,255,0.6)]"
+          transition={{ type: 'spring', stiffness: 450, damping: 28, mass: 0.8 }}
+        />
+      )}
+      <Icon className={`w-5 h-5 shrink-0 transition-colors ${active ? 'text-primary' : ''}`} />
+      <AnimatePresence>
+        {!collapsed && (
+          <motion.span
+            initial={{ opacity: 0, width: 0 }}
+            animate={{ opacity: 1, width: 'auto' }}
+            exit={{ opacity: 0, width: 0 }}
+            transition={{ duration: 0.15 }}
+            className="overflow-hidden whitespace-nowrap"
+          >
+            {label}
+          </motion.span>
+        )}
+      </AnimatePresence>
     </Link>
   );
 }
@@ -206,6 +231,7 @@ function SidebarContent({
   onLogout,
   onToggle,
   showToggle,
+  isMobile,
 }: {
   pathname: string;
   collapsed: boolean;
@@ -213,17 +239,27 @@ function SidebarContent({
   onLogout: () => void;
   onToggle?: () => void;
   showToggle: boolean;
+  isMobile?: boolean;
 }) {
   return (
     <>
       {/* Logo */}
-      <div className="flex items-center gap-2.5 px-3 py-4 pb-5 shrink-0">
-        <div className="flex items-center justify-center w-7 h-7 rounded-lg bg-sidebar-primary text-sidebar-primary-foreground font-bold text-[15px]">
+      <div className="flex items-center gap-3 px-4 py-6 pb-6 shrink-0">
+        <div className="flex items-center justify-center w-9 h-9 rounded-xl bg-gradient-to-br from-primary to-blue-600 text-primary-foreground font-bold text-[17px] shadow-[0_2px_10px_rgba(10,132,255,0.4)]">
           T
         </div>
-        {!collapsed && (
-          <span className="text-base font-semibold tracking-[-0.01em]">TubLyTI</span>
-        )}
+        <AnimatePresence>
+          {!collapsed && (
+            <motion.span
+              initial={{ opacity: 0, x: -8 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -8 }}
+              className="text-[18px] font-bold tracking-[-0.03em] text-foreground"
+            >
+              TubLyTI
+            </motion.span>
+          )}
+        </AnimatePresence>
       </div>
 
       {/* Main nav */}
@@ -247,32 +283,39 @@ function SidebarContent({
 
       {/* Bottom nav */}
       <div className="px-3 pb-3 space-y-1">
-        <NotificationBell collapsed={collapsed} onClick={onNavigate} />
-        {BOTTOM_NAV.map((item) => (
-          <NavLink
-            key={item.href}
-            href={item.href}
-            label={item.label}
-            icon={item.icon}
-            active={pathname.startsWith(item.href)}
-            collapsed={collapsed}
-            onClick={onNavigate}
-          />
-        ))}
+        {isMobile && (
+          <>
+            <NotificationBell collapsed={collapsed} onClick={onNavigate} />
+            {BOTTOM_NAV.map((item) => (
+              <NavLink
+                key={item.href}
+                href={item.href}
+                label={item.label}
+                icon={item.icon}
+                active={pathname.startsWith(item.href)}
+                collapsed={collapsed}
+                onClick={onNavigate}
+              />
+            ))}
 
-        <div className="border-t border-sidebar-border mt-2 pt-2 space-y-1">
-          <ThemeSelector collapsed={collapsed} />
-          <button
-            onClick={onLogout}
-            title={collapsed ? 'Déconnexion' : undefined}
-            className={`flex items-center gap-2.5 w-full h-9 rounded-lg px-2.5 text-sm text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground transition-colors cursor-pointer ${
-              collapsed ? 'justify-center px-0' : ''
-            }`}
-          >
-            <LogOut className="w-4 h-4 shrink-0" />
-            {!collapsed && <span>Déconnexion</span>}
-          </button>
-          {showToggle && (
+            <div className="border-t border-sidebar-border mt-2 pt-2 space-y-1">
+              <ThemeSelector collapsed={collapsed} />
+              <button
+                onClick={onLogout}
+                title={collapsed ? 'Déconnexion' : undefined}
+                className={`flex items-center gap-2.5 w-full h-9 rounded-lg px-2.5 text-sm text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground transition-colors cursor-pointer ${
+                  collapsed ? 'justify-center px-0' : ''
+                }`}
+              >
+                <LogOut className="w-4 h-4 shrink-0" />
+                {!collapsed && <span>Déconnexion</span>}
+              </button>
+            </div>
+          </>
+        )}
+
+        {showToggle && (
+          <div className="border-t border-sidebar-border mt-2 pt-2 space-y-1">
             <button
               onClick={onToggle}
               className="flex items-center justify-center w-full rounded-lg px-2.5 py-1.5 text-sidebar-foreground/40 hover:text-sidebar-foreground/70 transition-colors cursor-pointer"
@@ -283,8 +326,8 @@ function SidebarContent({
                 <ChevronLeft className="w-4 h-4" />
               )}
             </button>
-          )}
-        </div>
+          </div>
+        )}
       </div>
     </>
   );
@@ -343,6 +386,7 @@ export function AppSidebar({ defaultCollapsed = false }: { defaultCollapsed?: bo
               onNavigate={() => setSheetOpen(false)}
               onLogout={handleLogout}
               showToggle={false}
+              isMobile={true}
             />
           </SheetContent>
         </Sheet>
@@ -356,11 +400,11 @@ export function AppSidebar({ defaultCollapsed = false }: { defaultCollapsed?: bo
       {/* Mobile spacer */}
       <div className="md:hidden h-14 shrink-0" />
 
-      {/* Desktop sidebar */}
-      <aside
-        className={`hidden md:flex flex-col bg-sidebar text-sidebar-foreground border-r border-sidebar-border transition-[width] duration-240 ${
-          collapsed ? 'w-16' : 'w-60'
-        }`}
+      {/* Desktop sidebar — floating glass panel, fixed on scroll */}
+      <motion.aside
+        animate={{ width: collapsed ? 80 : 260 }}
+        transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+        className="hidden md:flex flex-col sticky top-4 h-[calc(100vh-32px)] ml-4 rounded-[24px] bg-white/60 dark:bg-[#08090C]/60 border border-[--glass-border] shadow-lg backdrop-blur-2xl overflow-y-auto overflow-x-hidden hide-scrollbar z-40 shrink-0"
       >
         <SidebarContent
           pathname={pathname}
@@ -368,8 +412,9 @@ export function AppSidebar({ defaultCollapsed = false }: { defaultCollapsed?: bo
           onLogout={handleLogout}
           onToggle={toggleCollapsed}
           showToggle={true}
+          isMobile={false}
         />
-      </aside>
+      </motion.aside>
     </>
   );
 }

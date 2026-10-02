@@ -4,12 +4,16 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* ─── TubLyTI Design System Tokens ─── */
 @theme inline {
+  /* Core */
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-  --font-heading: var(--font-geist-sans);
+  --font-sans: var(--font-inter), var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains), var(--font-geist-mono), ui-monospace, monospace;
+  --font-heading: var(--font-inter), var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+
+  /* Sidebar */
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -18,11 +22,15 @@
   --color-sidebar-primary: var(--sidebar-primary);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar: var(--sidebar);
+
+  /* Charts */
   --color-chart-5: var(--chart-5);
   --color-chart-4: var(--chart-4);
   --color-chart-3: var(--chart-3);
   --color-chart-2: var(--chart-2);
   --color-chart-1: var(--chart-1);
+
+  /* Base semantic */
   --color-ring: var(--ring);
   --color-input: var(--input);
   --color-border: var(--border);
@@ -43,6 +51,8 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
+
+  /* Phase System (NexLev-inspired) */
   --color-phase-0: var(--phase-0);
   --color-phase-0-soft: var(--phase-0-soft);
   --color-phase-0-ink: var(--phase-0-ink);
@@ -55,6 +65,8 @@
   --color-phase-3: var(--phase-3);
   --color-phase-3-soft: var(--phase-3-soft);
   --color-phase-3-ink: var(--phase-3-ink);
+
+  /* Radii */
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -64,7 +76,7 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-/* ─── Light theme (DESIGN.md reference) ─── */
+/* ─── Light theme ─── */
 :root {
   --background: oklch(0.985 0.003 260);
   --foreground: oklch(0.21 0.02 265);
@@ -117,62 +129,96 @@
   --sidebar-accent-foreground: oklch(0.45 0.19 277);
   --sidebar-border: oklch(0.915 0.006 265);
   --sidebar-ring: oklch(0.52 0.21 277);
+
+  /* Glass (Light) */
+  --glass-bg: rgba(255, 255, 255, 0.72);
+  --glass-border: rgba(0, 0, 0, 0.06);
+  --glass-border-highlight: rgba(255, 255, 255, 0.9);
+  --glass-shadow: rgba(0, 0, 0, 0.08);
+
+  /* Surface elevations (Light) */
+  --bg-surface-1: rgba(0, 0, 0, 0.03);
+  --bg-surface-2: rgba(0, 0, 0, 0.06);
+  --bg-surface-3: rgba(0, 0, 0, 0.10);
+
+  /* Text hierarchy (Light) */
+  --text-primary: oklch(0.21 0.02 265);
+  --text-secondary: oklch(0.50 0.018 265);
+  --text-muted: oklch(0.70 0.01 265);
 }
 
-/* ─── Dark theme ─── */
+/* ─── Dark theme — Deep TubLyTI Dark (spec: #08090C canvas) ─── */
 .dark {
-  --background: oklch(0.16 0.012 265);
-  --foreground: oklch(0.96 0.005 265);
-  --card: oklch(0.20 0.014 265);
-  --card-foreground: oklch(0.96 0.005 265);
-  --popover: oklch(0.20 0.014 265);
-  --popover-foreground: oklch(0.96 0.005 265);
-  --primary: oklch(0.68 0.17 277);
-  --primary-foreground: oklch(0.99 0 0);
-  --primary-soft: oklch(0.25 0.06 277);
-  --primary-ink: oklch(0.78 0.14 277);
-  --secondary: oklch(0.22 0.015 265);
-  --secondary-foreground: oklch(0.96 0.005 265);
-  --muted: oklch(0.22 0.012 265);
-  --muted-foreground: oklch(0.72 0.015 265);
-  --accent: oklch(0.25 0.04 277);
-  --accent-foreground: oklch(0.78 0.14 277);
-  --destructive: oklch(0.704 0.191 22.216);
-  --success: oklch(0.64 0.13 155);
-  --warning: oklch(0.76 0.15 65);
-  --border: oklch(0.30 0.015 265);
-  --input: oklch(0.30 0.015 265);
-  --ring: oklch(0.68 0.17 277);
+  --background: #08090C;
+  --foreground: #F5F5F7;
+  --card: rgba(255, 255, 255, 0.04);
+  --card-foreground: #F5F5F7;
+  --popover: #12131A;
+  --popover-foreground: #F5F5F7;
+  --primary: #0A84FF;
+  --primary-foreground: #FFFFFF;
+  --primary-soft: rgba(10, 132, 255, 0.15);
+  --primary-ink: #4DA8FF;
+  --secondary: rgba(255, 255, 255, 0.06);
+  --secondary-foreground: #F5F5F7;
+  --muted: rgba(255, 255, 255, 0.06);
+  --muted-foreground: #86868B;
+  --accent: rgba(10, 132, 255, 0.12);
+  --accent-foreground: #4DA8FF;
+  --destructive: #FF453A;
+  --success: #30D158;
+  --warning: #FF9F0A;
+  --border: rgba(255, 255, 255, 0.08);
+  --input: rgba(255, 255, 255, 0.08);
+  --ring: #0A84FF;
 
-  --phase-0: oklch(0.64 0.16 300);
-  --phase-0-soft: oklch(0.56 0.16 300 / 0.18);
-  --phase-0-ink: oklch(0.78 0.12 300);
-  --phase-1: oklch(0.74 0.15 65);
-  --phase-1-soft: oklch(0.66 0.15 65 / 0.18);
-  --phase-1-ink: oklch(0.82 0.10 65);
-  --phase-2: oklch(0.66 0.14 155);
-  --phase-2-soft: oklch(0.58 0.14 155 / 0.18);
-  --phase-2-ink: oklch(0.78 0.10 155);
-  --phase-3: oklch(0.66 0.19 20);
-  --phase-3-soft: oklch(0.58 0.19 20 / 0.18);
-  --phase-3-ink: oklch(0.78 0.14 20);
+  /* Phase colors — NexLev spectrum */
+  --phase-0: #5E5CE6;
+  --phase-0-soft: rgba(94, 92, 230, 0.15);
+  --phase-0-ink: #8886F0;
+  --phase-1: #FF9F0A;
+  --phase-1-soft: rgba(255, 159, 10, 0.15);
+  --phase-1-ink: #FFB940;
+  --phase-2: #30D158;
+  --phase-2-soft: rgba(48, 209, 88, 0.15);
+  --phase-2-ink: #5EE07E;
+  --phase-3: #FF453A;
+  --phase-3-soft: rgba(255, 69, 58, 0.15);
+  --phase-3-ink: #FF7B73;
 
-  --chart-1: #7c7aee;
-  --chart-2: #22d3ee;
-  --chart-3: #fb923c;
-  --chart-4: #94a3b8;
-  --chart-5: #a78bfa;
+  --chart-1: #5E5CE6;
+  --chart-2: #0A84FF;
+  --chart-3: #FF9F0A;
+  --chart-4: #86868B;
+  --chart-5: #BF5AF2;
 
-  --sidebar: oklch(0.16 0.012 265);
-  --sidebar-foreground: oklch(0.96 0.005 265);
-  --sidebar-primary: oklch(0.68 0.17 277);
-  --sidebar-primary-foreground: oklch(0.99 0 0);
-  --sidebar-accent: oklch(0.25 0.04 277);
-  --sidebar-accent-foreground: oklch(0.78 0.14 277);
-  --sidebar-border: oklch(0.30 0.015 265);
-  --sidebar-ring: oklch(0.68 0.17 277);
+  --sidebar: rgba(255, 255, 255, 0.02);
+  --sidebar-foreground: #F5F5F7;
+  --sidebar-primary: #0A84FF;
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent: rgba(10, 132, 255, 0.12);
+  --sidebar-accent-foreground: #4DA8FF;
+  --sidebar-border: rgba(255, 255, 255, 0.08);
+  --sidebar-ring: #0A84FF;
+
+  /* Glass (Dark — Apple Ultra-Thin Material) */
+  --glass-bg: rgba(18, 19, 24, 0.65);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --glass-border-highlight: rgba(255, 255, 255, 0.18);
+  --glass-shadow: rgba(0, 0, 0, 0.35);
+
+  /* Surface elevations */
+  --bg-surface-1: rgba(255, 255, 255, 0.04);
+  --bg-surface-2: rgba(255, 255, 255, 0.08);
+  --bg-surface-3: rgba(255, 255, 255, 0.14);
+
+  /* Text hierarchy */
+  --text-primary: #F5F5F7;
+  --text-secondary: #86868B;
+  --text-muted: #48484A;
 }
 
+/* ─── Base Layer ─── */
 @layer base {
   * {
     @apply border-border outline-ring/50;
@@ -183,6 +229,185 @@
   html {
     @apply font-sans;
   }
+}
+
+/* ─── Typography Scale (SF Pro / Inter Display hierarchy) ─── */
+.text-display-giant {
+  font-size: 48px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  font-family: var(--font-inter), var(--font-geist-sans), system-ui, sans-serif;
+}
+
+.text-title-1 {
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  font-family: var(--font-inter), var(--font-geist-sans), system-ui, sans-serif;
+}
+
+.text-title-2 {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  line-height: 1.25;
+  font-family: var(--font-inter), var(--font-geist-sans), system-ui, sans-serif;
+}
+
+.text-headline {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.35;
+}
+
+.text-body {
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.text-mono-metric {
+  font-family: var(--font-jetbrains), var(--font-geist-mono), ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+/* ─── Glassmorphism Material — Apple Ultra-Thin ─── */
+.glass-panel {
+  background: var(--glass-bg);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid var(--glass-border);
+  box-shadow:
+    0 4px 24px -1px var(--glass-shadow),
+    inset 0 1px 0 0 var(--glass-border-highlight);
+  border-radius: 24px;
+}
+
+.glass-panel-sm {
+  background: var(--glass-bg);
+  backdrop-filter: blur(16px) saturate(160%);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  border: 1px solid var(--glass-border);
+  box-shadow:
+    0 2px 12px -1px var(--glass-shadow),
+    inset 0 1px 0 0 var(--glass-border-highlight);
+  border-radius: 16px;
+}
+
+/* ─── Surface Materials ─── */
+.surface-1 {
+  background: var(--bg-surface-1);
+  border: 1px solid var(--glass-border);
+  border-radius: 24px;
+}
+
+.surface-2 {
+  background: var(--bg-surface-2);
+  border: 1px solid var(--glass-border);
+  border-radius: 20px;
+}
+
+/* ─── Bento Card ─── */
+.bento-card {
+  background: var(--bg-surface-1);
+  border: 1px solid var(--glass-border);
+  border-radius: 24px;
+  padding: 24px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.bento-card:hover {
+  border-color: var(--glass-border-highlight);
+  box-shadow: 0 4px 16px -2px var(--glass-shadow);
+}
+
+/* ─── Specular Glow (JuicySMS cursor-tracking) ─── */
+.specular-glow {
+  position: relative;
+  overflow: hidden;
+}
+
+.specular-glow::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  background: radial-gradient(
+    400px circle at var(--mouse-x, 50%) var(--mouse-y, 50%),
+    rgba(255, 255, 255, 0.06),
+    transparent 80%
+  );
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.specular-glow:hover::after {
+  opacity: 1;
+}
+
+/* ─── Haptic Button (JuicySMS mechanical feel) ─── */
+.haptic-btn {
+  transition: transform 0.1s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  will-change: transform;
+}
+
+.haptic-btn:active {
+  transform: scale(0.96) translateY(1px);
+}
+
+/* ─── Phase Pulse Animation ─── */
+@keyframes phase-pulse {
+  0%, 100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 currentColor;
+  }
+  50% {
+    opacity: 0.6;
+    box-shadow: 0 0 0 4px transparent;
+  }
+}
+
+.phase-dot-pulse {
+  animation: phase-pulse 2s ease-in-out infinite;
+}
+
+/* ─── Shimmer Effect (for AI generation buttons) ─── */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.shimmer-border {
+  background: linear-gradient(
+    90deg,
+    var(--primary) 0%,
+    #BF5AF2 25%,
+    var(--primary) 50%,
+    #BF5AF2 75%,
+    var(--primary) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 3s linear infinite;
+}
+
+/* ─── Odometer (counter animation) ─── */
+@keyframes count-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-count-up {
+  animation: count-up 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
 /* ─── 3D Floating shapes (login page only, per DESIGN.md) ─── */
@@ -252,6 +477,34 @@
   border: 1px solid var(--primary) / 0.2;
   background: var(--primary) / 0.06;
   backdrop-filter: blur(4px);
+}
+
+/* ─── Liquid Gauge (Apple Watch dial) ─── */
+@keyframes gauge-fill {
+  from { stroke-dashoffset: var(--gauge-circumference, 283); }
+  to { stroke-dashoffset: var(--gauge-offset, 0); }
+}
+
+.gauge-ring {
+  animation: gauge-fill 1.2s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  transform-origin: center;
+  transform: rotate(-90deg);
+}
+
+/* ─── Elastic Pill (Segmented Control) ─── */
+.elastic-pill {
+  transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1),
+              width 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform;
+}
+
+/* ─── Hide Scrollbar ─── */
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.hide-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }
 
 /* ─── Reduced motion ─── */

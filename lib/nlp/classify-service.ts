@@ -6,7 +6,7 @@ import { FrustrationLabel } from './classifier';
 
 // ── Constants ────────────────────────────────────────────────────────
 const PROMPT_VERSION = 'classify_v1';
-const MODEL = 'claude-haiku-4-5-20251001';
+const MODEL = 'claude-3-5-haiku-latest';
 const MODEL_TAG = `haiku-4.5-${PROMPT_VERSION}`;
 const BATCH_SIZE = 500;
 

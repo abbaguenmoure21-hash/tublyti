@@ -1,8 +1,61 @@
 # PROMPTS_V2.md — TubLyTI V2 (fluidité, design, fonctionnalités, MCP, extension)
 
-À coller dans Claude Code, dans l'ordre, une session par prompt. Ordre d'exécution : P15 → P27, puis P29 → P35, puis P28 (contrôle qualité) en dernier. Rituel inchangé : l'agent lit les fichiers, propose un plan court, tu valides, il code, il te montre, tu testes dans le navigateur avant le prompt suivant. Après chaque prompt : `pnpm lint && pnpm test && pnpm build` doivent passer, puis commit.
+À coller dans Claude Code, dans l'ordre, une session par prompt. Ordre d'exécution : **P37 d'abord (qualité des données), puis P37-bis**, puis P15 → P17, puis **P36 (découverte) au plus tôt pour que la base grossisse pendant le reste du travail**, puis P18 → P27, P29 → P35, et P28 (contrôle qualité) en dernier. Rituel inchangé : l'agent lit les fichiers, propose un plan court, tu valides, il code, il te montre, tu testes dans le navigateur avant le prompt suivant. Après chaque prompt : `pnpm lint && pnpm test && pnpm build` doivent passer, puis commit.
 
 ---
+
+## P37 — PRIORITÉ ABSOLUE : qualité des données (à faire avant toute autre fonctionnalité)
+
+**Diagnostic chiffré du 2 oct. 2026 (`design/diagnostic.md`) — à traiter en premier :**
+
+- **La collecte ne tourne plus depuis le 27 sept.** (dernier `collect` le 27, dernier `score` le 28) : l'application n'est pas déployée sur Vercel (aucun dossier `.vercel`), donc les crons de `vercel.json` ne s'exécutent jamais. → **Étape 0** : déployer sur Vercel (P13 du plan V1) avec les crons ; en attendant, un script `pnpm nightly` qui enchaîne collect → classify → score en local.
+- **465 chaînes sur 541 n'ont jamais été vérifiées**, et les 3 niches d'exploration ont 0 vidéo. → Rattrapage : exécuter `collect` en boucle jusqu'à ce que toutes les chaînes aient un `last_checked_at` (coût ≈ 1 à 2 unités par chaîne ; chaque collecte n'utilise aujourd'hui que ~22 unités sur 10 000 disponibles par jour).
+- **13 vidéos sur 3 085 seulement sont rattachées à un sujet.** Conséquence : pour les 78 sujets, offre = 0 et frustration = 0, donc le MGI n'est que la demande Google Trends × RPM. Le classement actuel ne veut rien dire. → Rattachement par embedding (point 5) appliqué en rattrapage à TOUTES les vidéos longues existantes, puis à chaque collecte.
+- **Le MGI dépasse 100** (jusqu'à 175) : normaliser le score final sur 0–100 (percentile dans la niche) pour que les bandes de P29 aient un sens.
+- **Seulement 1 470 commentaires classés sur 5 310**, dont 77 frustrations (5 %) et aucun rattaché à un sujet. → Classer tout le stock (Batch API, coût estimé affiché avant), puis ne collecter que sur les vidéos du point 6.
+- **La migration `00014_quota_plan_and_coverage.sql` n'est pas appliquée** (`candidate_channels.auto_decision` absent) et `candidate_channels` est vide. → Appliquer toutes les migrations en attente et vérifier avec `supabase migration list`.
+- **0 vidéo découverte par recherche** : confirme le bug de clé étrangère (point 2).
+- **78 sujets `active` = les requêtes écrites à la main**, aucun validé. → Les repasser en `proposed` ; tu ne gardes en `active` que ceux que je valide.
+
+Constat (audit du 2 oct. 2026) : les recherches ramènent des vidéos et chaînes sans intérêt, et il n'y a pas assez de données pour décider. Causes trouvées dans le code — vérifie chacune, puis corrige :
+
+1. **`lib/youtube/search.ts`** : `order=date`, `maxResults=10`, 30 jours → on récupère les 10 vidéos les plus récentes sur un mot-clé, presque toujours de micro-chaînes. Et on paie 100 unités pour 10 résultats alors que 50 coûtent le même prix.
+   → `order=relevance` (et une seconde passe `order=viewCount` une fois par semaine), `maxResults=50`, `videoDuration=medium` puis `long` (jamais de Shorts), `publishedAfter` = 180 jours pour mesurer l'offre, `regionCode=US`, `relevanceLanguage=en`. Puis un `videos.list` (1 unité / 50) pour récupérer vues, durée et chaîne de chaque résultat.
+2. **Bug critique** : `search.ts` n'insère que des vidéos de chaînes NON suivies dans `videos`, alors que `videos.channel_id` référence `channels(id)` : chaque insertion viole la clé étrangère, l'erreur n'est pas vérifiée, **rien n'est enregistré**. L'offre concurrente (O_q) n'est donc mesurée que sur les chaînes suivies, et le MGI est faussé.
+   → Nouvelle table `search_results` (topic_id, video_id, channel_id, title, views, duration_s, published_at, channel_subscribers, rank, searched_at), sans clé étrangère vers `channels`. O_q et le « click-through discrepancy » se calculent sur cette table. Vérifie et journalise l'erreur de CHAQUE écriture Supabase dans tout `lib/` (`if (error) throw/log`).
+3. **Découverte de chaînes** (`discover-sources.ts`, `auto-triage.ts`) : les sources « tendances mostPopular » (Divertissement, Actualités…) et « auteurs de commentaires » ramènent des chaînes grand public hors niche ; les seuils de rejet (1 000 abonnés, 200 vues médianes) sont trop bas.
+   → Supprime ces deux sources. Garde : recherche (point 1), `channelSections` des chaînes suivies, chaînes similaires (embeddings) et import manuel/vidIQ. Nouveaux seuils d'acceptation automatique : ≥ 4 vidéos longues sur 90 jours ET (≥ 10 000 abonnés OU médiane ≥ 5 000 vues) ET similarité ≥ 0,80 calculée sur les **10 derniers titres** de la chaîne (pas son nom) avec le centroïde de la niche. Rejet automatique sous 3 000 abonnés ET médiane < 1 000 vues, ou similarité < 0,65. Le reste en validation manuelle.
+4. **Sujets** (`cluster-service.ts`) : un « sujet » est aujourd'hui le titre le plus court d'un groupe de 3 vidéos similaires, et `seed/queries.csv` contient des requêtes rédigées à la main, non validées.
+   → Un sujet est proposé uniquement à partir de : (a) vidéos outliers (≥ 3×) de chaînes de qualité, (b) angles demandés dans les frustrations. Claude Haiku nomme le sujet en 2 à 6 mots anglais, génère 3 requêtes de recherche et rejette ce qui est hors niche. Statut `proposed` obligatoire, aucun sujet `active` sans validation. Ajoute un bouton « Archiver tous les sujets proposés sans vidéo qualifiée ».
+5. **Rattachement vidéo → sujet** : toute vidéo rattachée à un sujet doit avoir une similarité ≥ 0,75 entre l'embedding de son titre et celui du sujet ; sinon, rattachement refusé.
+6. **Commentaires** (`collect.ts` étape 4) : on prend toutes les vidéos de 60 jours (Shorts compris), sans tri fiable par vues (`video_snapshots[0]` non ordonné), avec 2 requêtes par vidéo (lent → le cron s'arrête à 5 min avant d'avoir collecté).
+   → Une seule requête SQL (vue ou RPC) qui sélectionne les vidéos **longues (≥ 8 min), ≥ 10 000 vues, de chaînes suivies, rattachées à un sujet actif**, triées par vues décroissantes, et exclut celles dont les commentaires ont < 7 jours. 100 à 200 commentaires par vidéo, `order=relevance`.
+7. **Nettoyage** : migration + script `scripts/cleanup-data.ts` (avec mode `--dry-run` qui affiche ce qui serait supprimé) : chaînes suivies sous 3 000 abonnés ET médiane < 1 000 vues → `status='inactive'` ; candidates venues de `trending`/`comment_author` → `ignored` ; sujets `proposed` sans vidéo qualifiée → `rejected`. Ne supprime rien sans ma validation du dry-run.
+8. **Import** : importe `seed/channels_vidiq.csv` (465 chaînes vérifiées) et les 3 nouvelles niches de `seed/niches.csv` (niches d'exploration sans chaîne liée : pas de note de faisabilité).
+9. **Contrôle** : relance `node --env-file=.env.local scripts/diagnose-data.mjs` avant et après, et montre-moi les deux `design/diagnostic.md` côte à côte.
+
+Critère de fin : pour chaque niche principale, ≥ 300 chaînes de qualité suivies, ≥ 2 000 vidéos longues sur 90 jours, ≥ 20 sujets validés ayant chacun ≥ 5 vidéos qualifiées et ≥ 200 commentaires analysés.
+
+---
+
+## P37-bis — Finir le pipeline de données (sujets, rattachement, commentaires)
+
+> Contexte : diagnostic du 2 oct. 2026 (19:05) après P37. La collecte de vidéos marche (3 968 vidéos < 90 j, 0 chaîne jamais vérifiée), mais tout ce qui vient après est resté figé : 13 vidéos rattachées à un sujet, 0 nouveau sujet, 0 sujet validé, 5 310 commentaires (inchangé), 3 840 commentaires jamais classés, 1 seul sujet scoré, aucun job enregistré depuis le 28 sept., dépôt git sans aucun commit.
+
+Lis `design/diagnostic.md`, AI_RULES.md et ARCHITECTURE.md, puis :
+
+1. **Git** : le dépôt n'a aucun commit. Vérifie `.gitignore` (`.env.local` exclu), puis fais un premier commit. Si git renvoie « Resource deadlock avoided », c'est que le dossier Desktop est synchronisé iCloud : dis-le-moi au lieu de contourner.
+2. **Traçabilité** : chaque étape (collect, discover, embed, link, comments, classify, score) écrit une ligne dans `jobs` avec quota et items, même lancée à la main. `pnpm nightly` enchaîne toutes les étapes dans cet ordre et s'arrête proprement à `YT_QUOTA_SOFT_LIMIT`.
+3. **Embeddings** : calcule l'embedding de toutes les vidéos < 90 j qui n'en ont pas (titre + début de description, Voyage `input_type=document`). Affiche le coût estimé et attends ma confirmation avant de lancer (règle 24).
+4. **Découverte de sujets** : lance la proposition de sujets à partir des outliers (vues ≥ 3× la médiane de la chaîne) et des commentaires de frustration, par niche, avec nommage Haiku. Objectif : ≥ 30 sujets `proposed` par niche, y compris Business, History et Health. Montre le coût Haiku avant de lancer.
+5. **Rattachement** : rattache chaque vidéo < 90 j au sujet le plus proche si similarité ≥ 0,75, sinon laisse `topic_id` vide. Affiche la répartition par niche.
+6. **Les 78 sujets écrits à la main** : après rattachement, ceux qui ont 0 vidéo passent en `rejected` et leurs requêtes restent dans `topic_queries` comme graines de recherche. Mode `--dry-run` d'abord, j'approuve la liste.
+7. **Commentaires** : pour les vidéos longues (≥ 8 min, ≥ 10 k vues, < 60 j) rattachées à un sujet, récupère 100 commentaires `order=relevance` (1 unité par appel), viser ≥ 200 commentaires par sujet. Puis classe **tous** les commentaires non classés via la Batch API Haiku (coût affiché avant).
+8. **Score** : recalcule le score de **tous** les sujets non rejetés, MGI borné 0–100, confiance `low` si < 5 vidéos ou < 200 commentaires.
+9. **Business & Case Studies** : 78 chaînes mais seulement 45 vidéos sur 90 j. Liste les chaînes de cette niche sans vidéo depuis 90 j et propose de les passer en `inactive`.
+10. Relance `node --env-file=.env.local scripts/diagnose-data.mjs` et résume-moi : vidéos rattachées par niche, sujets par statut, commentaires classés, sujets avec confiance `medium` ou `high`.
+
+Critère de sortie : ≥ 60 % des vidéos longues < 90 j rattachées ; ≥ 20 sujets par niche principale avec ≥ 5 vidéos ; ≥ 90 % des commentaires classés ; tous les sujets actifs scorés le même jour.
 
 ## P15 — Lecture et plan V2
 
@@ -237,6 +290,25 @@ Objectif : que chaque chiffre soit crédible et que chaque dépense soit choisie
 ## Hors périmètre (décidé après l'étude concurrentielle)
 
 Ne rien construire de ceci, même si c'est demandé en passant sans validation explicite : overlays injectés dans le HTML de YouTube, générateur de miniatures IA, écriture de scripts, voix ou vidéo (rôle de Vrily), A/B test de titres et miniatures, score SEO et volume de recherche par mot-clé, coach IA conversationnel qui agit tout seul, gamification (badges, séries).
+
+---
+
+## P36 — Moteur de découverte : passer de 100 à 5 000 chaînes
+
+Objectif : 1 500 chaînes pertinentes par niche (≈ 5 000 au total) en 6 à 8 semaines, sans dépasser le quota gratuit de 10 000 unités/jour.
+
+1. **Détection des nouvelles vidéos sans quota** : pour chaque chaîne suivie, lis le flux RSS public `https://www.youtube.com/feeds/videos.xml?channel_id=ID` (15 dernières vidéos, 0 unité). N'appelle `playlistItems.list` qu'en secours si le flux échoue. Les métriques (vues, likes, durée) restent récupérées par `videos.list` par lots de 50 (1 unité / 50 vidéos) et les chaînes par `channels.list` par lots de 50.
+2. **Snapshots échelonnés** : quotidien pour les vidéos de moins de 14 jours, hebdomadaire de 14 à 90 jours, puis mensuel. Agrège les anciens snapshots dans `video_stats_weekly` pour contenir la taille de la base.
+3. **Cinq sources de découverte**, toutes vers la file `candidate_channels` de P32 :
+   - `search.list` : jusqu'à 60 recherches/jour sur les requêtes des sujets (tri par date et par pertinence, `type=video`, `publishedAfter` 90 j) ; chaque page renvoie jusqu'à 50 vidéos donc de nouvelles chaînes ;
+   - chaînes mises en avant : `channelSections.list` (1 unité) sur chaque chaîne suivie, pour récupérer les chaînes qu'elle recommande ;
+   - tendances : `videos.list?chart=mostPopular` par catégorie pertinente (Éducation, Science & Tech, Actualités, Divertissement) et par pays (US, GB, CA, AU), 1 unité par page ;
+   - auteurs de commentaires qui sont eux-mêmes des chaînes actives de la niche (échantillon, sans stocker de données personnelles au-delà de l'ID de chaîne) ;
+   - import manuel (CSV, URL, @handle) et bouton « Ajouter aux candidates » de l'extension.
+4. **Tri automatique des candidates** : une chaîne est acceptée automatiquement si elle a ≥ 5 vidéos longues sur 90 jours, une médiane ≥ 2 000 vues et une similarité d'embedding ≥ 0,80 avec sa niche ; rejetée automatiquement sous des seuils bas ; le reste passe en validation manuelle. Probabilité faceless estimée par Claude Haiku (P32).
+5. **Budget de quota piloté** : table `quota_plan` avec une enveloppe par tâche (suivi ≈ 3 500, découverte ≈ 3 000, commentaires ≈ 2 000, réserve ≈ 1 500) ; chaque job s'arrête à son enveloppe ; page Admin → Quota avec la consommation par tâche sur 30 jours.
+6. **Tableau de bord de couverture** : par niche, nombre de chaînes suivies, candidates en attente, vidéos indexées sur 90 jours, et un indicateur « couverture suffisante » (≥ 1 000 chaînes et ≥ 20 000 vidéos sur 90 jours par niche). Tant que la couverture est insuffisante, le MGI affiche une confiance « Faible » (P29).
+7. Prépare le texte de la demande d'extension de quota YouTube (formulaire d'audit), à envoyer une fois l'application en production.
 
 ---
 

@@ -229,7 +229,14 @@ export default async function PipelinePage({
   }));
 
   return (
-    <div className="flex-1 flex flex-col min-w-0">
+    <div className="flex flex-col min-h-full relative overflow-x-clip">
+      {/* Background gradients multi-niveaux */}
+      <div className="absolute inset-0 pointer-events-none -z-10">
+        <div className="absolute -top-[20%] -left-[10%] w-[50%] h-[50%] rounded-full bg-blue-400/15 dark:bg-blue-600/15 blur-[100px]" />
+        <div className="absolute top-[20%] -right-[10%] w-[40%] h-[60%] rounded-full bg-purple-400/15 dark:bg-purple-600/15 blur-[120px]" />
+        <div className="absolute -bottom-[20%] left-[20%] w-[60%] h-[50%] rounded-full bg-cyan-400/15 dark:bg-cyan-600/15 blur-[100px]" />
+      </div>
+
       <KanbanBoard
         columns={columns}
         niches={nichesList}

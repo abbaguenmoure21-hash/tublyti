@@ -1,15 +1,14 @@
 /**
  * Auto-triage candidate channels based on quality thresholds.
  *
- * Accept automatically if:
- *   - ≥ 5 long videos (>8min) in last 90 days
- *   - Median views ≥ 2,000
- *   - Embedding similarity ≥ 0.80 with niche centroid
+ * Accept automatically if ALL:
+ *   - ≥ 4 long videos (>8min) in last 90 days
+ *   - (≥ 10,000 subscribers OR median views ≥ 5,000)
+ *   - Embedding similarity ≥ 0.80 (computed on 10 last titles vs niche centroid)
  *
  * Reject automatically if:
- *   - < 2 videos in last 90 days
- *   - Median views < 200
- *   - Subscriber count < 1,000
+ *   - < 3,000 subscribers AND median views < 1,000
+ *   - OR similarity < 0.65
  *
  * Otherwise: manual review.
  */
@@ -17,14 +16,15 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import type { EmbeddingProvider } from '../providers/embeddings';
 
 // Accept thresholds
-const ACCEPT_LONG_VIDEOS = 5;
-const ACCEPT_MEDIAN_VIEWS = 2000;
+const ACCEPT_LONG_VIDEOS_90D = 4;
+const ACCEPT_SUBSCRIBERS = 10_000;
+const ACCEPT_MEDIAN_VIEWS = 5_000;
 const ACCEPT_EMBEDDING_SIMILARITY = 0.80;
 
 // Reject thresholds
-const REJECT_VIDEOS_90D = 2;
-const REJECT_MEDIAN_VIEWS = 200;
-const REJECT_SUBSCRIBERS = 1000;
+const REJECT_SUBSCRIBERS = 3_000;
+const REJECT_MEDIAN_VIEWS = 1_000;
+const REJECT_SIMILARITY = 0.65;
 
 export interface TriageResult {
   processed: number;
@@ -53,7 +53,7 @@ export async function autoTriageCandidates(
 
   if (!candidates?.length) return result;
 
-  // Load niche embeddings for similarity check (if embedder available)
+  // Load niche centroid embeddings for similarity check
   let nicheEmbeddings: Map<string, number[]> | null = null;
   if (embedder) {
     const { data: niches } = await db
@@ -97,26 +97,28 @@ export async function autoTriageCandidates(
     }
 
     // ── Reject conditions ──
-    if (subscriberCount < REJECT_SUBSCRIBERS) {
-      await updateDecision(db, candidate.id, 'rejected', `Subscribers ${subscriberCount} < ${REJECT_SUBSCRIBERS}`);
+    if (similarity !== null && similarity < REJECT_SIMILARITY) {
+      await updateDecision(db, candidate.id, 'rejected',
+        `Similarity ${(similarity * 100).toFixed(0)}% < ${REJECT_SIMILARITY * 100}% threshold`);
       result.rejected++;
       continue;
     }
 
-    if (medianViews < REJECT_MEDIAN_VIEWS) {
-      await updateDecision(db, candidate.id, 'rejected', `Median views ${medianViews} < ${REJECT_MEDIAN_VIEWS}`);
+    if (subscriberCount < REJECT_SUBSCRIBERS && medianViews < REJECT_MEDIAN_VIEWS) {
+      await updateDecision(db, candidate.id, 'rejected',
+        `${subscriberCount} subs < ${REJECT_SUBSCRIBERS} AND ${medianViews} median views < ${REJECT_MEDIAN_VIEWS}`);
       result.rejected++;
       continue;
     }
 
     // ── Accept conditions (all must be met) ──
-    const hasEnoughVideos = longVideoCount >= ACCEPT_LONG_VIDEOS;
-    const hasEnoughViews = medianViews >= ACCEPT_MEDIAN_VIEWS;
+    const hasEnoughVideos = longVideoCount >= ACCEPT_LONG_VIDEOS_90D;
+    const hasEnoughSize = subscriberCount >= ACCEPT_SUBSCRIBERS || medianViews >= ACCEPT_MEDIAN_VIEWS;
     const hasEnoughSimilarity = similarity !== null && similarity >= ACCEPT_EMBEDDING_SIMILARITY;
 
-    if (hasEnoughVideos && hasEnoughViews && hasEnoughSimilarity) {
+    if (hasEnoughVideos && hasEnoughSize && hasEnoughSimilarity) {
       await updateDecision(db, candidate.id, 'accepted',
-        `${longVideoCount} long videos, ${medianViews} median views, ${(similarity! * 100).toFixed(0)}% similarity`);
+        `${longVideoCount} long videos, ${subscriberCount} subs, ${medianViews} median views, ${(similarity! * 100).toFixed(0)}% similarity`);
       result.accepted++;
       continue;
     }
@@ -129,11 +131,14 @@ export async function autoTriageCandidates(
 }
 
 async function updateDecision(db: SupabaseClient, id: string, decision: string, reason: string) {
-  await db.from('candidate_channels').update({
+  const { error } = await db.from('candidate_channels').update({
     auto_decision: decision,
     auto_reason: reason,
     status: decision,
   }).eq('id', id);
+  if (error) {
+    console.error(`auto-triage update error for ${id}: ${error.message}`);
+  }
 }
 
 function cosineSimilarity(a: number[], b: number[]): number {

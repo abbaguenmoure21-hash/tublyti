@@ -60,52 +60,52 @@ export function KanbanCardComponent({
       style={style}
       {...listeners}
       {...attributes}
-      className={`bg-card border border-border rounded-lg p-3 shadow-[0_1px_2px_rgba(20,24,34,0.06)] cursor-grab active:cursor-grabbing transition-shadow hover:shadow-[0_2px_8px_rgba(20,24,34,0.08)] ${
-        isDragging ? 'shadow-[0_8px_24px_rgba(20,24,34,0.12)]' : ''
+      className={`group bg-white/70 dark:bg-[#12141A]/70 backdrop-blur-xl border border-black/5 dark:border-white/10 rounded-[20px] p-4 shadow-[0_4px_12px_rgba(0,0,0,0.03)] hover:shadow-[0_8px_24px_rgba(0,0,0,0.06)] cursor-grab active:cursor-grabbing transition-all hover:border-primary/20 ${
+        isDragging ? 'shadow-[0_16px_32px_rgba(0,0,0,0.12)] ring-1 ring-primary/30 rotate-2' : ''
       }`}
     >
       {/* Topic label + phase */}
-      <div className="flex items-center gap-1.5 mb-1">
-        <span className={`w-1.5 h-1.5 rounded-full bg-phase-${card.phase}`} />
+      <div className="flex items-center gap-2 mb-2">
+        <span className={`w-2 h-2 rounded-full shadow-[0_0_4px_currentColor] opacity-80 bg-phase-${card.phase}`} />
         <Link
           href={`/topics/${card.topicId}`}
           onClick={(e) => e.stopPropagation()}
-          className="text-[12px] text-muted-foreground hover:text-foreground truncate transition-colors"
+          className="text-[12px] font-semibold uppercase tracking-wider text-muted-foreground/80 hover:text-primary truncate transition-colors"
         >
           {card.topicLabel}
         </Link>
       </div>
 
       {/* Angle title */}
-      <p className="text-[13px] font-medium leading-snug line-clamp-2 mb-2">
+      <p className="text-[15px] font-bold leading-[1.3] line-clamp-3 mb-3 text-foreground group-hover:text-primary transition-colors">
         {card.angleTitle}
       </p>
 
       {/* Meta row */}
-      <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-        <span className="truncate">{card.channelName || card.nicheName}</span>
-        <span className="text-border">·</span>
-        <span className="tabular-nums whitespace-nowrap">J+{age}</span>
+      <div className="flex items-center gap-1.5 text-[12px] font-semibold text-muted-foreground/80 flex-wrap">
+        <span className="truncate max-w-[120px]">{card.channelName || card.nicheName}</span>
+        <span className="text-black/10 dark:text-white/10">·</span>
+        <span className="tabular-nums bg-black/5 dark:bg-white/5 px-2 py-0.5 rounded-md whitespace-nowrap">J+{age}</span>
 
         {card.mgi !== null && (
           <>
-            <span className="text-border">·</span>
-            <span className="tabular-nums">MGI {Math.round(card.mgi)}</span>
+            <span className="text-black/10 dark:text-white/10">·</span>
+            <span className="tabular-nums text-mono-metric">MGI {Math.round(card.mgi)}</span>
           </>
         )}
       </div>
 
       {/* Performance (only for measured cards) */}
       {card.performanceVsMedian !== null && (
-        <div className={`flex items-center gap-1 mt-2 text-[12px] font-medium ${
-          card.performanceVsMedian >= 0 ? 'text-phase-2' : 'text-destructive'
+        <div className={`flex items-center gap-1.5 mt-3 text-[12px] font-bold ${
+          card.performanceVsMedian >= 0 ? 'text-[#30D158]' : 'text-[#FF453A]'
         }`}>
           {card.performanceVsMedian >= 0 ? (
-            <TrendingUp className="w-3.5 h-3.5" />
+            <TrendingUp className="w-4 h-4" />
           ) : (
-            <TrendingDown className="w-3.5 h-3.5" />
+            <TrendingDown className="w-4 h-4" />
           )}
-          <span className="tabular-nums">
+          <span className="tabular-nums text-mono-metric">
             {card.performanceVsMedian >= 0 ? '+' : ''}
             {card.performanceVsMedian} % vs médiane
           </span>
@@ -113,7 +113,7 @@ export function KanbanCardComponent({
       )}
 
       {/* Actions */}
-      <div className="flex items-center gap-1 mt-2 pt-2 border-t border-border/50">
+      <div className="flex items-center justify-between gap-2 mt-4 pt-3 border-t border-black/5 dark:border-white/5 opacity-0 group-hover:opacity-100 transition-opacity">
         <button
           type="button"
           onClick={(e) => {
@@ -121,9 +121,9 @@ export function KanbanCardComponent({
             handleCopyBrief();
           }}
           onPointerDown={(e) => e.stopPropagation()}
-          className="h-6 px-2 rounded text-[11px] text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer flex items-center gap-1"
+          className="haptic-btn h-7 px-3 bg-white dark:bg-white/5 border border-black/5 dark:border-white/10 shadow-sm rounded-full text-[12px] font-bold text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/10 transition-colors cursor-pointer flex items-center gap-1.5"
         >
-          {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+          {copied ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
           {copied ? 'Copié' : 'Brief'}
         </button>
       </div>

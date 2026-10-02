@@ -111,6 +111,8 @@ export function AngleSection({
   const [isPending, startTransition] = useTransition();
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [selectedAngleId, setSelectedAngleId] = useState<string | null>(null);
+  const [showAllAngles, setShowAllAngles] = useState(false);
   const [budget, setBudget] = useState<AiBudgetStatus | null>(null);
   const [loadingBudget, setLoadingBudget] = useState(false);
 
@@ -156,6 +158,74 @@ export function AngleSection({
   }
 
   const overBudget = budget ? budget.remainingUSD < estimatedCost : false;
+  const selectedAngle = selectedAngleId ? angles.find((a) => a.id === selectedAngleId) : null;
+
+  const angleCards = angles.map((a, i) => {
+    const isSelected = a.status === 'in_production' || a.status === 'published';
+    return (
+      <div
+        key={a.id}
+        className={`px-5 py-4 border-b border-[--glass-border] flex flex-col gap-2 last:border-0 hover:bg-[--bg-surface-1]/30 transition-colors ${
+          isSelected ? 'bg-primary/5' : ''
+        }`}
+      >
+        <div className="flex items-center gap-2.5">
+          <span className="text-[12px] font-bold text-primary tabular-nums bg-primary/10 px-1.5 py-0.5 rounded border border-primary/20">
+            {String(i + 1).padStart(2, '0')}
+          </span>
+          <span className="text-[14px] font-semibold leading-snug">{a.title}</span>
+        </div>
+        {a.hook && (
+          <p className="text-[13px] leading-relaxed text-muted-foreground/90 pl-9 line-clamp-2">{a.hook}</p>
+        )}
+        <div className="flex gap-2 pt-1.5 pl-9">
+          <button
+            type="button"
+            className={`haptic-btn h-[28px] px-3 rounded-md text-[12px] font-semibold transition-colors cursor-pointer shadow-sm ${
+              isSelected
+                ? 'bg-primary text-primary-foreground border border-primary/20'
+                : 'bg-[--bg-surface-2] border border-[--glass-border] text-foreground hover:bg-[--bg-surface-1]'
+            }`}
+          >
+            {isSelected ? 'Retenu' : 'Choisir'}
+          </button>
+          <button
+            type="button"
+            data-action="copy-brief"
+            onClick={() => handleCopyBrief(a)}
+            className="haptic-btn h-[28px] px-3 bg-[--bg-surface-2] border border-[--glass-border] rounded-md text-[12px] font-semibold text-muted-foreground hover:text-foreground transition-colors cursor-pointer flex items-center gap-1.5 shadow-sm"
+          >
+            {copiedId === a.id ? (
+              <>
+                <Check className="w-3.5 h-3.5 text-success" />
+                Copié !
+              </>
+            ) : (
+              <>
+                <Copy className="w-3.5 h-3.5" />
+                Copier
+              </>
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={() => handleDownloadBrief(a)}
+            className="haptic-btn h-[28px] px-3 bg-[--bg-surface-2] border border-[--glass-border] rounded-md text-[12px] font-semibold text-muted-foreground hover:text-foreground transition-colors cursor-pointer flex items-center gap-1.5 shadow-sm"
+          >
+            <Download className="w-3.5 h-3.5" />
+            .md
+          </button>
+          <button
+            type="button"
+            onClick={() => setSelectedAngleId(a.id)}
+            className="haptic-btn h-[28px] px-3 ml-auto bg-[--bg-surface-2] border border-[--glass-border] rounded-md text-[12px] font-semibold text-primary hover:bg-primary/5 transition-colors cursor-pointer flex items-center gap-1.5 shadow-sm"
+          >
+            Détails
+          </button>
+        </div>
+      </div>
+    );
+  });
 
   return (
     <>
@@ -227,83 +297,109 @@ export function AngleSection({
         </div>
       )}
 
-      <section className="bg-card border border-border rounded-[10px] shadow-[0_1px_2px_rgba(20,24,34,0.06)] flex flex-col">
-        <div className="flex items-center justify-between px-[18px] py-3.5 border-b border-border">
-          <h2 className="text-[15px] font-semibold">Angles propos\u00e9s</h2>
+      {/* Angle Details modal */}
+      {selectedAngle && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-card border border-border rounded-[10px] shadow-lg w-full max-w-xl p-6 flex flex-col gap-5 max-h-[90vh] overflow-y-auto relative animate-in fade-in zoom-in-95 duration-200">
+            <button 
+              type="button" 
+              onClick={() => setSelectedAngleId(null)}
+              className="absolute top-4 right-4 p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            </button>
+            
+            <div className="flex items-start gap-3 pr-8">
+               <span className="text-[13px] font-bold text-primary tabular-nums bg-primary/10 px-2 py-1 rounded border border-primary/20 shrink-0 mt-0.5">
+                 {String(angles.findIndex(a => a.id === selectedAngle.id) + 1).padStart(2, '0')}
+               </span>
+               <h3 className="text-[18px] font-semibold leading-snug">{selectedAngle.title}</h3>
+            </div>
+            
+            <div className="flex flex-col gap-2.5">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Accroche (Hook)</span>
+              <p className="text-[14px] text-foreground/90 leading-relaxed bg-[--bg-surface-1] p-3.5 rounded-md border border-[--glass-border] shadow-sm">
+                {selectedAngle.hook}
+              </p>
+            </div>
+            
+            {selectedAngle.rationale && (
+              <div className="flex flex-col gap-2.5">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Justification & Stratégie</span>
+                <p className="text-[13.5px] text-muted-foreground/90 leading-relaxed whitespace-pre-wrap bg-[--bg-surface-1]/50 p-3.5 rounded-md border border-[--glass-border]">
+                  {selectedAngle.rationale}
+                </p>
+              </div>
+            )}
+            
+            <div className="flex gap-2 justify-end mt-2 pt-5 border-t border-[--glass-border]">
+              <button
+                type="button"
+                onClick={() => setSelectedAngleId(null)}
+                className="haptic-btn h-9 px-4 rounded-md text-[13px] font-semibold text-foreground bg-[--bg-surface-2] border border-[--glass-border] hover:bg-muted transition-colors cursor-pointer shadow-sm"
+              >
+                Fermer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* All Angles modal */}
+      {showAllAngles && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-card border border-border rounded-[10px] shadow-lg w-full max-w-2xl flex flex-col max-h-[90vh] overflow-hidden relative animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-[--glass-border] bg-[--bg-surface-1]/50 sticky top-0 z-10">
+              <h2 className="text-headline">Tous les angles proposés ({angles.length})</h2>
+              <button 
+                type="button" 
+                onClick={() => setShowAllAngles(false)}
+                className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+              </button>
+            </div>
+            <div className="overflow-y-auto flex flex-col">
+              {angleCards}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <section className="bento-card !p-0 flex flex-col">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[--glass-border] bg-[--bg-surface-1]/50">
+          <h2 className="text-headline">Angles proposés</h2>
           <button
             type="button"
             onClick={handleGenerateClick}
             disabled={isPending}
-            className="h-7 px-2.5 border border-border rounded-md bg-card text-foreground text-[12px] font-medium hover:bg-muted transition-colors disabled:opacity-50 cursor-pointer"
+            className="haptic-btn h-[28px] px-3 bg-[--bg-surface-2] border border-[--glass-border] rounded-md text-foreground text-[12px] font-semibold hover:bg-[--bg-surface-1] transition-colors disabled:opacity-50 cursor-pointer shadow-sm"
           >
-            {isPending ? 'G\u00e9n\u00e9ration\u2026' : angles.length > 0 ? 'R\u00e9g\u00e9n\u00e9rer' : `G\u00e9n\u00e9rer 5 angles (~$${estimatedCost.toFixed(3)})`}
+            {isPending ? 'Génération…' : angles.length > 0 ? 'Régénérer' : `Générer 5 angles (~$${estimatedCost.toFixed(3)})`}
           </button>
         </div>
 
         {angles.length === 0 ? (
-          <div className="px-[18px] py-8 text-center text-[14px] text-muted-foreground">
-            Aucun angle g\u00e9n\u00e9r\u00e9. Clique sur \u00ab G\u00e9n\u00e9rer \u00bb pour en cr\u00e9er.
+          <div className="px-5 py-8 text-center text-[13px] font-medium text-muted-foreground">
+            Aucun angle généré. Clique sur « Générer » pour en créer.
           </div>
         ) : (
-          angles.map((a, i) => {
-            const isSelected = a.status === 'in_production' || a.status === 'published';
-            return (
-              <div
-                key={a.id}
-                className={`px-[18px] py-3.5 border-b border-muted flex flex-col gap-1.5 last:border-0 ${
-                  isSelected ? 'bg-primary-soft/40' : ''
-                }`}
-              >
-                <div className="flex items-center gap-2">
-                  <span className="text-[12px] font-semibold text-primary-ink tabular-nums">
-                    {String(i + 1).padStart(2, '0')}
-                  </span>
-                  <span className="text-[14px] font-semibold">{a.title}</span>
-                </div>
-                {a.hook && (
-                  <p className="text-[13px] leading-[1.45] text-muted-foreground">{a.hook}</p>
-                )}
-                <div className="flex gap-2 pt-0.5">
-                  <button
-                    type="button"
-                    className={`h-7 px-2.5 rounded-md text-[12px] font-medium transition-colors cursor-pointer ${
-                      isSelected
-                        ? 'bg-primary text-primary-foreground'
-                        : 'bg-primary-soft text-primary-ink hover:bg-primary-soft/80'
-                    }`}
-                  >
-                    {isSelected ? 'Retenu' : 'Choisir'}
-                  </button>
-                  <button
-                    type="button"
-                    data-action="copy-brief"
-                    onClick={() => handleCopyBrief(a)}
-                    className="h-7 px-2.5 rounded-md text-[12px] font-medium text-muted-foreground hover:text-foreground transition-colors cursor-pointer flex items-center gap-1"
-                  >
-                    {copiedId === a.id ? (
-                      <>
-                        <Check className="w-3 h-3" />
-                        Copi\u00e9 !
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="w-3 h-3" />
-                        Copier
-                      </>
-                    )}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleDownloadBrief(a)}
-                    className="h-7 px-2.5 rounded-md text-[12px] font-medium text-muted-foreground hover:text-foreground transition-colors cursor-pointer flex items-center gap-1"
-                  >
-                    <Download className="w-3 h-3" />
-                    .md
-                  </button>
-                </div>
+          <>
+            <div className="flex flex-col">
+              {angleCards.slice(0, 3)}
+            </div>
+            {angles.length > 3 && (
+              <div className="p-3 bg-[--bg-surface-1]/30 flex justify-center border-t border-[--glass-border]">
+                <button
+                  type="button"
+                  onClick={() => setShowAllAngles(true)}
+                  className="text-[13px] font-medium text-primary hover:underline cursor-pointer"
+                >
+                  Voir les {angles.length} angles
+                </button>
               </div>
-            );
-          })
+            )}
+          </>
         )}
       </section>
     </>

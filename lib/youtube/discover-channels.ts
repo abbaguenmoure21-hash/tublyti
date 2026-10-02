@@ -7,7 +7,7 @@ import { getQuotaSoftLimit } from './quota';
 const YT_BASE = 'https://www.googleapis.com/youtube/v3';
 const SEARCH_QUOTA_COST = 100;
 const WEEKLY_DISCOVERY_LIMIT = 30;
-const HAIKU_MODEL = 'claude-haiku-4-5-20251001';
+const HAIKU_MODEL = 'claude-3-5-haiku-latest';
 
 // Batch API pricing (50% off standard Haiku 4.5)
 const INPUT_COST_PER_MTOK = 0.40;

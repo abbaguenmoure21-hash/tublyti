@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import type { Metadata } from 'next';
 import { createServiceClient } from '@/lib/supabase/server';
 import { PhaseBadge, MgiScore, PHASE_LABELS } from '@/components/tublyti';
 import { getMgiBand, type ConfidenceResult } from '@/lib/scoring/mgi';
@@ -9,6 +10,13 @@ import { TopicShortcuts } from './_components/topic-shortcuts';
 import { AngleSection } from './_components/angle-section';
 import { DossierExport } from './_components/dossier-export';
 import { getFavoriteIds } from '@/lib/actions/collections';
+
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  const { id } = await params;
+  const db = createServiceClient();
+  const { data } = await db.from('topics').select('label').eq('id', id).single();
+  return { title: data?.label ? `${data.label} - Dossier` : 'Dossier Sujet' };
+}
 
 const LABEL_NAMES: Record<string, string> = {
   no_one_explains: "Personne n'explique",
@@ -27,6 +35,7 @@ const COMPETITOR_TAGS: Record<string, { label: string; color: string }> = {
 interface Competitor {
   id: string;
   title: string;
+  channelId: string;
   channelTitle: string;
   publishedAt: string;
   views: number;
@@ -187,6 +196,7 @@ export default async function TopicPage({
       id: vid,
       title: v.title as string,
       channelTitle: (v.channels as unknown as { title: string })?.title ?? '',
+      channelId: v.channel_id as string,
       publishedAt,
       views: videoViews[vid] ?? 0,
       durationSec,
@@ -323,28 +333,28 @@ export default async function TopicPage({
           return (
           <div className="grid gap-4" style={{ gridTemplateColumns: '1.3fr 1fr 1fr 1fr 1fr' }}>
             {/* MGI card */}
-            <div className="bg-card border border-border rounded-[10px] px-[18px] py-4 shadow-[0_1px_2px_rgba(20,24,34,0.06)] flex flex-col gap-1.5">
-              <span className="text-[13px] text-muted-foreground">Market Gap Index</span>
+            <div className="bento-card !px-[18px] !py-4 flex flex-col gap-1.5">
+              <span className="text-[13px] text-muted-foreground font-medium">Market Gap Index</span>
               <div className="flex items-baseline gap-2">
-                <span className="text-[40px] font-semibold tabular-nums tracking-[-0.02em]">
+                <span className="text-display-giant text-mono-metric tabular-nums tracking-tight">
                   {Math.round(mgiVal)}
                 </span>
                 <span
-                  className="text-[12px] font-medium px-1.5 py-0.5 rounded"
+                  className="text-[12px] font-semibold px-2 py-0.5 rounded-lg"
                   style={{
-                    backgroundColor: band.color + '33',
+                    backgroundColor: band.color + '20',
                     color: band.color === '#e2e6ff' || band.color === '#b7c0f8' ? '#424882' : band.color,
                   }}
                 >
                   {band.label}
                 </span>
                 {mgiDelta !== null && (
-                  <span className={`text-[13px] ${mgiDelta >= 0 ? 'text-phase-2-ink' : 'text-phase-3-ink'}`}>
+                  <span className={`text-[13px] font-medium ${mgiDelta >= 0 ? 'text-phase-2-ink' : 'text-phase-3-ink'}`}>
                     {mgiDelta >= 0 ? '+' : ''}{Math.round(mgiDelta)} en 7 j
                   </span>
                 )}
               </div>
-              <span className="block h-1.5 rounded-full bg-muted overflow-hidden">
+              <span className="block h-1.5 rounded-full bg-[--bg-surface-2] overflow-hidden mt-1">
                 <span
                   className="block h-1.5 rounded-full"
                   style={{
@@ -353,22 +363,22 @@ export default async function TopicPage({
                   }}
                 />
               </span>
-              <div className="flex items-center gap-2 text-[11px] text-muted-foreground mt-0.5">
+              <div className="flex items-center gap-2 text-[11px] text-muted-foreground mt-1">
                 {confidenceData && (
-                  <span className="group relative cursor-help flex items-center gap-1">
-                    <span className={`w-1.5 h-1.5 rounded-full ${
-                      confidenceData.level === 'high' ? 'bg-[var(--success)]'
-                      : confidenceData.level === 'medium' ? 'bg-[var(--warning)]'
-                      : 'bg-[var(--destructive)]'
+                  <span className="group relative cursor-help flex items-center gap-1 font-medium">
+                    <span className={`w-1.5 h-1.5 rounded-full shadow-[0_0_4px_currentColor] ${
+                      confidenceData.level === 'high' ? 'bg-[#30D158] text-[#30D158]'
+                      : confidenceData.level === 'medium' ? 'bg-[#FF9F0A] text-[#FF9F0A]'
+                      : 'bg-[#FF453A] text-[#FF453A]'
                     }`} />
                     Confiance : {confidenceData.level === 'high' ? 'Élevée' : confidenceData.level === 'medium' ? 'Moyenne' : 'Faible'}
-                    <span className="absolute bottom-full left-0 mb-1 hidden group-hover:block bg-popover text-popover-foreground text-[11px] px-2 py-1 rounded shadow-md border border-border whitespace-nowrap z-10">
+                    <span className="absolute bottom-full left-0 mb-1 hidden group-hover:block bg-[--bg-surface-2] text-foreground text-[11px] px-2 py-1 rounded shadow-md border border-[--glass-border] whitespace-nowrap z-10 backdrop-blur-md">
                       {confidenceData.reason}
                     </span>
                   </span>
                 )}
-                {confidenceData && <span className="text-border">·</span>}
-                <span className={Date.now() - new Date(score.scored_at).getTime() > 36 * 3_600_000 ? 'text-[var(--warning)]' : ''}>
+                {confidenceData && <span className="text-[--glass-border]">·</span>}
+                <span className={`font-medium ${Date.now() - new Date(score.scored_at).getTime() > 36 * 3_600_000 ? 'text-[#FF9F0A]' : ''}`}>
                   {formatScoredAtFreshness(score.scored_at)}
                 </span>
               </div>
@@ -391,18 +401,18 @@ export default async function TopicPage({
 
         {/* Feasibility card */}
         {score?.feasibility_grade && (
-          <div className="bg-card border border-border rounded-[10px] px-[18px] py-3.5 shadow-[0_1px_2px_rgba(20,24,34,0.06)] flex items-center gap-3">
-            <span className={`inline-flex items-center justify-center h-8 w-8 rounded-md text-[16px] font-bold ${
-              score.feasibility_grade === 'A' ? 'bg-success/15 text-success'
-              : score.feasibility_grade === 'B' ? 'bg-phase-2/15 text-phase-2-ink'
-              : score.feasibility_grade === 'C' ? 'bg-muted text-muted-foreground'
-              : score.feasibility_grade === 'D' ? 'bg-warning/15 text-warning'
-              : 'bg-destructive/15 text-destructive'
+          <div className="bento-card !px-[18px] !py-3.5 flex items-center gap-3">
+            <span className={`inline-flex items-center justify-center h-8 w-8 rounded-[8px] text-[16px] font-bold ${
+              score.feasibility_grade === 'A' ? 'bg-[#30D158]/15 text-[#30D158]'
+              : score.feasibility_grade === 'B' ? 'bg-[#0A84FF]/15 text-[#0A84FF]'
+              : score.feasibility_grade === 'C' ? 'bg-[--bg-surface-2] text-muted-foreground'
+              : score.feasibility_grade === 'D' ? 'bg-[#FF9F0A]/15 text-[#FF9F0A]'
+              : 'bg-[#FF453A]/15 text-[#FF453A]'
             }`}>
               {score.feasibility_grade}
             </span>
             <div className="flex flex-col gap-0.5">
-              <span className="text-[13px] font-medium">Faisabilité</span>
+              <span className="text-[13px] font-semibold">Faisabilité</span>
               <span className="text-[13px] text-muted-foreground">
                 {score.feasibility_reason ?? `Note ${score.feasibility_grade}`}
               </span>
@@ -413,35 +423,35 @@ export default async function TopicPage({
         {/* Two-column layout */}
         <div className="flex gap-4 items-start">
           {/* Left column */}
-          <div className="flex-1 min-w-0 flex flex-col gap-4">
+          <div className="flex-1 min-w-0 flex flex-col gap-5">
             <SignalSection signals={signals} />
 
             {/* Frustrations */}
-            <section className="bg-card border border-border rounded-[10px] shadow-[0_1px_2px_rgba(20,24,34,0.06)] flex flex-col">
-              <div className="flex items-center justify-between px-[18px] py-3.5 border-b border-border">
-                <h2 className="text-[15px] font-semibold">Ce que les spectateurs réclament</h2>
-                <span className="text-[13px] text-muted-foreground">
+            <section className="bento-card !p-0 flex flex-col">
+              <div className="flex items-center justify-between px-5 py-4 border-b border-[--glass-border] bg-[--bg-surface-1]/50">
+                <h2 className="text-headline">Ce que les spectateurs réclament</h2>
+                <span className="text-[13px] font-medium text-muted-foreground bg-[--bg-surface-2] px-2 py-0.5 rounded border border-[--glass-border]">
                   {totalFrustrated} commentaire{totalFrustrated !== 1 ? 's' : ''} frustré{totalFrustrated !== 1 ? 's' : ''}
                 </span>
               </div>
               {frustrationList.length === 0 ? (
-                <div className="px-[18px] py-8 text-center text-[14px] text-muted-foreground">
+                <div className="px-5 py-10 text-center text-[14px] text-muted-foreground font-medium">
                   Aucun commentaire de frustration détecté.
                 </div>
               ) : (
                 frustrationList.map((f) => (
-                  <div key={f.commentId} className="px-[18px] py-3.5 border-b border-muted flex flex-col gap-2 last:border-0">
-                    <p className="text-[14px] leading-[1.5]">« {f.text} »</p>
+                  <div key={f.commentId} className="px-5 py-4 border-b border-[--glass-border] flex flex-col gap-2.5 last:border-0 hover:bg-[--bg-surface-1]/30 transition-colors">
+                    <p className="text-[14px] leading-relaxed text-foreground/90 italic">« {f.text} »</p>
                     <div className="flex items-center gap-2.5 text-[12px] text-muted-foreground">
-                      <span className="h-5 px-[7px] rounded-[5px] bg-muted inline-flex items-center font-medium text-foreground">
+                      <span className="h-6 px-2 rounded-md bg-[--bg-surface-2] border border-[--glass-border] inline-flex items-center font-semibold uppercase tracking-wider text-muted-foreground">
                         {LABEL_NAMES[f.label] ?? f.label}
                       </span>
                       {f.requestedAngle && (
                         <span>
-                          Angle demandé : <span className="text-foreground">{f.requestedAngle}</span>
+                          Angle demandé : <span className="font-semibold text-primary">{f.requestedAngle}</span>
                         </span>
                       )}
-                      <span className="ml-auto tabular-nums">{formatLikes(f.likeCount)} likes</span>
+                      <span className="ml-auto tabular-nums text-mono-metric font-medium">{formatLikes(f.likeCount)} likes</span>
                     </div>
                   </div>
                 ))
@@ -450,7 +460,7 @@ export default async function TopicPage({
           </div>
 
           {/* Right column */}
-          <div className="w-[400px] shrink-0 flex flex-col gap-4">
+          <div className="w-[400px] shrink-0 flex flex-col gap-5">
             <AngleSection
               topicId={id}
               angles={angles ?? []}
@@ -481,27 +491,49 @@ export default async function TopicPage({
             />
 
             {/* Competitors */}
-            <section className="bg-card border border-border rounded-[10px] shadow-[0_1px_2px_rgba(20,24,34,0.06)] flex flex-col">
-              <div className="px-[18px] py-3.5 border-b border-border">
-                <h2 className="text-[15px] font-semibold">Concurrents</h2>
+            <section className="bento-card !p-0 flex flex-col">
+              <div className="px-5 py-4 border-b border-[--glass-border] bg-[--bg-surface-1]/50">
+                <h2 className="text-headline">Concurrents</h2>
               </div>
               {competitors.length === 0 ? (
-                <div className="px-[18px] py-8 text-center text-[14px] text-muted-foreground">
+                <div className="px-5 py-8 text-center text-[14px] text-muted-foreground font-medium">
                   Aucune vidéo trouvée pour ce sujet.
                 </div>
               ) : (
                 competitors.map((c) => {
                   const tagInfo = COMPETITOR_TAGS[c.tag] ?? { label: c.tag, color: 'text-muted-foreground' };
                   return (
-                    <div key={c.id} className="px-[18px] py-3 border-b border-muted flex gap-3 items-center last:border-0">
-                      <div className="w-16 h-9 rounded-md bg-muted shrink-0" />
-                      <div className="flex-1 min-w-0 flex flex-col gap-0.5">
-                        <span className="text-[13px] font-medium truncate">{c.title}</span>
-                        <span className="text-[12px] text-muted-foreground">
-                          {formatViews(c.views)} vues · {formatRelativeDate(c.publishedAt)} · {formatDuration(c.durationSec)}
-                        </span>
+                    <div key={c.id} className="px-5 py-3.5 border-b border-[--glass-border] flex gap-3.5 items-center last:border-0 hover:bg-[--bg-surface-1]/30 transition-colors">
+                      <a href={`https://youtube.com/watch?v=${c.id}`} target="_blank" rel="noopener noreferrer" className="shrink-0 relative group">
+                        <img 
+                          src={`https://i.ytimg.com/vi/${c.id}/mqdefault.jpg`} 
+                          alt={c.title} 
+                          className="w-[72px] h-[40px] object-cover rounded-lg border border-[--glass-border] shadow-sm transition-transform group-hover:scale-105"
+                          loading="lazy"
+                        />
+                        <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center">
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M8 5V19L19 12L8 5Z" />
+                          </svg>
+                        </div>
+                      </a>
+                      <div className="flex-1 min-w-0 flex flex-col gap-1">
+                        <a href={`https://youtube.com/watch?v=${c.id}`} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold truncate text-foreground/90 hover:text-primary transition-colors">
+                          {c.title}
+                        </a>
+                        <div className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
+                          <div className="w-4 h-4 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-500 shrink-0 flex items-center justify-center text-[8px] font-bold text-white uppercase">
+                            {c.channelTitle.charAt(0)}
+                          </div>
+                          <a href={`https://youtube.com/channel/${c.channelId}`} target="_blank" rel="noopener noreferrer" className="hover:underline truncate max-w-[120px]">
+                            {c.channelTitle}
+                          </a>
+                          <span>·</span>
+                          <span className="text-mono-metric tabular-nums font-medium shrink-0">{formatViews(c.views)} vues</span>
+                          <span className="shrink-0">· {formatRelativeDate(c.publishedAt)} · {formatDuration(c.durationSec)}</span>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-1.5 shrink-0">
+                      <div className="flex items-center gap-2 shrink-0">
                         {c.outlier && (
                           <OutlierBadge
                             score={c.outlier.score}
@@ -510,7 +542,7 @@ export default async function TopicPage({
                             baseline={c.outlier.baseline}
                           />
                         )}
-                        <span className={`text-[11px] font-medium ${tagInfo.color}`}>
+                        <span className={`text-[11px] font-bold uppercase tracking-wider ${tagInfo.color} bg-[--bg-surface-2] px-1.5 py-0.5 rounded border border-[--glass-border]`}>
                           {tagInfo.label}
                         </span>
                       </div>
@@ -528,18 +560,18 @@ export default async function TopicPage({
 
 function ScoreCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
-    <div className="bg-card border border-border rounded-[10px] px-[18px] py-4 shadow-[0_1px_2px_rgba(20,24,34,0.06)] flex flex-col gap-1.5">
-      <span className="text-[13px] text-muted-foreground">{label}</span>
-      <span className="text-[26px] font-semibold tabular-nums">{value}</span>
-      {sub && <span className="text-[12px] text-muted-foreground">{sub}</span>}
+    <div className="bento-card !px-[18px] !py-4 flex flex-col gap-1.5">
+      <span className="text-[13px] text-muted-foreground font-medium">{label}</span>
+      <span className="text-display-giant text-mono-metric tabular-nums tracking-tight">{value}</span>
+      {sub && <span className="text-[12px] text-muted-foreground/80">{sub}</span>}
     </div>
   );
 }
 
 const SIGNAL_COLORS: Record<string, string> = {
-  trends: '#524fdd',
-  yt_views: '#0891b2',
-  hn: '#ea580c',
+  trends: '#0A84FF',
+  yt_views: '#30D158',
+  hn: '#FF9F0A',
 };
 
 const SIGNAL_LABELS: Record<string, string> = {
@@ -553,9 +585,9 @@ function SignalSection({ signals }: { signals: Record<string, { date: string; va
 
   if (activeSources.length === 0) {
     return (
-      <section className="bg-card border border-border rounded-[10px] shadow-[0_1px_2px_rgba(20,24,34,0.06)] px-[18px] py-4">
-        <h2 className="text-[15px] font-semibold mb-3">Signaux sur 90 jours</h2>
-        <p className="text-[14px] text-muted-foreground">Aucune donnée de signal disponible.</p>
+      <section className="bento-card px-5 py-4">
+        <h2 className="text-headline mb-3">Signaux sur 90 jours</h2>
+        <p className="text-[14px] text-muted-foreground font-medium">Aucune donnée de signal disponible.</p>
       </section>
     );
   }
@@ -578,18 +610,18 @@ function SignalSection({ signals }: { signals: Record<string, { date: string; va
     return L + ((new Date(date).getTime() - minDate) / dateRange) * (R - L);
   }
 
-  const dateLabels = [
+  const dateLabels = [...new Set([
     allDates[0],
     allDates[Math.floor(allDates.length / 3)],
     allDates[Math.floor((allDates.length * 2) / 3)],
     allDates[allDates.length - 1],
-  ];
+  ])].filter(Boolean);
 
   return (
-    <section className="bg-card border border-border rounded-[10px] shadow-[0_1px_2px_rgba(20,24,34,0.06)] px-[18px] py-4 flex flex-col gap-3">
+    <section className="bento-card px-5 py-4 flex flex-col gap-3">
       <div className="flex items-center justify-between">
-        <h2 className="text-[15px] font-semibold">Signaux sur 90 jours</h2>
-        <div className="flex gap-3.5 text-[12px] text-muted-foreground">
+        <h2 className="text-headline">Signaux sur 90 jours</h2>
+        <div className="flex gap-4 text-[12px] font-semibold uppercase tracking-wider text-muted-foreground">
           {activeSources.map((source) => (
             <span key={source} className="flex items-center gap-1.5">
               <span className="w-3 h-[3px] rounded-sm" style={{ backgroundColor: SIGNAL_COLORS[source] }} />
@@ -600,20 +632,20 @@ function SignalSection({ signals }: { signals: Record<string, { date: string; va
       </div>
 
       <svg width="100%" viewBox={`0 0 ${W} ${H + 20}`} role="img" aria-label="Signaux sur 90 jours">
-        <g stroke="var(--border)" strokeDasharray="3 4">
+        <g stroke="var(--glass-border)" strokeDasharray="3 4">
           {[T, 80, 140].map((y) => (
             <line key={y} x1={L} y1={y} x2={R} y2={y} />
           ))}
         </g>
-        <line x1={L} y1={B} x2={R} y2={B} stroke="var(--muted-foreground)" strokeOpacity={0.3} />
+        <line x1={L} y1={B} x2={R} y2={B} stroke="var(--muted-foreground)" strokeOpacity={0.15} />
 
-        <g fontSize={11} className="fill-muted-foreground">
+        <g fontSize={11} className="fill-muted-foreground/60 font-medium">
           <text x={28} y={T + 4} textAnchor="end">100</text>
           <text x={28} y={84} textAnchor="end">66</text>
           <text x={28} y={144} textAnchor="end">33</text>
         </g>
 
-        <g fontSize={11} className="fill-muted-foreground">
+        <g fontSize={11} className="fill-muted-foreground/60 font-medium">
           {dateLabels.map((d, i) => (
             <text
               key={d}

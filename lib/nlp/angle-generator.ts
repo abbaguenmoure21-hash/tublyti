@@ -4,8 +4,8 @@ import { join } from 'path';
 
 // ── Constants ────────────────────────────────────────────────────────
 const PROMPT_VERSION = 'angles_v2';
-const MODEL = 'claude-sonnet-4-20250514';
-const MODEL_TAG = `sonnet-4-${PROMPT_VERSION}`;
+const MODEL = 'claude-3-5-sonnet-latest';
+const MODEL_TAG = `sonnet-5.5-${PROMPT_VERSION}`;
 
 import { estimateAngleCostUSD } from './angle-costs';
 
@@ -117,20 +117,32 @@ export class ClaudeAngleGenerator implements AngleGenerator {
 
     const response = await anthropic.messages.create({
       model: MODEL,
-      max_tokens: 2000,
+      max_tokens: 8192,
       system: systemPrompt,
       messages: [{ role: 'user', content: userMessage }],
     });
 
-    const content = response.content[0];
-    if (content.type !== 'text') {
-      throw new Error('Unexpected response type from Claude');
+    const textBlock = response.content.find((block) => block.type === 'text');
+    if (!textBlock || !('text' in textBlock)) {
+      throw new Error('Unexpected response type from Claude: No text block found');
     }
 
     // Strip markdown fences if present
-    let jsonText = content.text.trim();
+    let jsonText = textBlock.text.trim();
     const fenceMatch = jsonText.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if (fenceMatch) jsonText = fenceMatch[1].trim();
+    if (fenceMatch) {
+      jsonText = fenceMatch[1].trim();
+    } else {
+      // Fallback: strip leading ```json and trailing ``` manually if the response was truncated
+      jsonText = jsonText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+    }
+
+    // Attempt to fix truncated JSON by adding closing brackets if needed
+    if (jsonText.trim().startsWith('[') && !jsonText.trim().endsWith(']')) {
+      jsonText += ']';
+    } else if (jsonText.trim().startsWith('[') && jsonText.trim().endsWith('}')) {
+      jsonText += ']';
+    }
 
     const parsed = JSON.parse(jsonText) as unknown[];
     if (!Array.isArray(parsed) || parsed.length === 0) {

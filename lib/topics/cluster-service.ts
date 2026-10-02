@@ -1,7 +1,9 @@
+import Anthropic from '@anthropic-ai/sdk';
 import { SupabaseClient } from '@supabase/supabase-js';
 import type { EmbeddingProvider } from '../providers/embeddings';
 
-const SIMILARITY_THRESHOLD = 0.85;
+const ATTACH_SIMILARITY_THRESHOLD = 0.75;
+const CLUSTER_SIMILARITY_THRESHOLD = 0.80;
 const MIN_CLUSTER_SIZE = 3;
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -158,7 +160,7 @@ export async function runClustering(
       }
     }
 
-    if (bestTopicId && bestSim >= SIMILARITY_THRESHOLD) {
+    if (bestTopicId && bestSim >= ATTACH_SIMILARITY_THRESHOLD) {
       await db
         .from('videos')
         .update({ topic_id: bestTopicId })
@@ -176,7 +178,7 @@ export async function runClustering(
 
   // ── Step 4: Cluster orphans into proposed topics ─────────────────
   if (orphans.length >= MIN_CLUSTER_SIZE) {
-    const clusters = greedyCluster(orphans, SIMILARITY_THRESHOLD);
+    const clusters = greedyCluster(orphans, CLUSTER_SIMILARITY_THRESHOLD);
 
     for (const cluster of clusters) {
       if (isTimedOut()) break;
@@ -205,17 +207,27 @@ export async function runClustering(
       const clusterEmbeddings = cluster.map((c) => c.embedding);
       const avgEmb = averageEmbedding(clusterEmbeddings);
 
-      // Use the shortest title as the label
-      const label = clusterVideos
-        .map((v) => v.title as string)
-        .sort((a, b) => a.length - b.length)[0];
+      // Get niche name for context
+      const { data: nicheRow } = await db
+        .from('niches')
+        .select('name')
+        .eq('id', nicheId)
+        .single();
+      const nicheName = nicheRow?.name ?? '';
+
+      // Name the topic via Claude Haiku (2-6 English words) + generate 3 search queries
+      const titles = clusterVideos.map((v) => v.title as string);
+      const named = await nameTopicWithHaiku(titles, nicheName);
+
+      // Skip if Haiku says it's off-niche
+      if (!named) continue;
 
       const { data: newTopic } = await db
         .from('topics')
         .insert({
           workspace_id: '00000000-0000-0000-0000-000000000001',
           niche_id: nicheId,
-          label,
+          label: named.label,
           embedding: formatVector(avgEmb),
           status: 'proposed',
         })
@@ -228,6 +240,19 @@ export async function runClustering(
           .from('videos')
           .update({ topic_id: newTopic.id })
           .in('id', clusterIds);
+
+        // Insert search queries
+        for (const queryText of named.queries) {
+          const { error: qErr } = await db.from('topic_queries').insert({
+            workspace_id: '00000000-0000-0000-0000-000000000001',
+            topic_id: newTopic.id,
+            source: 'youtube',
+            query_text: queryText,
+            priority: 1,
+          });
+          if (qErr) console.error(`query insert error: ${qErr.message}`);
+        }
+
         result.topicsProposed++;
       }
     }
@@ -280,6 +305,65 @@ function parseEmbedding(raw: unknown): number[] {
     }
   }
   return [];
+}
+
+// ── Name topic via Claude Haiku ────────────────────────────────────────
+interface TopicNaming {
+  label: string;
+  queries: string[];
+}
+
+async function nameTopicWithHaiku(
+  videoTitles: string[],
+  nicheName: string,
+): Promise<TopicNaming | null> {
+  if (!process.env.ANTHROPIC_API_KEY) {
+    // Fallback: shortest title
+    const label = videoTitles.sort((a, b) => a.length - b.length)[0] ?? 'Unnamed topic';
+    return { label, queries: [label.toLowerCase()] };
+  }
+
+  try {
+    const anthropic = new Anthropic();
+    const response = await anthropic.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 200,
+      messages: [{
+        role: 'user',
+        content: `You are classifying YouTube video clusters for the "${nicheName}" niche.
+
+Given these video titles from a cluster:
+${videoTitles.map((t, i) => `${i + 1}. ${t}`).join('\n')}
+
+1. If these videos are NOT about the "${nicheName}" niche, respond with: {"reject": true}
+2. Otherwise, respond with a JSON object:
+{
+  "label": "2-6 word English topic name (lowercase, no articles)",
+  "queries": ["search query 1", "search query 2", "search query 3"]
+}
+
+The label should capture the shared theme. The queries should be YouTube search terms to find more videos on this topic. Respond ONLY with valid JSON, no markdown.`,
+      }],
+    });
+
+    const text = response.content[0].type === 'text' ? response.content[0].text : '';
+    const parsed = JSON.parse(text.trim());
+
+    if (parsed.reject) return null;
+    if (!parsed.label || typeof parsed.label !== 'string') return null;
+
+    return {
+      label: parsed.label.slice(0, 100),
+      queries: Array.isArray(parsed.queries)
+        ? parsed.queries.filter((q: unknown) => typeof q === 'string').slice(0, 3)
+        : [parsed.label.toLowerCase()],
+    };
+  } catch (err) {
+    console.error(`Haiku naming error: ${(err as Error).message}`);
+    // Fallback: shortest title
+    const label = videoTitles.sort((a, b) => a.length - b.length)[0] ?? 'Unnamed topic';
+    return { label, queries: [label.toLowerCase()] };
+  }
 }
 
 // ── Recalculate topic embedding from member videos ───────────────────

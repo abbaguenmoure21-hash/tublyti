@@ -4,6 +4,8 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+
+export const metadata = { title: 'Tâches de fond' };
 import { Badge } from '@/components/ui/badge';
 import {
   Settings,

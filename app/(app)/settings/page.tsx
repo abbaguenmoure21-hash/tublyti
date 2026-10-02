@@ -35,8 +35,8 @@ export default async function SettingsPage() {
 
   return (
     <div className="flex-1 flex flex-col min-w-0">
-      <header className="h-[60px] shrink-0 flex items-center px-8 border-b border-border bg-card">
-        <h1 className="text-[18px] font-semibold">Réglages</h1>
+      <header className="h-[64px] shrink-0 flex items-center px-8 border-b border-[--glass-border] bg-[--bg-surface-1]/50 backdrop-blur-xl">
+        <h1 className="text-[20px] font-semibold text-foreground tracking-tight">Réglages</h1>
       </header>
 
       <div className="flex-1 p-6 md:p-8 max-w-4xl">
