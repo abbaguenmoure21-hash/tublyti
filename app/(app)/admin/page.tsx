@@ -1,4 +1,4 @@
-import { Shield, Settings, Database, Activity } from 'lucide-react';
+import { Shield, Settings, Database, Activity, BarChart3 } from 'lucide-react';
 import Link from 'next/link';
 
 export const metadata = { title: 'Espace Admin' };
@@ -48,16 +48,18 @@ export default function AdminPage() {
             </div>
           </Link>
 
-          {/* Placeholder for future admin tools */}
-          <div className="bg-card rounded-2xl border border-[--glass-border] p-6 opacity-50 flex flex-col items-start gap-4">
+          <Link
+            href="/admin/coverage"
+            className="group bg-card rounded-2xl border border-[--glass-border] p-6 hover:border-primary/50 hover:shadow-md transition-all cursor-pointer flex flex-col items-start gap-4"
+          >
             <div className="w-10 h-10 rounded-lg bg-purple-500/10 text-purple-500 flex items-center justify-center">
-              <Database className="w-5 h-5" />
+              <BarChart3 className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="font-semibold text-foreground">Gestion de la Base de Données</h3>
-              <p className="text-sm text-muted-foreground mt-1">Accès direct aux tables, nettoyage des logs et maintenance. (Bientôt disponible)</p>
+              <h3 className="font-semibold text-foreground group-hover:text-primary transition-colors">Couverture & Quota</h3>
+              <p className="text-sm text-muted-foreground mt-1">Nombre de chaînes par niche, suffisance de la couverture, et consommation du quota YouTube.</p>
             </div>
-          </div>
+          </Link>
         </div>
       </div>
     </div>

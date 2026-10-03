@@ -37,6 +37,9 @@ import { runClassify } from '../lib/nlp/classify-service';
 import { VoyageEmbeddingProvider } from '../lib/providers/voyage-embeddings';
 import { FakeEmbeddingProvider } from '../lib/providers/embeddings';
 import { runQualityGates } from '../lib/topics/quality-gates';
+import { discoverChannels, retrieveDiscoveryBatches } from '../lib/youtube/discover-channels';
+import { runDiscoverySources } from '../lib/youtube/discover-sources';
+import { autoTriageCandidates } from '../lib/youtube/auto-triage';
 import { ResendAlertSender, ConsoleAlertSender } from '../lib/email/resend-alerts';
 import { SupabaseJobRunner } from '../lib/jobs/supabase-runner';
 
@@ -154,7 +157,46 @@ async function main() {
     return { quota: 0, items: search.videosDiscovered };
   });
 
-  // ── Step 7: EMBED-2 + ATTACH-2 (new videos from search) ───────
+  // ── Step 7: DISCOVER-SOURCES (channelSections + search results) ─
+  console.log('\n========== DISCOVER-SOURCES ==========');
+
+  await runStep(runner, 'discover-sources', async () => {
+    const sources = await runDiscoverySources(db, deadline, 500);
+    console.log(`  channelSections: ${sources.channelSections.channelsDiscovered} channels (${sources.channelSections.quotaUsed} quota)`);
+    console.log(`  trending: ${sources.trending.channelsDiscovered} channels (${sources.trending.quotaUsed} quota)`);
+    console.log(`  searchResults: ${sources.searchResults.channelsDiscovered} channels`);
+    const totalQuota = sources.channelSections.quotaUsed + sources.trending.quotaUsed;
+    const totalChannels = sources.channelSections.channelsDiscovered + sources.trending.channelsDiscovered + sources.searchResults.channelsDiscovered;
+    return { quota: totalQuota, items: totalChannels };
+  });
+
+  // ── Step 8: DISCOVER-CHANNELS (search for new channels in phase 1/2 topics) ─
+  console.log('\n========== DISCOVER-CHANNELS ==========');
+
+  await runStep(runner, 'discover-channels', async () => {
+    const disc = await discoverChannels(db, deadline, yt.getQuotaUsed());
+    console.log(`  Searches: ${disc.searchesPerformed}, Channels: ${disc.channelsDiscovered}`);
+    console.log(`  Faceless estimated: ${disc.facelessEstimated} ($${disc.estimatedCostUSD.toFixed(3)})`);
+    if (disc.stoppedByQuota) console.log('  Stopped by quota');
+    if (disc.stoppedByTimeout) console.log('  Stopped by timeout');
+
+    // Retrieve any pending faceless batch results
+    const batchUpdated = await retrieveDiscoveryBatches(db);
+    if (batchUpdated > 0) console.log(`  Faceless batches updated: ${batchUpdated}`);
+
+    return { quota: 0, items: disc.channelsDiscovered };
+  });
+
+  // ── Step 9: AUTO-TRIAGE (classify pending candidates) ──────────
+  console.log('\n========== AUTO-TRIAGE ==========');
+
+  await runStep(runner, 'auto-triage', async () => {
+    const triage = await autoTriageCandidates(db, embedder);
+    console.log(`  Processed: ${triage.processed}, Accepted: ${triage.accepted}, Rejected: ${triage.rejected}, Manual: ${triage.manual}`);
+    return { quota: 0, items: triage.processed };
+  });
+
+  // ── Step 10: EMBED-2 + ATTACH-2 (new videos from search) ──────
   console.log('\n========== EMBED+ATTACH (pass 2) ==========');
 
   await runStep(runner, 'embed-pass2', async () => {
@@ -164,7 +206,7 @@ async function main() {
     return { quota: 0, items: embedded + attached };
   });
 
-  // ── Step 8: CLASSIFY (retrieve pending batches + submit new) ────
+  // ── Step 11: CLASSIFY (retrieve pending batches + submit new) ───
   console.log('\n========== CLASSIFY ==========');
 
   if (process.env.ANTHROPIC_API_KEY) {
@@ -178,7 +220,7 @@ async function main() {
     console.log('  ANTHROPIC_API_KEY not set — skipped');
   }
 
-  // ── Step 9: SCORE (MGI + phase + outliers) ─────────────────────
+  // ── Step 12: SCORE (MGI + phase + outliers) ────────────────────
   console.log('\n========== SCORE ==========');
 
   await runStep(runner, 'score', async () => {
@@ -197,6 +239,67 @@ async function main() {
     }
 
     return { quota: 0, items: score.topicsScored + outlierCount };
+  });
+
+  // ── Step 13: AGGREGATE (compress old snapshots into weekly) ────
+  console.log('\n========== AGGREGATE ==========');
+
+  await runStep(runner, 'aggregate', async () => {
+    const cutoff = new Date(Date.now() - 30 * 86_400_000).toISOString();
+    let aggregated = 0;
+    let deleted = 0;
+
+    while (true) {
+      if (Date.now() >= deadline) break;
+      const { data: snaps } = await db
+        .from('video_snapshots')
+        .select('id, video_id, views, likes, comments, captured_at')
+        .lt('captured_at', cutoff)
+        .order('captured_at', { ascending: true })
+        .limit(500);
+
+      if (!snaps?.length) break;
+
+      const weeklyMap = new Map<string, { video_id: string; week_start: string; views: number; likes: number; comments: number; count: number }>();
+      const ids: number[] = [];
+
+      for (const s of snaps) {
+        const d = new Date(s.captured_at);
+        const day = d.getUTCDay();
+        const mon = new Date(d);
+        mon.setUTCDate(d.getUTCDate() - ((day + 6) % 7));
+        const ws = mon.toISOString().slice(0, 10);
+        const key = `${s.video_id}::${ws}`;
+        const ex = weeklyMap.get(key);
+        if (ex) {
+          ex.views = Math.max(ex.views, s.views ?? 0);
+          ex.likes = Math.max(ex.likes, s.likes ?? 0);
+          ex.comments = Math.max(ex.comments, s.comments ?? 0);
+          ex.count++;
+        } else {
+          weeklyMap.set(key, { video_id: s.video_id, week_start: ws, views: s.views ?? 0, likes: s.likes ?? 0, comments: s.comments ?? 0, count: 1 });
+        }
+        ids.push(s.id);
+      }
+
+      for (const e of weeklyMap.values()) {
+        await db.from('video_stats_weekly').upsert({
+          video_id: e.video_id, week_start: e.week_start,
+          views: e.views, likes: e.likes, comments: e.comments, snapshots_count: e.count,
+        }, { onConflict: 'video_id,week_start' });
+      }
+
+      for (let i = 0; i < ids.length; i += 100) {
+        await db.from('video_snapshots').delete().in('id', ids.slice(i, i + 100));
+      }
+
+      aggregated += weeklyMap.size;
+      deleted += ids.length;
+      if (snaps.length < 500) break;
+    }
+
+    console.log(`  Weekly rows: ${aggregated}, Snapshots deleted: ${deleted}`);
+    return { quota: 0, items: aggregated };
   });
 
   // ── Summary ────────────────────────────────────────────────────

@@ -1,13 +1,11 @@
 import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
-import { readFileSync } from 'fs';
-import { join } from 'path';
 import { getQuotaSoftLimit } from './quota';
 
 const YT_BASE = 'https://www.googleapis.com/youtube/v3';
 const SEARCH_QUOTA_COST = 100;
 const WEEKLY_DISCOVERY_LIMIT = 30;
-const HAIKU_MODEL = 'claude-3-5-haiku-latest';
+const HAIKU_MODEL = 'claude-haiku-4-5-20251001';
 
 // Batch API pricing (50% off standard Haiku 4.5)
 const INPUT_COST_PER_MTOK = 0.40;
@@ -24,12 +22,25 @@ export interface DiscoverResult {
   stoppedByTimeout: boolean;
 }
 
-function loadFacelessPrompt(): string {
-  return readFileSync(
-    join(process.cwd(), 'lib/nlp/prompts/faceless_v1.md'),
-    'utf-8',
-  );
-}
+const FACELESS_PROMPT = `Tu analyses une chaîne YouTube pour estimer si c'est une chaîne "faceless" (sans visage humain récurrent).
+
+Indices d'une chaîne faceless :
+- Pas de personne identifiable dans le titre ou la description de la chaîne
+- Titres de vidéos génériques (pas de "je", "my", prénom)
+- Thèmes compilation, top N, explications avec voix off, musique de fond
+- Noms de chaîne abstraits ou descriptifs plutôt qu'un nom de personne
+
+Indices d'une chaîne NON faceless :
+- Nom de personne dans le titre de la chaîne
+- Titres de vidéos à la première personne
+- Description mentionnant "je suis", "I'm", un parcours personnel
+- Vlogs, interviews face caméra
+
+Réponds en JSON strict avec :
+- \`probability\` : nombre entre 0.0 et 1.0 (probabilité que ce soit faceless)
+- \`reason\` : une phrase courte en français expliquant ton estimation
+
+Réponds UNIQUEMENT avec le JSON, sans texte autour.`;
 
 function estimateCost(count: number): number {
   const inputCost = (count * EST_INPUT_TOKENS * INPUT_COST_PER_MTOK) / 1_000_000;
@@ -66,6 +77,11 @@ export async function discoverChannels(
   const softLimit = getQuotaSoftLimit();
   const isTimedOut = () => Date.now() >= deadlineMs;
   let quotaUsed = currentQuotaUsed;
+
+  // Enforce per-task discovery budget from quota_plan
+  const { data: planSetting } = await db.from('settings').select('value').eq('key', 'quota_plan').single();
+  const discoveryBudget = (planSetting?.value as Record<string, number>)?.discovery ?? 3000;
+  let discoveryQuotaUsed = 0;
 
   const result: DiscoverResult = {
     searchesPerformed: 0,
@@ -125,6 +141,7 @@ export async function discoverChannels(
     if (isTimedOut()) { result.stoppedByTimeout = true; break; }
     if (discoveriesThisWeek >= WEEKLY_DISCOVERY_LIMIT) break;
     if (quotaUsed + SEARCH_QUOTA_COST > softLimit) { result.stoppedByQuota = true; break; }
+    if (discoveryQuotaUsed + SEARCH_QUOTA_COST > discoveryBudget) { result.stoppedByQuota = true; break; }
 
     try {
       const url = new URL(`${YT_BASE}/search`);
@@ -141,6 +158,7 @@ export async function discoverChannels(
       });
 
       quotaUsed += SEARCH_QUOTA_COST;
+      discoveryQuotaUsed += SEARCH_QUOTA_COST;
       discoveriesThisWeek++;
       result.searchesPerformed++;
 
@@ -185,7 +203,7 @@ export async function discoverChannels(
 
   for (let i = 0; i < channelEntries.length; i += 50) {
     if (isTimedOut()) { result.stoppedByTimeout = true; break; }
-    if (quotaUsed + 1 > softLimit) { result.stoppedByQuota = true; break; }
+    if (quotaUsed + 1 > softLimit || discoveryQuotaUsed + 1 > discoveryBudget) { result.stoppedByQuota = true; break; }
 
     const batch = channelEntries.slice(i, i + 50);
     const ids = batch.map(([id]) => id);
@@ -198,6 +216,7 @@ export async function discoverChannels(
 
     const res = await fetch(url.toString(), { signal: AbortSignal.timeout(10_000) });
     quotaUsed += 1;
+    discoveryQuotaUsed += 1;
 
     if (!res.ok) continue;
 
@@ -220,12 +239,12 @@ export async function discoverChannels(
 
   // Fetch last 10 video titles per channel for median views + faceless estimation
   // Use uploads playlist (1 quota unit per channel)
-  const channelVideoData: Map<string, { titles: string[]; medianViews: number; videosPerMonth: number }> = new Map();
+  const channelVideoData: Map<string, { titles: string[]; medianViews: number; videosPerMonth: number; longVideoCount: number }> = new Map();
 
   for (const ch of channelInfos) {
     if (isTimedOut()) { result.stoppedByTimeout = true; break; }
     if (!ch.uploadsPlaylistId) continue;
-    if (quotaUsed + 2 > softLimit) { result.stoppedByQuota = true; break; }
+    if (quotaUsed + 2 > softLimit || discoveryQuotaUsed + 2 > discoveryBudget) { result.stoppedByQuota = true; break; }
 
     // Get last 10 video IDs from uploads playlist
     const plUrl = new URL(`${YT_BASE}/playlistItems`);
@@ -236,6 +255,7 @@ export async function discoverChannels(
 
     const plRes = await fetch(plUrl.toString(), { signal: AbortSignal.timeout(10_000) });
     quotaUsed += 1;
+    discoveryQuotaUsed += 1;
 
     if (!plRes.ok) continue;
     const plData = await plRes.json();
@@ -245,14 +265,15 @@ export async function discoverChannels(
 
     if (videoIds.length === 0) continue;
 
-    // Get video statistics
+    // Get video statistics + duration
     const vUrl = new URL(`${YT_BASE}/videos`);
     vUrl.searchParams.set('key', apiKey);
-    vUrl.searchParams.set('part', 'snippet,statistics');
+    vUrl.searchParams.set('part', 'snippet,statistics,contentDetails');
     vUrl.searchParams.set('id', videoIds.join(','));
 
     const vRes = await fetch(vUrl.toString(), { signal: AbortSignal.timeout(10_000) });
     quotaUsed += 1;
+    discoveryQuotaUsed += 1;
 
     if (!vRes.ok) continue;
     const vData = await vRes.json();
@@ -261,6 +282,9 @@ export async function discoverChannels(
     const views: number[] = [];
     let oldestDate: Date | null = null;
     let newestDate: Date | null = null;
+    let longVideoCount = 0;
+    const now = Date.now();
+    const ninetyDaysAgo = now - 90 * 86_400_000;
 
     for (const v of vData.items ?? []) {
       titles.push(v.snippet?.title ?? '');
@@ -268,6 +292,13 @@ export async function discoverChannels(
       const pubDate = new Date(v.snippet?.publishedAt ?? Date.now());
       if (!oldestDate || pubDate < oldestDate) oldestDate = pubDate;
       if (!newestDate || pubDate > newestDate) newestDate = pubDate;
+
+      // Count long videos (≥8min) published in last 90 days
+      const duration = v.contentDetails?.duration ?? '';
+      const seconds = parseISO8601Duration(duration);
+      if (seconds >= 480 && pubDate.getTime() >= ninetyDaysAgo) {
+        longVideoCount++;
+      }
     }
 
     // Compute median views
@@ -284,7 +315,7 @@ export async function discoverChannels(
       videosPerMonth = monthsDiff > 0 ? Math.round((views.length / monthsDiff) * 10) / 10 : views.length;
     }
 
-    channelVideoData.set(ch.id, { titles, medianViews, videosPerMonth });
+    channelVideoData.set(ch.id, { titles, medianViews, videosPerMonth, longVideoCount });
   }
 
   // Estimate faceless probability via Claude Haiku (Batch API)
@@ -299,7 +330,7 @@ export async function discoverChannels(
     if (currentSpend + cost <= budgetLimit) {
       try {
         const anthropic = new Anthropic();
-        const systemPrompt = loadFacelessPrompt();
+        const systemPrompt = FACELESS_PROMPT;
 
         const requests = channelInfos.map((ch) => {
           const videoData = channelVideoData.get(ch.id);
@@ -352,6 +383,7 @@ export async function discoverChannels(
       subscriber_count: ch.subscriberCount,
       median_views: videoData?.medianViews ?? null,
       videos_per_month: videoData?.videosPerMonth ?? null,
+      long_video_count: videoData?.longVideoCount ?? null,
       discovered_via: 'search',
       source_topic_id: ch.sourceTopicId,
       status: 'pending',
@@ -430,6 +462,15 @@ export async function retrieveDiscoveryBatches(
 
   await db.from('settings').upsert({ key: 'pending_discovery_batches', value: stillPending });
   return updated;
+}
+
+/** Parse ISO 8601 duration (e.g. PT12M30S) to seconds */
+function parseISO8601Duration(iso: string): number {
+  const match = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+  if (!match) return 0;
+  return (parseInt(match[1] ?? '0', 10) * 3600) +
+    (parseInt(match[2] ?? '0', 10) * 60) +
+    parseInt(match[3] ?? '0', 10);
 }
 
 function emptyResult(): DiscoverResult {
