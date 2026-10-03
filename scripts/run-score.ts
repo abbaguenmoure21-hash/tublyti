@@ -53,10 +53,12 @@ async function main() {
     }
 
     await runner.finish(job.id, {
+      quotaUsed: 0,
       itemsProcessed: result.topicsScored + outliersComputed,
     });
   } catch (err) {
     await runner.finish(job.id, {
+      quotaUsed: 0,
       itemsProcessed: 0,
       error: err instanceof Error ? err.message : String(err),
     });

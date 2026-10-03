@@ -5,7 +5,7 @@
  * Usage:
  *   npx tsx scripts/submit-classify-batch.ts
  */
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
 import { readFileSync, existsSync } from 'fs';
 import { resolve, join } from 'path';
@@ -27,13 +27,13 @@ const MODEL = 'claude-haiku-4-5-20251001';
 const MAX_BATCH_SIZE = 10000; // Anthropic batch limit
 const PAGE_SIZE = 1000; // Supabase default max per query
 
-async function fetchAll(db: ReturnType<typeof createClient>, table: string, columns: string) {
+async function fetchAll(db: SupabaseClient, table: string, columns: string) {
   const rows: Record<string, unknown>[] = [];
   let offset = 0;
   while (true) {
     const { data } = await db.from(table).select(columns).range(offset, offset + PAGE_SIZE - 1);
     if (!data || data.length === 0) break;
-    rows.push(...data);
+    for (const row of data as unknown[]) rows.push(row as Record<string, unknown>);
     if (data.length < PAGE_SIZE) break;
     offset += PAGE_SIZE;
   }

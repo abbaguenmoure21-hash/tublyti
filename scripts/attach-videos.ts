@@ -165,7 +165,7 @@ async function main() {
     console.log('\n(DRY RUN — relancer avec --apply pour appliquer)');
   }
 
-  await runner.finish(job.id, { itemsProcessed: totalAttached });
+  await runner.finish(job.id, { quotaUsed: 0, itemsProcessed: totalAttached });
 }
 
 main().catch(console.error);

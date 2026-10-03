@@ -43,6 +43,7 @@ Un créateur faceless choisit ses sujets en regardant ce qui a déjà marché ch
 - Gestion des trois états (chargement, vide, erreur) sur chaque page qui affiche des données.
 - Messages d'erreur utilisateur en français, clairs, sans jargon.
 - Commits atomiques, messages en anglais au format conventionnel (`feat:`, `fix:`, `chore:`).
+- Toujours lancer `pnpm build` avant un `git push`. Ne jamais pousser du code qui ne compile pas.
 
 ## Priorités, dans l'ordre
 

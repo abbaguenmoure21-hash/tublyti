@@ -168,7 +168,7 @@ async function main() {
     console.log('(DRY RUN — relancer avec --apply pour appliquer)');
   }
 
-  await runner.finish(job.id, { itemsProcessed: totalRejected });
+  await runner.finish(job.id, { quotaUsed: 0, itemsProcessed: totalRejected });
 }
 
 main().catch(console.error);
