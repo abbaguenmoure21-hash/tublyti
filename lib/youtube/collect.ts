@@ -83,8 +83,12 @@ export async function runCollect(
   let trackingQuota = 0;
   let commentQuota = 0;
 
+  const logStep = (name: string, t0: number) =>
+    console.log(`    [collect] ${name} done in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+
   try {
     // ── Step 1: Update channels (oldest first) ──────────────────────
+    const t1 = Date.now();
     const { data: channels } = await db
       .from('channels')
       .select('id, uploads_playlist_id, subscriber_count')
@@ -118,12 +122,15 @@ export async function runCollect(
       }
     }
 
+    logStep('channel-updates', t1);
+
     if (result.stoppedByTimeout) {
       result.quotaUsed = yt.getQuotaUsed();
       return result;
     }
 
     // ── Step 2: Discover new videos — RSS first, API fallback ────────
+    const t2 = Date.now();
     const { data: updatedChannels } = await db
       .from('channels')
       .select('id, uploads_playlist_id, subscriber_count')
@@ -213,12 +220,15 @@ export async function runCollect(
       }
     }
 
+    logStep('video-discovery', t2);
+
     if (result.stoppedByTimeout || result.stoppedByQuota) {
       result.quotaUsed = yt.getQuotaUsed();
       return result;
     }
 
     // ── Step 3: Tiered snapshots ─────────────────────────────────────
+    const t3 = Date.now();
     // Daily for <14 days, weekly for 14-90 days, monthly for >90 days
     const now = new Date();
     const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
@@ -355,12 +365,15 @@ export async function runCollect(
       }
     }
 
+    logStep('tiered-snapshots', t3);
+
     if (result.stoppedByTimeout || result.stoppedByQuota) {
       result.quotaUsed = yt.getQuotaUsed();
       return result;
     }
 
     // ── Step 4: Comment ingestion ─────────────────────────────────
+    const t4 = Date.now();
     // Only: long videos (≥8min), ≥10k views, from followed channels,
     // attached to an active topic, sorted by views desc.
     // Cooldown: skip videos whose comments were fetched < 7 days ago.
@@ -460,12 +473,15 @@ export async function runCollect(
       }
     }
 
+    logStep('comment-ingestion', t4);
+
     if (result.stoppedByTimeout || result.stoppedByQuota) {
       result.quotaUsed = yt.getQuotaUsed();
       return result;
     }
 
     // ── Step 5: Purge old comments (>90 days) that already have labels ─
+    const t5 = Date.now();
     const { data: purgeTargets } = await db
       .from('comments')
       .select('id, comment_labels(comment_id)')
@@ -478,6 +494,7 @@ export async function runCollect(
         result.commentsPurged++;
       }
     }
+    logStep('comment-purge', t5);
   } catch (err) {
     if (err instanceof QuotaSoftLimitReached) {
       result.stoppedByQuota = true;

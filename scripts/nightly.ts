@@ -101,16 +101,26 @@ async function main() {
 
   const start = Date.now();
 
+  // ── Per-group time budgets ──────────────────────────────────────
+  // collect 40%, embed+attach 15%, discover+triage 15%, classify 15%, score+aggregate gets the rest
+  const collectEnd     = start + DEADLINE_MS * 0.40;
+  const embedAttachEnd = start + DEADLINE_MS * 0.55;
+  const discoverEnd    = start + DEADLINE_MS * 0.70;
+  const classifyEnd    = start + DEADLINE_MS * 0.85;
+  // score uses global deadline — it always runs
+
+  console.log(`  Time budgets: collect ${Math.round(DEADLINE_MS * 0.40 / 60000)}min, embed+attach ${Math.round(DEADLINE_MS * 0.15 / 60000)}min, discover ${Math.round(DEADLINE_MS * 0.15 / 60000)}min, classify ${Math.round(DEADLINE_MS * 0.15 / 60000)}min, score+agg rest`);
+
   // ── Step 1: COLLECT (signals + videos + snapshots + comments) ────
   console.log('\n========== COLLECT ==========');
 
-  await runStep(runner, deadline, 'collect', async () => {
+  await runStep(runner, collectEnd, 'collect', async () => {
     console.log('  Signals (Trends, HN, SE)...');
-    const signals = await collectSignals(db, deadline);
+    const signals = await collectSignals(db, collectEnd);
     console.log(`    Trend: ${signals.trendPointsCollected}, Social: ${signals.socialPointsCollected}, YT: ${signals.ytViewPointsCollected}`);
 
     console.log('  Videos & snapshots...');
-    const collect = await runCollect(db, yt, deadline);
+    const collect = await runCollect(db, yt, collectEnd);
     console.log(`    Channels: ${collect.channelsUpdated}, Videos: ${collect.videosDiscovered} (RSS: ${collect.videosFromRSS}, API: ${collect.videosFromAPI})`);
     console.log(`    Snapshots: ${collect.snapshotsTaken}, Comments: ${collect.commentsImported}`);
     console.log(`    Quota: ${collect.quotaUsed}`);
@@ -124,8 +134,8 @@ async function main() {
   // ── Step 2: EMBED (all unembedded video titles) ────────────────
   console.log('\n========== EMBED ==========');
 
-  await runStep(runner, deadline, 'embed', async () => {
-    const { embedded } = await runEmbedAll(db, embedder, deadline);
+  await runStep(runner, embedAttachEnd, 'embed', async () => {
+    const { embedded } = await runEmbedAll(db, embedder, embedAttachEnd);
     console.log(`  Embedded: ${embedded} videos`);
     return { quota: 0, items: embedded };
   });
@@ -133,8 +143,8 @@ async function main() {
   // ── Step 3: ATTACH (all unattached videos → topics) ───────────
   console.log('\n========== ATTACH ==========');
 
-  await runStep(runner, deadline, 'attach', async () => {
-    const { attached, orphans } = await runAttachAll(db, deadline);
+  await runStep(runner, embedAttachEnd, 'attach', async () => {
+    const { attached, orphans } = await runAttachAll(db, embedAttachEnd);
     console.log(`  Attached: ${attached}, Orphans: ${orphans}`);
     return { quota: 0, items: attached };
   });
@@ -142,8 +152,8 @@ async function main() {
   // ── Step 4: DISCOVER-TOPICS (cluster orphans into new topics) ──
   console.log('\n========== DISCOVER-TOPICS ==========');
 
-  await runStep(runner, deadline, 'discover-topics', async () => {
-    const clustering = await runClustering(db, embedder, deadline);
+  await runStep(runner, discoverEnd, 'discover-topics', async () => {
+    const clustering = await runClustering(db, embedder, discoverEnd);
     console.log(`  Proposed: ${clustering.topicsProposed}`);
     return { quota: 0, items: clustering.topicsProposed };
   });
@@ -151,7 +161,7 @@ async function main() {
   // ── Step 5: QUALITY-GATES (reject single-channel-dominated topics) ──
   console.log('\n========== QUALITY-GATES ==========');
 
-  await runStep(runner, deadline, 'quality-gates', async () => {
+  await runStep(runner, discoverEnd, 'quality-gates', async () => {
     const gates = await runQualityGates(db);
     console.log(`  Rejected (mono-channel): ${gates.rejectedMonoChannel}`);
     console.log(`  Rejected (channel-name): ${gates.rejectedChannelName}`);
@@ -162,8 +172,8 @@ async function main() {
   // ── Step 6: SEARCH ──────────────────────────────────────────────
   console.log('\n========== SEARCH ==========');
 
-  await runStep(runner, deadline, 'search', async () => {
-    const search = await runYouTubeSearch(db, deadline, yt.getQuotaUsed());
+  await runStep(runner, discoverEnd, 'search', async () => {
+    const search = await runYouTubeSearch(db, discoverEnd, yt.getQuotaUsed());
     console.log(`  Searches: ${search.searchesPerformed}, Discovered: ${search.videosDiscovered}`);
     return { quota: 0, items: search.videosDiscovered };
   });
@@ -171,21 +181,20 @@ async function main() {
   // ── Step 7: DISCOVER-SOURCES (channelSections + search results) ─
   console.log('\n========== DISCOVER-SOURCES ==========');
 
-  await runStep(runner, deadline, 'discover-sources', async () => {
-    const sources = await runDiscoverySources(db, deadline, 500);
+  await runStep(runner, discoverEnd, 'discover-sources', async () => {
+    const sources = await runDiscoverySources(db, discoverEnd, 500);
     console.log(`  channelSections: ${sources.channelSections.channelsDiscovered} channels (${sources.channelSections.quotaUsed} quota)`);
-    console.log(`  trending: ${sources.trending.channelsDiscovered} channels (${sources.trending.quotaUsed} quota)`);
     console.log(`  searchResults: ${sources.searchResults.channelsDiscovered} channels`);
-    const totalQuota = sources.channelSections.quotaUsed + sources.trending.quotaUsed;
-    const totalChannels = sources.channelSections.channelsDiscovered + sources.trending.channelsDiscovered + sources.searchResults.channelsDiscovered;
+    const totalQuota = sources.channelSections.quotaUsed;
+    const totalChannels = sources.channelSections.channelsDiscovered + sources.searchResults.channelsDiscovered;
     return { quota: totalQuota, items: totalChannels };
   });
 
   // ── Step 8: DISCOVER-CHANNELS (search for new channels in phase 1/2 topics) ─
   console.log('\n========== DISCOVER-CHANNELS ==========');
 
-  await runStep(runner, deadline, 'discover-channels', async () => {
-    const disc = await discoverChannels(db, deadline, yt.getQuotaUsed());
+  await runStep(runner, discoverEnd, 'discover-channels', async () => {
+    const disc = await discoverChannels(db, discoverEnd, yt.getQuotaUsed());
     console.log(`  Searches: ${disc.searchesPerformed}, Channels: ${disc.channelsDiscovered}`);
     console.log(`  Faceless estimated: ${disc.facelessEstimated} ($${disc.estimatedCostUSD.toFixed(3)})`);
     if (disc.stoppedByQuota) console.log('  Stopped by quota');
@@ -198,21 +207,22 @@ async function main() {
     return { quota: 0, items: disc.channelsDiscovered };
   });
 
-  // ── Step 9: AUTO-TRIAGE (classify pending candidates) ──────────
+  // ── Step 9: AUTO-TRIAGE (enrich + classify pending candidates) ─
   console.log('\n========== AUTO-TRIAGE ==========');
 
-  await runStep(runner, deadline, 'auto-triage', async () => {
+  await runStep(runner, discoverEnd, 'auto-triage', async () => {
     const triage = await autoTriageCandidates(db, embedder);
     console.log(`  Processed: ${triage.processed}, Accepted: ${triage.accepted}, Rejected: ${triage.rejected}, Manual: ${triage.manual}`);
-    return { quota: 0, items: triage.processed };
+    console.log(`  Enriched: ${triage.enriched}, Promoted: ${triage.promoted}`);
+    return { quota: triage.quotaUsed, items: triage.processed };
   });
 
   // ── Step 10: EMBED-2 + ATTACH-2 (new videos from search) ──────
   console.log('\n========== EMBED+ATTACH (pass 2) ==========');
 
-  await runStep(runner, deadline, 'embed-pass2', async () => {
-    const { embedded } = await runEmbedAll(db, embedder, deadline);
-    const { attached, orphans } = await runAttachAll(db, deadline);
+  await runStep(runner, discoverEnd, 'embed-pass2', async () => {
+    const { embedded } = await runEmbedAll(db, embedder, discoverEnd);
+    const { attached, orphans } = await runAttachAll(db, discoverEnd);
     console.log(`  Embedded: ${embedded}, Attached: ${attached}, Orphans: ${orphans}`);
     return { quota: 0, items: embedded + attached };
   });
@@ -221,8 +231,8 @@ async function main() {
   console.log('\n========== CLASSIFY ==========');
 
   if (process.env.ANTHROPIC_API_KEY) {
-    await runStep(runner, deadline, 'classify', async () => {
-      const classify = await runClassify(db, deadline);
+    await runStep(runner, classifyEnd, 'classify', async () => {
+      const classify = await runClassify(db, classifyEnd);
       console.log(`  Submitted: ${classify.commentsSubmitted}, Labels: ${classify.labelsStored}`);
       console.log(`  Batches: submitted=${classify.batchSubmitted}, retrieved=${classify.batchesRetrieved}`);
       return { quota: 0, items: classify.labelsStored };

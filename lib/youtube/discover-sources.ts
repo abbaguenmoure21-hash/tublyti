@@ -1,7 +1,7 @@
 /**
  * Channel discovery sources:
  * - channelSections.list: recommended channels by followed channels
- * - trending (mostPopular): low-cost scan of trending videos by category
+ * - (trending removed: too noisy, no niche affinity)
  * - search results: zero-quota extraction from existing search_results table
  * - (manual/vidIQ import: handled by seed.ts)
  *
@@ -153,71 +153,6 @@ export async function discoverFromSearchResults(
   return result;
 }
 
-// YouTube categories relevant to our niches
-const TRENDING_CATEGORIES = [
-  '27', // Education (finance, psychology)
-  '28', // Science & Technology (AI tools)
-  '22', // People & Blogs (faceless content)
-];
-
-/**
- * Discover channels from trending videos by category.
- * Cost: 1 quota unit per category scanned.
- */
-export async function discoverFromTrending(
-  db: SupabaseClient,
-  quotaBudget: number,
-): Promise<DiscoverySourceResult> {
-  const result: DiscoverySourceResult = { channelsDiscovered: 0, quotaUsed: 0, source: 'trending' };
-
-  if (!process.env.YOUTUBE_API_KEY) return result;
-
-  // Get known channel IDs
-  const [{ data: followed }, { data: candidates }] = await Promise.all([
-    db.from('channels').select('id'),
-    db.from('candidate_channels').select('id'),
-  ]);
-  const knownIds = new Set([
-    ...(followed ?? []).map((c) => c.id),
-    ...(candidates ?? []).map((c) => c.id),
-  ]);
-
-  for (const categoryId of TRENDING_CATEGORIES) {
-    if (result.quotaUsed >= quotaBudget) break;
-
-    try {
-      const data = await ytFetch('videos', {
-        part: 'snippet',
-        chart: 'mostPopular',
-        regionCode: 'US',
-        videoCategoryId: categoryId,
-        maxResults: '50',
-      }) as { items?: Array<{ snippet?: { channelId?: string; channelTitle?: string } }> };
-      result.quotaUsed += 1;
-
-      const seen = new Set<string>();
-      for (const item of data.items ?? []) {
-        const channelId = item.snippet?.channelId;
-        if (!channelId || knownIds.has(channelId) || seen.has(channelId)) continue;
-        seen.add(channelId);
-        knownIds.add(channelId);
-
-        const { error } = await db.from('candidate_channels').upsert({
-          id: channelId,
-          title: item.snippet?.channelTitle ?? channelId,
-          discovered_via: 'trending',
-          status: 'pending',
-        }, { onConflict: 'id' });
-        if (!error) result.channelsDiscovered++;
-      }
-    } catch {
-      // Skip on error
-    }
-  }
-
-  return result;
-}
-
 /**
  * Run all discovery sources within their quota budget.
  */
@@ -227,13 +162,10 @@ export async function runDiscoverySources(
   discoveryBudget: number,
 ): Promise<{
   channelSections: DiscoverySourceResult;
-  trending: DiscoverySourceResult;
   searchResults: DiscoverySourceResult;
 }> {
   const channelSections = await discoverFromChannelSections(db, deadlineMs, discoveryBudget);
-  const trendingBudget = Math.max(0, discoveryBudget - channelSections.quotaUsed);
-  const trending = await discoverFromTrending(db, trendingBudget);
   const searchResults = await discoverFromSearchResults(db);
 
-  return { channelSections, trending, searchResults };
+  return { channelSections, searchResults };
 }
