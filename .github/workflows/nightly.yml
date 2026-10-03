@@ -1,0 +1,58 @@
+name: Nightly Pipeline
+
+on:
+  schedule:
+    - cron: '0 2 * * *'   # 02:00 UTC every day
+  workflow_dispatch: {}     # manual trigger
+
+concurrency:
+  group: nightly-pipeline
+  cancel-in-progress: false
+
+jobs:
+  nightly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    env:
+      YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+      YT_QUOTA_SOFT_LIMIT: ${{ secrets.YT_QUOTA_SOFT_LIMIT }}
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      VOYAGE_API_KEY: ${{ secrets.VOYAGE_API_KEY }}
+      SERPAPI_KEY: ${{ secrets.SERPAPI_KEY }}
+      RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+      ALERT_EMAIL: ${{ secrets.ALERT_EMAIL }}
+      EMBEDDING_PROVIDER: voyage
+      EMBEDDING_MODEL: voyage-4-lite
+      EMBEDDING_BASE_URL: https://ai.mongodb.com/v1
+      NIGHTLY_DEADLINE_MIN: '50'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Run nightly pipeline
+        run: npx tsx scripts/nightly.ts
+
+      - name: Alert on failure
+        if: failure()
+        run: |
+          curl -s -X POST https://api.resend.com/emails \
+            -H "Authorization: Bearer $RESEND_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"from\": \"TubLyTI <onboarding@resend.dev>\",
+              \"to\": \"$ALERT_EMAIL\",
+              \"subject\": \"[TubLyTI] Nightly pipeline FAILED\",
+              \"html\": \"<p>Le pipeline de nuit a echoue le $(date -u '+%Y-%m-%d a %H:%M UTC').</p><p><a href='https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}'>Voir le log</a></p>\"
+            }"

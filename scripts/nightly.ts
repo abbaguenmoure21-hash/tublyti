@@ -37,10 +37,10 @@ import { runClassify } from '../lib/nlp/classify-service';
 import { VoyageEmbeddingProvider } from '../lib/providers/voyage-embeddings';
 import { FakeEmbeddingProvider } from '../lib/providers/embeddings';
 import { runQualityGates } from '../lib/topics/quality-gates';
-import { ConsoleAlertSender } from '../lib/email/resend-alerts';
+import { ResendAlertSender, ConsoleAlertSender } from '../lib/email/resend-alerts';
 import { SupabaseJobRunner } from '../lib/jobs/supabase-runner';
 
-const DEADLINE_MS = 15 * 60 * 1000; // 15 minutes
+const DEADLINE_MS = parseInt(process.env.NIGHTLY_DEADLINE_MIN ?? '15', 10) * 60 * 1000;
 
 async function runStep(
   runner: SupabaseJobRunner,
@@ -76,7 +76,9 @@ async function main() {
   const db = createClient(supabaseUrl, serviceKey);
   const yt = new RealYouTubeClient();
   const deadline = Date.now() + DEADLINE_MS;
-  const alertSender = new ConsoleAlertSender();
+  const alertSender = process.env.RESEND_API_KEY && process.env.ALERT_EMAIL
+    ? new ResendAlertSender()
+    : new ConsoleAlertSender();
   const runner = new SupabaseJobRunner(db);
   runner.setAlertSender(alertSender);
   const embedder = process.env.VOYAGE_API_KEY
