@@ -138,8 +138,9 @@ async function main() {
   await runStep(runner, 'quality-gates', async () => {
     const gates = await runQualityGates(db);
     console.log(`  Rejected (mono-channel): ${gates.rejectedMonoChannel}`);
+    console.log(`  Rejected (channel-name): ${gates.rejectedChannelName}`);
     console.log(`  Sensitive flagged: ${gates.sensitiveFlagged}`);
-    return { quota: 0, items: gates.rejectedMonoChannel };
+    return { quota: 0, items: gates.rejectedMonoChannel + gates.rejectedChannelName };
   });
 
   // ── Step 6: SEARCH ──────────────────────────────────────────────

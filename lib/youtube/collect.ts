@@ -229,21 +229,45 @@ export async function runCollect(
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
-    const { data: allVideos } = await db
-      .from('videos')
-      .select('id, published_at');
+    // Paginated fetch of all videos (Supabase caps at 1000 per query)
+    const allVideos: { id: string; published_at: string }[] = [];
+    {
+      let vOffset = 0;
+      while (true) {
+        const { data: batch } = await db
+          .from('videos')
+          .select('id, published_at')
+          .range(vOffset, vOffset + 999);
+        if (!batch?.length) break;
+        allVideos.push(...batch);
+        if (batch.length < 1000) break;
+        vOffset += batch.length;
+      }
+    }
 
-    const allVideoIds = (allVideos ?? []).map((v) => v.id);
-
-    // Batch-fetch recent snapshots to filter in memory
-    const [{ data: todaySnaps }, { data: weekSnaps }, { data: monthSnaps }] = await Promise.all([
-      db.from('video_snapshots').select('video_id').in('video_id', allVideoIds).gte('captured_at', todayStart.toISOString()),
-      db.from('video_snapshots').select('video_id').in('video_id', allVideoIds).gte('captured_at', sevenDaysAgo.toISOString()),
-      db.from('video_snapshots').select('video_id').in('video_id', allVideoIds).gte('captured_at', thirtyDaysAgo.toISOString()),
-    ]);
-    const hasSnapToday = new Set((todaySnaps ?? []).map((s) => s.video_id));
-    const hasSnapThisWeek = new Set((weekSnaps ?? []).map((s) => s.video_id));
-    const hasSnapThisMonth = new Set((monthSnaps ?? []).map((s) => s.video_id));
+    // Paginated fetch of recent snapshot video_ids
+    const hasSnapToday = new Set<string>();
+    const hasSnapThisWeek = new Set<string>();
+    const hasSnapThisMonth = new Set<string>();
+    {
+      let sOffset = 0;
+      while (true) {
+        const { data: batch } = await db
+          .from('video_snapshots')
+          .select('video_id, captured_at')
+          .gte('captured_at', thirtyDaysAgo.toISOString())
+          .range(sOffset, sOffset + 999);
+        if (!batch?.length) break;
+        for (const s of batch) {
+          const ca = new Date(s.captured_at);
+          if (ca >= todayStart) hasSnapToday.add(s.video_id);
+          if (ca >= sevenDaysAgo) hasSnapThisWeek.add(s.video_id);
+          hasSnapThisMonth.add(s.video_id);
+        }
+        if (batch.length < 1000) break;
+        sOffset += batch.length;
+      }
+    }
 
     const snapshotIds: string[] = [];
     for (const v of allVideos ?? []) {

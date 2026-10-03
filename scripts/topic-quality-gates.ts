@@ -25,12 +25,18 @@ if (existsSync(envPath)) {
 }
 
 import { isSensitiveTopic } from '../lib/topics/sensitive';
+import { SupabaseJobRunner } from '../lib/jobs/supabase-runner';
 
 const DRY_RUN = !process.argv.includes('--apply');
 const SINGLE_CHANNEL_THRESHOLD = 0.70;
 
+/** Topics whose label is essentially a channel name */
+const CHANNEL_NAME_RE = /\bchannel\b/i;
+
 async function main() {
   const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+  const runner = new SupabaseJobRunner(db);
+  const job = await runner.start('topic-quality-gates');
 
   console.log(`\n=== Topic Quality Gates ${DRY_RUN ? '(DRY RUN)' : '(APPLY)'} ===\n`);
 
@@ -112,27 +118,57 @@ async function main() {
     console.log(`  Total: ${toReject.length} sujets à rejeter\n`);
   }
 
+  // ── Gate 3: Channel-name topics ─────────────────────────────────────
+  console.log('--- Gate 3: Channel-Name Topics ---');
+  const channelNameTopics: { id: string; label: string; niche: string }[] = [];
+
+  for (const t of topics) {
+    if (CHANNEL_NAME_RE.test(t.label)) {
+      channelNameTopics.push({
+        id: t.id,
+        label: t.label,
+        niche: nicheNames.get(t.niche_id) ?? 'Unknown',
+      });
+    }
+  }
+
+  if (channelNameTopics.length === 0) {
+    console.log('  Aucun sujet nom-de-chaîne détecté.\n');
+  } else {
+    for (const t of channelNameTopics) {
+      console.log(`  ✗ [${t.niche}] "${t.label}"`);
+    }
+    console.log(`  Total: ${channelNameTopics.length} sujets nom-de-chaîne à rejeter\n`);
+  }
+
   // ── Apply ──────────────────────────────────────────────────────────
+  let totalRejected = 0;
   if (!DRY_RUN) {
     // Reject single-channel-dominated topics
-    if (toReject.length > 0) {
-      const rejectIds = toReject.map((t) => t.id);
-      const { error } = await db.from('topics').update({ status: 'rejected' }).in('id', rejectIds);
+    const allRejectIds = [
+      ...toReject.map((t) => t.id),
+      ...channelNameTopics.map((t) => t.id),
+    ];
+    const uniqueRejectIds = [...new Set(allRejectIds)];
+
+    if (uniqueRejectIds.length > 0) {
+      const { error } = await db.from('topics').update({ status: 'rejected' }).in('id', uniqueRejectIds);
       if (error) {
         console.error('Reject error:', error.message);
       } else {
-        console.log(`${rejectIds.length} sujets mono-chaîne rejetés.`);
+        totalRejected = uniqueRejectIds.length;
+        console.log(`${totalRejected} sujets rejetés (${toReject.length} mono-chaîne + ${channelNameTopics.length} nom-de-chaîne).`);
       }
     }
 
-    // Note: sensitive topics are NOT rejected — they stay visible with a badge.
-    // The filtering is done at query/display time.
     if (sensitiveTopics.length > 0) {
       console.log(`${sensitiveTopics.length} sujets marqués sensibles (filtrage côté affichage).`);
     }
   } else {
     console.log('(DRY RUN — relancer avec --apply pour appliquer)');
   }
+
+  await runner.finish(job.id, { itemsProcessed: totalRejected });
 }
 
 main().catch(console.error);

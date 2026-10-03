@@ -24,26 +24,43 @@ if (existsSync(envPath)) {
 import { runScore } from '../lib/scoring/score-service';
 import { computeAllOutliers } from '../lib/scoring/outlier-service';
 import { ConsoleAlertSender } from '../lib/email/resend-alerts';
+import { SupabaseJobRunner } from '../lib/jobs/supabase-runner';
 
 async function main() {
   const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+  const runner = new SupabaseJobRunner(db);
+  const job = await runner.start('run-score');
   const alertSender = new ConsoleAlertSender();
 
-  console.log('\n=== Scoring MGI ===\n');
-
-  const result = await runScore(db, alertSender);
-  console.log(`Topics scored: ${result.topicsScored}`);
-  console.log(`Topics skipped (< 5 videos): ${result.topicsSkipped}`);
-  console.log(`Burn-down alerts: ${result.burnDownAlerts}`);
-  console.log(`Alert events: ${result.alertEventsCreated}`);
-  if (result.silentCollectionAlert) console.log('Silent collection alert triggered');
-
-  console.log('\n=== Outliers ===\n');
   try {
-    const outliers = await computeAllOutliers(db);
-    console.log(`Outliers computed: ${outliers.computed}, skipped: ${outliers.skipped}`);
+    console.log('\n=== Scoring MGI ===\n');
+
+    const result = await runScore(db, alertSender);
+    console.log(`Topics scored: ${result.topicsScored}`);
+    console.log(`Topics skipped (< 5 videos): ${result.topicsSkipped}`);
+    console.log(`Burn-down alerts: ${result.burnDownAlerts}`);
+    console.log(`Alert events: ${result.alertEventsCreated}`);
+    if (result.silentCollectionAlert) console.log('Silent collection alert triggered');
+
+    console.log('\n=== Outliers ===\n');
+    let outliersComputed = 0;
+    try {
+      const outliers = await computeAllOutliers(db);
+      outliersComputed = outliers.computed;
+      console.log(`Outliers computed: ${outliers.computed}, skipped: ${outliers.skipped}`);
+    } catch (err) {
+      console.error(`Outliers failed: ${(err as Error).message}`);
+    }
+
+    await runner.finish(job.id, {
+      itemsProcessed: result.topicsScored + outliersComputed,
+    });
   } catch (err) {
-    console.error(`Outliers failed: ${(err as Error).message}`);
+    await runner.finish(job.id, {
+      itemsProcessed: 0,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    throw err;
   }
 }
 

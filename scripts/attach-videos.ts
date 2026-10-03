@@ -25,8 +25,6 @@ if (existsSync(envPath)) {
   }
 }
 
-import { SupabaseJobRunner } from '../lib/jobs/supabase-runner';
-
 const DRY_RUN = !process.argv.includes('--apply');
 const SAME_NICHE_THRESHOLD = 0.66;
 const CROSS_NICHE_THRESHOLD = 0.75;
@@ -52,11 +50,15 @@ function parseEmbedding(raw: unknown): number[] {
   return [];
 }
 
+import { SupabaseJobRunner } from '../lib/jobs/supabase-runner';
+
 async function main() {
   const db = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
   );
+  const runner = new SupabaseJobRunner(db);
+  const job = await runner.start('attach-videos');
 
   console.log(`\n=== Rattachement vidéos ${DRY_RUN ? '(DRY RUN)' : '(APPLY)'} ===\n`);
 
@@ -162,6 +164,8 @@ async function main() {
   if (DRY_RUN) {
     console.log('\n(DRY RUN — relancer avec --apply pour appliquer)');
   }
+
+  await runner.finish(job.id, { itemsProcessed: totalAttached });
 }
 
 main().catch(console.error);
