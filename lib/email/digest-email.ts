@@ -196,9 +196,9 @@ export function buildDigestHtml(data: DigestData, appUrl: string): string {
 </html>`.trim();
 }
 
-export async function sendDigestEmail(html: string): Promise<{ ok: boolean; error?: string }> {
+export async function sendDigestEmail(html: string, recipient?: string): Promise<{ ok: boolean; error?: string }> {
   const apiKey = process.env.RESEND_API_KEY;
-  const to = process.env.ALERT_EMAIL;
+  const to = recipient || process.env.ALERT_EMAIL;
   const from = process.env.ALERT_FROM ?? 'TubLyTI <alerts@tublyti.com>';
 
   if (!apiKey || !to) {

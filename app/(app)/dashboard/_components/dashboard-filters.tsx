@@ -40,7 +40,7 @@ export function DashboardFilters({ niches }: { niches: Niche[] }) {
         className="cursor-pointer"
       >
         <Target className="w-3.5 h-3.5" />
-        Océan bleu
+        Sujets peu traités
       </Button>
     </div>
   );

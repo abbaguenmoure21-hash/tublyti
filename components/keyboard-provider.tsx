@@ -5,7 +5,7 @@ import { CommandPalette } from '@/components/command-palette';
 import { ShortcutsHelpDialog } from '@/components/shortcuts-help-dialog';
 import { useGlobalShortcuts } from '@/hooks/use-global-shortcuts';
 
-export function KeyboardProvider() {
+export function KeyboardProvider({ isAdmin = false }: { isAdmin?: boolean }) {
   const [helpOpen, setHelpOpen] = useState(false);
 
   const onOpenSearch = useCallback(() => {
@@ -27,7 +27,7 @@ export function KeyboardProvider() {
 
   return (
     <>
-      <CommandPalette />
+      <CommandPalette isAdmin={isAdmin} />
       <ShortcutsHelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
     </>
   );

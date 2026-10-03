@@ -1,5 +1,8 @@
 'use server';
 
+import { getToolsUser } from '@/lib/auth/session';
+import { resolveScope } from '@/lib/scope';
+
 import { createServiceClient } from '@/lib/supabase/server';
 import type { AlertRuleType } from '@/lib/alerts/evaluate';
 
@@ -12,92 +15,113 @@ interface AlertRuleInput {
   instant_email: boolean;
 }
 
+// ── Accès ────────────────────────────────────────────────────────────
+
+const NO_ACCESS = { error: 'Connecte-toi pour gérer tes alertes.' } as const;
+
+type ToolsUser = NonNullable<Awaited<ReturnType<typeof getToolsUser>>>;
+
+function mine<Q>(q: Q, user: ToolsUser): Q {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return user.personal ? (q as any).eq('user_id', user.id) : q;
+}
+
+/** Une règle client ne peut viser que ses thématiques et ses propres collections. */
+async function validateParams(user: ToolsUser, input: AlertRuleInput): Promise<string | null> {
+  if (user.role === 'admin') return null;
+  if (input.rule_type === 'video_outlier') return 'Ce type d’alerte est réservé à l’équipe TubLyTI.';
+  const db = createServiceClient();
+  if (input.rule_type === 'phase_change' && input.params.niche_id) {
+    const { nicheIds } = await resolveScope(db, user.id);
+    if (!nicheIds.includes(String(input.params.niche_id))) return 'Choisis une de tes thématiques.';
+  }
+  if (input.rule_type === 'collection_phase_change' && input.params.collection_id) {
+    const { data } = await db.from('collections').select('id').eq('id', String(input.params.collection_id)).eq('user_id', user.id).maybeSingle();
+    if (!data) return 'Collection introuvable.';
+  }
+  return null;
+}
+
 // ── CRUD ─────────────────────────────────────────────────────────────
 
 export async function getAlertRules() {
+  const user = await getToolsUser();
+  if (!user) return { data: [] };
   const db = createServiceClient();
-  const { data, error } = await db
-    .from('alert_rules')
-    .select('*')
-    .order('created_at', { ascending: false });
-
+  const { data, error } = await mine(db.from('alert_rules').select('*'), user).order('created_at', { ascending: false });
   return { data: data ?? [], error: error?.message };
 }
 
 export async function createAlertRule(input: AlertRuleInput) {
+  const user = await getToolsUser();
+  if (!user) return { data: null, error: NO_ACCESS.error };
+  const invalid = await validateParams(user, input);
+  if (invalid) return { data: null, error: invalid };
   const db = createServiceClient();
+  const { count } = await mine(db.from('alert_rules').select('id', { count: 'exact', head: true }), user);
+  if (user.role !== 'admin' && (count ?? 0) >= 20) return { data: null, error: 'Tu peux créer jusqu’à 20 alertes.' };
   const { data, error } = await db
     .from('alert_rules')
     .insert({
       rule_type: input.rule_type,
       params: input.params,
-      label: input.label,
+      label: input.label.slice(0, 120),
       instant_email: input.instant_email,
+      ...(user.personal ? { user_id: user.id } : {}),
     })
     .select()
     .single();
-
   return { data, error: error?.message };
 }
 
 export async function toggleAlertRule(id: string, enabled: boolean) {
+  const user = await getToolsUser();
+  if (!user) return { error: NO_ACCESS.error };
   const db = createServiceClient();
-  const { error } = await db
-    .from('alert_rules')
-    .update({ enabled, updated_at: new Date().toISOString() })
-    .eq('id', id);
-
+  const { error } = await mine(db.from('alert_rules').update({ enabled, updated_at: new Date().toISOString() }).eq('id', id), user);
   return { error: error?.message };
 }
 
 export async function deleteAlertRule(id: string) {
+  const user = await getToolsUser();
+  if (!user) return { error: NO_ACCESS.error };
   const db = createServiceClient();
-  const { error } = await db
-    .from('alert_rules')
-    .delete()
-    .eq('id', id);
-
+  const { error } = await mine(db.from('alert_rules').delete().eq('id', id), user);
   return { error: error?.message };
 }
 
 // ── Events ──────────────────────────────────────────────────────────
 
 export async function getUnreadAlertCount(): Promise<number> {
+  const user = await getToolsUser();
+  if (!user) return 0;
   const db = createServiceClient();
-  const { count } = await db
-    .from('alert_events')
-    .select('*', { count: 'exact', head: true })
-    .eq('read', false);
-
+  const { count } = await mine(db.from('alert_events').select('*', { count: 'exact', head: true }).eq('read', false), user);
   return count ?? 0;
 }
 
 export async function getAlertEvents(limit = 50) {
+  const user = await getToolsUser();
+  if (!user) return { data: [] };
   const db = createServiceClient();
-  const { data, error } = await db
-    .from('alert_events')
-    .select('*, alert_rules!inner(label, rule_type)')
+  const { data, error } = await mine(db.from('alert_events').select('*, alert_rules!inner(label, rule_type)'), user)
     .order('created_at', { ascending: false })
     .limit(limit);
-
   return { data: data ?? [], error: error?.message };
 }
 
 export async function markAlertsRead(ids: string[]) {
-  if (ids.length === 0) return;
+  const user = await getToolsUser();
+  if (!user || ids.length === 0) return;
   const db = createServiceClient();
-  await db
-    .from('alert_events')
-    .update({ read: true })
-    .in('id', ids);
+  await mine(db.from('alert_events').update({ read: true }).in('id', ids), user);
 }
 
 export async function markAllAlertsRead() {
+  const user = await getToolsUser();
+  if (!user) return;
   const db = createServiceClient();
-  await db
-    .from('alert_events')
-    .update({ read: true })
-    .eq('read', false);
+  await mine(db.from('alert_events').update({ read: true }).eq('read', false), user);
 }
 
 // ── Preview: count how many times a rule would have triggered ────────
@@ -106,6 +130,8 @@ export async function previewRuleTriggerCount(
   ruleType: AlertRuleType,
   params: Record<string, unknown>,
 ): Promise<number> {
+  const user = await getToolsUser();
+  if (!user) return 0;
   const db = createServiceClient();
   const thirtyDaysAgo = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
 
@@ -133,14 +159,15 @@ export async function previewRuleTriggerCount(
       const collectionId = params.collection_id as string | undefined;
 
       // Get collection topic IDs
-      let itemQuery = db
+      // Uniquement les collections du compte.
+      const { data: cols } = await mine(db.from('collections').select('id'), user);
+      const myCols = ((cols ?? []) as { id: string }[]).map((c) => c.id);
+      if (collectionId && !myCols.includes(collectionId)) return 0;
+      const itemQuery = db
         .from('collection_items')
         .select('ref_id')
-        .eq('item_type', 'topic');
-
-      if (collectionId) {
-        itemQuery = itemQuery.eq('collection_id', collectionId);
-      }
+        .eq('item_type', 'topic')
+        .in('collection_id', collectionId ? [collectionId] : myCols.length ? myCols : ['00000000-0000-0000-0000-000000000000']);
 
       const { data: items } = await itemQuery;
       if (!items || items.length === 0) return 0;
@@ -177,9 +204,7 @@ export async function previewRuleTriggerCount(
     case 'window_closing': {
       // Count topics that had ≥ N qualified videos in 72h in recent scores
       // Approximation: count burn_down alerts in last 30 days
-      const { count } = await db
-        .from('alert_events')
-        .select('*', { count: 'exact', head: true })
+      const { count } = await mine(db.from('alert_events').select('*', { count: 'exact', head: true }), user)
         .eq('rule_type', 'window_closing')
         .gte('created_at', new Date(Date.now() - 30 * 86_400_000).toISOString());
 

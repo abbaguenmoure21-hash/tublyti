@@ -93,7 +93,7 @@ export function ActivityFilters({ niches }: { niches: Niche[] }) {
                   onClick={() => setEventType(active ? null : t.value)}
                   className={`haptic-btn whitespace-nowrap shrink-0 h-[32px] px-4 rounded-full text-[13px] font-bold transition-all cursor-pointer shadow-sm border ${
                     active
-                      ? 'bg-gradient-to-b from-primary to-blue-600 text-primary-foreground border-primary/20 shadow-[0_2px_8px_rgba(10,132,255,0.4)]'
+                      ? 'bg-primary text-primary-foreground border-primary/20'
                       : 'bg-white dark:bg-white/10 border-black/5 dark:border-white/10 text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/20'
                   }`}
                 >
@@ -118,7 +118,7 @@ export function ActivityFilters({ niches }: { niches: Niche[] }) {
                     onClick={() => setNicheId(active ? null : n.id)}
                     className={`haptic-btn whitespace-nowrap shrink-0 h-[32px] px-4 rounded-full text-[13px] font-bold transition-all cursor-pointer shadow-sm border ${
                       active
-                        ? 'bg-gradient-to-b from-primary to-blue-600 text-primary-foreground border-primary/20 shadow-[0_2px_8px_rgba(10,132,255,0.4)]'
+                        ? 'bg-primary text-primary-foreground border-primary/20'
                         : 'bg-white dark:bg-white/10 border-black/5 dark:border-white/10 text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/20'
                     }`}
                   >
@@ -143,7 +143,7 @@ export function ActivityFilters({ niches }: { niches: Niche[] }) {
                   onClick={() => setChannelSize(active ? null : s.value)}
                   className={`haptic-btn whitespace-nowrap shrink-0 h-[32px] px-4 rounded-full text-[13px] font-bold transition-all cursor-pointer shadow-sm border ${
                     active
-                      ? 'bg-gradient-to-b from-primary to-blue-600 text-primary-foreground border-primary/20 shadow-[0_2px_8px_rgba(10,132,255,0.4)]'
+                      ? 'bg-primary text-primary-foreground border-primary/20'
                       : 'bg-white dark:bg-white/10 border-black/5 dark:border-white/10 text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/20'
                   }`}
                 >

@@ -27,17 +27,28 @@ export interface DigestData {
   alertEvents: DigestAlertEvent[];
 }
 
-export async function buildDigestData(db: SupabaseClient): Promise<DigestData> {
+export interface DigestScope {
+  /** Compte destinataire : ses vidéos publiées et ses alertes. */
+  userId?: string;
+  /** Thématiques du compte (null = toutes, pour l'administrateur). */
+  nicheIds?: string[] | null;
+  /** Nom de chaîne à afficher par thématique. */
+  labels?: Map<string, string>;
+  /** La table alert_events a-t-elle la colonne user_id (migration 00019) ? */
+  personalAlerts?: boolean;
+  /** Inclure les alertes (faux pour un client tant que les alertes ne sont pas personnelles). */
+  includeAlerts?: boolean;
+}
+
+export async function buildDigestData(db: SupabaseClient, scope: DigestScope = {}): Promise<DigestData> {
   const now = new Date();
   const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
   const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
   // Get all active niches
-  const { data: niches } = await db
-    .from('niches')
-    .select('id, name, owner_channel')
-    .eq('status', 'active')
-    .order('name');
+  let nichesQ = db.from('niches').select('id, name, owner_channel').eq('status', 'active');
+  if (scope.nicheIds) nichesQ = nichesQ.in('id', scope.nicheIds.length ? scope.nicheIds : ['00000000-0000-0000-0000-000000000000']);
+  const { data: niches } = await nichesQ.order('name');
 
   if (!niches?.length) return { generatedAt: now.toISOString(), blocks: [], alertEvents: [] };
 
@@ -88,7 +99,7 @@ export async function buildDigestData(db: SupabaseClient): Promise<DigestData> {
       .select('topic_id, mgi')
       .eq('phase', 2)
       .gte('scored_at', oneWeekAgo.toISOString().slice(0, 10))
-      .in('topic_id', topicIds.length > 0 ? topicIds : ['__none__']);
+      .in('topic_id', topicIds.length > 0 ? topicIds : ['00000000-0000-0000-0000-000000000000']);
 
     // Deduplicate
     const phase2Seen = new Set<string>();
@@ -103,12 +114,14 @@ export async function buildDigestData(db: SupabaseClient): Promise<DigestData> {
     }
 
     // 3. Published videos (angles with status=published and a video_id)
-    const { data: publishedAngles } = await db
+    let publishedQ = db
       .from('angles')
       .select('id, title, video_id, topic_id, topics(label)')
       .eq('status', 'published')
       .not('video_id', 'is', null)
-      .in('topic_id', topicIds.length > 0 ? topicIds : ['__none__']);
+      .in('topic_id', topicIds.length > 0 ? topicIds : ['00000000-0000-0000-0000-000000000000']);
+    if (scope.userId) publishedQ = publishedQ.eq('user_id', scope.userId);
+    const { data: publishedAngles } = await publishedQ;
 
     const publishedVideos: DigestNicheBlock['publishedVideos'] = [];
     for (const a of publishedAngles ?? []) {
@@ -151,7 +164,7 @@ export async function buildDigestData(db: SupabaseClient): Promise<DigestData> {
     if (topTopics.length > 0 || newPhase2.length > 0 || publishedVideos.length > 0) {
       blocks.push({
         nicheName: niche.name,
-        ownerChannel: (niche.owner_channel as string) ?? '',
+        ownerChannel: scope.labels?.get(niche.id as string) ?? (niche.owner_channel as string) ?? '',
         topTopics,
         newPhase2,
         publishedVideos,
@@ -160,12 +173,13 @@ export async function buildDigestData(db: SupabaseClient): Promise<DigestData> {
   }
 
   // ── Alert events not yet emailed ────────────────────────────────
-  const { data: pendingAlerts } = await db
+  let alertsQ = db
     .from('alert_events')
     .select('id, rule_type, payload, created_at, alert_rules!inner(label)')
-    .eq('emailed', false)
-    .order('created_at', { ascending: false })
-    .limit(50);
+    .eq('emailed', false);
+  if (scope.userId && scope.personalAlerts) alertsQ = alertsQ.eq('user_id', scope.userId);
+  const { data: pendingAlerts } =
+    scope.includeAlerts === false ? { data: [] as never[] } : await alertsQ.order('created_at', { ascending: false }).limit(50);
 
   const alertEvents: DigestAlertEvent[] = (pendingAlerts ?? []).map((e) => ({
     ruleLabel: (e.alert_rules as unknown as { label: string }).label,

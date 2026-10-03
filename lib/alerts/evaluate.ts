@@ -12,6 +12,8 @@ export type AlertRuleType =
 interface AlertRule {
   id: string;
   workspace_id: string;
+  /** Propriétaire de la règle (absent avant la migration 00019). */
+  user_id?: string | null;
   rule_type: AlertRuleType;
   params: Record<string, unknown>;
   label: string;
@@ -52,9 +54,14 @@ export async function evaluateAlertRules(
   if (!rules || rules.length === 0) return result;
 
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://tublyti.vercel.app';
+  const owners = new Map<string, Owner>();
 
   for (const rule of rules as AlertRule[]) {
-    const events = await evaluateRule(db, rule, scoredTopics, videoOutliers);
+    // Chaque client ne reçoit des alertes que sur ses thématiques et ses favoris.
+    const owner = rule.user_id ? await loadOwner(db, rule.user_id, owners) : null;
+    const topics = owner?.nicheIds ? scoredTopics.filter((t) => owner.nicheIds!.has(t.niche_id)) : scoredTopics;
+    const outliers = owner && !owner.isAdmin ? [] : videoOutliers;
+    const events = await evaluateRule(db, rule, topics, outliers);
 
     for (const event of events) {
       // Insert event
@@ -63,6 +70,7 @@ export async function evaluateAlertRules(
         rule_id: rule.id,
         rule_type: rule.rule_type,
         payload: event.payload,
+        ...(rule.user_id ? { user_id: rule.user_id } : {}),
       });
       result.eventsCreated++;
 
@@ -74,6 +82,7 @@ export async function evaluateAlertRules(
           body: event.body,
           actionUrl: event.actionUrl ? `${baseUrl}${event.actionUrl}` : undefined,
           actionLabel: event.actionLabel,
+          to: owner?.email,
         });
         result.instantEmailsSent++;
 
@@ -91,6 +100,36 @@ export async function evaluateAlertRules(
   }
 
   return result;
+}
+
+// ── Propriétaire d'une règle ─────────────────────────────────────────
+
+interface Owner {
+  email: string | undefined;
+  isAdmin: boolean;
+  /** Thématiques du client ; null pour un administrateur (tout le catalogue). */
+  nicheIds: Set<string> | null;
+}
+
+async function loadOwner(db: SupabaseClient, userId: string, cache: Map<string, Owner>): Promise<Owner> {
+  const hit = cache.get(userId);
+  if (hit) return hit;
+  const [{ data: profile }, { data: auth }, { data: channels }, { data: followed }] = await Promise.all([
+    db.from('profiles').select('role').eq('user_id', userId).maybeSingle(),
+    db.auth.admin.getUserById(userId),
+    db.from('user_channels').select('niche_id').eq('user_id', userId),
+    db.from('user_niches').select('niche_id').eq('user_id', userId),
+  ]);
+  const isAdmin = profile?.role === 'admin';
+  const owner: Owner = {
+    email: auth?.user?.email ?? undefined,
+    isAdmin,
+    nicheIds: isAdmin
+      ? null
+      : new Set([...(channels ?? []), ...(followed ?? [])].map((r: { niche_id: string }) => r.niche_id)),
+  };
+  cache.set(userId, owner);
+  return owner;
 }
 
 // ── Per-rule evaluation ──────────────────────────────────────────────
@@ -161,6 +200,11 @@ async function evaluateCollectionPhaseChange(
 
   if (collectionId) {
     query = query.eq('collection_id', collectionId);
+  } else if (rule.user_id) {
+    // Sans collection précisée : tous les favoris du propriétaire de la règle.
+    const { data: cols } = await db.from('collections').select('id').eq('user_id', rule.user_id);
+    const ids = ((cols ?? []) as { id: string }[]).map((c) => c.id);
+    query = query.in('collection_id', ids.length ? ids : ['00000000-0000-0000-0000-000000000000']);
   }
 
   const { data: items } = await query;

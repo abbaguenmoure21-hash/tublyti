@@ -1,4 +1,6 @@
 import Link from 'next/link';
+import { requireUser } from '@/lib/auth/session';
+import { resolveScope } from '@/lib/scope';
 import { createServiceClient } from '@/lib/supabase/server';
 
 export const metadata = { title: 'Tableau de bord' };
@@ -43,8 +45,10 @@ function parseChannelSize(chsize: string | null): { min: number; max: number } |
   };
 }
 
-async function fetchMatriceData(nicheId: string | null, blueOcean: boolean, phaseFilter: number | null, favFilter: boolean, channelSizeFilter: string | null, feasibleOnly: boolean) {
+async function fetchMatriceData(nicheId: string | null, blueOcean: boolean, phaseFilter: number | null, favFilter: boolean, channelSizeFilter: string | null, feasibleOnly: boolean, allowed: string[]) {
   const db = createServiceClient();
+  // Uniquement les thématiques du client (ses chaînes et les thématiques qu'il suit).
+  const ids = allowed.length ? allowed : ['00000000-0000-0000-0000-000000000000'];
 
   // Channels with niches for tabs
   const { data: channels } = await db
@@ -57,6 +61,7 @@ async function fetchMatriceData(nicheId: string | null, blueOcean: boolean, phas
     .from('niches')
     .select('id, name')
     .eq('status', 'active')
+    .in('id', ids)
     .order('name');
 
   const scoredAt = await getLatestScoreDate(db);
@@ -68,6 +73,7 @@ async function fetchMatriceData(nicheId: string | null, blueOcean: boolean, phas
        topics!inner(id, label, status, niche_id, niches!inner(id, name, rpm_coefficient))`,
     )
     .eq('scored_at', scoredAt)
+    .in('topics.niche_id', ids)
     .order('mgi', { ascending: false });
 
   if (nicheId) {
@@ -215,6 +221,7 @@ async function fetchMatriceData(nicheId: string | null, blueOcean: boolean, phas
   let patternsQuery = db
     .from('title_patterns')
     .select('id, niche_id, formula, description, examples, frequency, emotional_triggers, avg_length, niches!inner(name)')
+    .in('niche_id', ids)
     .order('frequency', { ascending: false });
 
   if (nicheId) {
@@ -265,14 +272,16 @@ export default async function MatricePage({
   searchParams: Promise<{ niche?: string; ocean?: string; phase?: string; fav?: string; chsize?: string; feasible?: string }>;
 }) {
   const params = await searchParams;
-  const nicheId = params.niche || null;
+  const user = await requireUser();
+  const { nicheIds: allowed } = await resolveScope(createServiceClient(), user.id);
+  const nicheId = params.niche && allowed.includes(params.niche) ? params.niche : null;
   const blueOcean = params.ocean === '1' || params.ocean === 'true';
   const phaseFilter = params.phase ? parseInt(params.phase, 10) : null;
   const favFilter = params.fav === '1' || params.fav === 'true';
   const channelSizeFilter = params.chsize || null;
   const feasibleOnly = params.feasible === '1' || params.feasible === 'true';
 
-  const { topics, channelTabs, scoredAt, titlePatterns } = await fetchMatriceData(nicheId, blueOcean, phaseFilter, favFilter, channelSizeFilter, feasibleOnly);
+  const { topics, channelTabs, scoredAt, titlePatterns } = await fetchMatriceData(nicheId, blueOcean, phaseFilter, favFilter, channelSizeFilter, feasibleOnly, allowed);
 
   const scoredDate = new Date(scoredAt + 'T00:00:00');
   const formattedDate = scoredDate.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
@@ -287,33 +296,16 @@ export default async function MatricePage({
   const heroTopic = topics.find((t) => t.phase === 2) ?? topics[0] ?? null;
 
   if (topics.length === 0 && !nicheId && !blueOcean && phaseFilter === null) {
-    // Empty state for brand-new users
+    // Aucun sujet calculé pour l'instant sur les thématiques du client.
     return (
-      <div className="flex-1 flex flex-col">
-        <header className="h-[56px] shrink-0 flex items-center gap-3 px-8 border-b border-[--glass-border] bg-[--bg-surface-1] backdrop-blur-xl text-[14px] text-muted-foreground">
-          <span>Matrice</span>
-        </header>
-        <div className="flex-1 p-8 space-y-6 max-w-3xl mx-auto">
-          <div className="bento-card text-center !py-12">
-            <div className="flex items-center justify-center w-14 h-14 rounded-2xl bg-primary text-primary-foreground mx-auto mb-4 shadow-[0_2px_12px_rgba(10,132,255,0.3)]">
-              <Zap className="w-7 h-7" />
-            </div>
-            <h2 className="text-title-2 mb-2">Bienvenue sur TubLyTI</h2>
-            <p className="text-muted-foreground max-w-lg mx-auto text-body">
-              TubLyTI détecte les opportunités YouTube avant tout le monde en mesurant le
-              déséquilibre entre la demande des spectateurs et l&apos;offre de vidéos existantes.
-            </p>
-          </div>
-          <div className="bento-card">
-            <h3 className="text-headline mb-4">Pour commencer</h3>
-            <div className="space-y-1">
-              <ChecklistItem done={false} label="Ajouter au moins 3 chaînes YouTube" href="/channels" />
-              <ChecklistItem done={false} label="Attendre la première collecte (ou lancer dans Admin > Jobs)" href="/admin/jobs" />
-              <ChecklistItem done={false} label="Valider les sujets proposés" href="/topics/review" />
-              <ChecklistItem done={false} label="Explorer la matrice d'opportunités" />
-            </div>
-          </div>
-        </div>
+      <div className="mx-auto flex max-w-lg flex-col items-center gap-3 px-6 py-24 text-center">
+        <h1 className="text-[28px] font-semibold tracking-[-0.02em]">La carte se remplit cette nuit</h1>
+        <p className="text-[15px] leading-relaxed text-muted-foreground">
+          Les sujets de tes thématiques apparaîtront ici après la prochaine mise à jour des données. En attendant, la liste des sujets est disponible.
+        </p>
+        <Link href="/sujets" className="mt-2 inline-flex h-11 items-center rounded-[10px] bg-primary px-5 text-[15px] font-medium text-primary-foreground">
+          Ouvrir Sujets
+        </Link>
       </div>
     );
   }
@@ -322,9 +314,6 @@ export default async function MatricePage({
     <div className="flex-1 flex flex-col min-w-0 relative">
       {/* Background gradients multi-niveaux */}
       <div className="absolute inset-0 pointer-events-none -z-10 overflow-x-clip">
-        <div className="absolute -top-[20%] -left-[10%] w-[50%] h-[50%] rounded-full bg-blue-400/15 dark:bg-blue-600/15 blur-[100px]" />
-        <div className="absolute top-[20%] -right-[10%] w-[40%] h-[60%] rounded-full bg-purple-400/15 dark:bg-purple-600/15 blur-[120px]" />
-        <div className="absolute -bottom-[20%] left-[20%] w-[60%] h-[50%] rounded-full bg-cyan-400/15 dark:bg-cyan-600/15 blur-[100px]" />
       </div>
 
       {/* Translucent breadcrumb header */}
@@ -388,9 +377,9 @@ export default async function MatricePage({
                       heroTopic.phase === 1 ? 'bg-[#FF9F0A]' : 'bg-[#FF453A]'
                     }`} />
                   </span>
-                  {heroTopic.phase === 2 ? 'Fenêtre dorée' : heroTopic.phase === 0 ? 'Émergence' : heroTopic.phase === 1 ? 'Viralité courte' : 'Saturé'}
+                  {heroTopic.phase === 2 ? 'C’est le moment' : heroTopic.phase === 0 ? 'À surveiller' : heroTopic.phase === 1 ? 'Ça monte' : 'Trop tard'}
                 </span>
-                <span className="text-[12px] text-muted-foreground">Opportunité #1</span>
+                <span className="text-[12px] text-muted-foreground">Meilleur sujet</span>
               </div>
 
               {/* Title */}
@@ -407,7 +396,7 @@ export default async function MatricePage({
                   }}>
                     {Math.round(heroTopic.mgi)}
                   </span>
-                  <span className="text-[12px] text-muted-foreground font-medium">MGI / 100</span>
+                  <span className="text-[12px] text-muted-foreground font-medium">Potentiel / 100</span>
                 </div>
                 <div className="flex items-center gap-4 text-[13px]">
                   <span className="px-2.5 py-1 rounded-lg bg-[--bg-surface-1] border border-[--glass-border]">

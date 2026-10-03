@@ -105,7 +105,7 @@ export default async function CoveragePage() {
   return (
     <div className="p-6 md:p-8 max-w-5xl mx-auto space-y-8">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Couverture & Quota YouTube</h1>
+        <h1 className="text-2xl font-bold tracking-tight">Quelles niches sont bien couvertes ?</h1>
         <p className="text-sm text-muted-foreground mt-1">
           Suivi des chaînes par niche et consommation du quota API
         </p>

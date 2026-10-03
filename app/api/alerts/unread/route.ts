@@ -1,19 +1,14 @@
 import { NextResponse } from 'next/server';
-import { createClient, createServiceClient } from '@/lib/supabase/server';
+import { getUnreadAlertCount } from '@/lib/actions/alerts';
+import { getSessionUser } from '@/lib/auth/session';
 
+/** Nombre d'alertes non lues du compte connecté. */
 export async function GET() {
-  // This route is excluded from middleware — authenticate manually
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  // Route exclue du middleware : authentification vérifiée ici.
+  const user = await getSessionUser();
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
-
-  const db = createServiceClient();
-  const { count } = await db
-    .from('alert_events')
-    .select('*', { count: 'exact', head: true })
-    .eq('read', false);
-
-  return NextResponse.json({ count: count ?? 0 });
+  const count = await getUnreadAlertCount();
+  return NextResponse.json({ count });
 }

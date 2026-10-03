@@ -386,9 +386,6 @@ export default async function TodayPage() {
     <div className="flex flex-col min-h-full relative overflow-x-clip">
       {/* Background gradients multi-niveaux */}
       <div className="absolute inset-0 pointer-events-none -z-10">
-        <div className="absolute -top-[20%] -left-[10%] w-[50%] h-[50%] rounded-full bg-blue-400/15 dark:bg-blue-600/15 blur-[100px]" />
-        <div className="absolute top-[20%] -right-[10%] w-[40%] h-[60%] rounded-full bg-purple-400/15 dark:bg-purple-600/15 blur-[120px]" />
-        <div className="absolute -bottom-[20%] left-[20%] w-[60%] h-[50%] rounded-full bg-cyan-400/15 dark:bg-cyan-600/15 blur-[100px]" />
       </div>
 
       {/* Last visit tracker (client component that sets cookie) */}
@@ -432,7 +429,7 @@ export default async function TodayPage() {
         <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
           <div className="flex flex-col gap-1.5">
             <h1 className="text-[28px] font-bold leading-tight tracking-[-0.02em] text-foreground">
-              Quoi tourner cette semaine ?
+              Tes meilleurs sujets cette semaine
             </h1>
             <p className="text-[15px] font-medium text-muted-foreground/80">
               {subtitleParts.length > 0 ? subtitleParts.join('. ') + '.' : 'Aucun score disponible pour le moment.'}
@@ -441,7 +438,7 @@ export default async function TodayPage() {
           <div className="flex gap-3 shrink-0">
             <Link
               href="/dashboard"
-              className="haptic-btn h-10 px-4 rounded-xl bg-gradient-to-b from-primary to-blue-600 text-primary-foreground text-[14px] font-bold flex items-center gap-2 hover:opacity-90 transition-opacity shadow-[0_4px_14px_rgba(10,132,255,0.4)]"
+              className="haptic-btn h-10 px-4 rounded-xl bg-primary text-primary-foreground text-[14px] font-bold flex items-center gap-2 hover:opacity-90 transition-opacity shadow-[0_4px_14px_rgba(10,132,255,0.4)]"
             >
               Ouvrir la matrice
             </Link>

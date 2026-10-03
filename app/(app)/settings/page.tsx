@@ -1,87 +1,71 @@
-import { Suspense } from 'react';
+import type { Metadata } from 'next';
 import { createServiceClient } from '@/lib/supabase/server';
-import { getScoringSettings, previewTopTenWithWeights } from '@/lib/actions/settings';
-import { DEFAULT_SCORING } from '@/lib/scoring/scoring-config';
-import { listApiTokens } from '@/lib/actions/api-tokens';
-import { getCollections } from '@/lib/actions/collections';
-import { getAlertRules } from '@/lib/actions/alerts';
-import { SettingsTabs } from './_components/settings-tabs';
+import { requireUser } from '@/lib/auth/session';
+import { nicheColor } from '@/lib/scope';
+import { MyChannels } from './_client/my-channels';
+import { FollowedNiches } from './_client/followed-niches';
+import { ProfileForm } from './_client/profile-form';
+import { ThemeChoice } from './_client/theme-choice';
 
-export const metadata = { title: 'Réglages' };
+export const metadata: Metadata = { title: 'Réglages' };
 
+/** Réglages du client : ses chaînes, les thématiques qu'il suit, son profil, l'apparence. */
 export default async function SettingsPage() {
+  const user = await requireUser();
   const db = createServiceClient();
+  const [channelsRes, followedRes, nichesRes] = await Promise.all([
+    db.from('user_channels').select('id, title, niche_id, youtube_channel_id').eq('user_id', user.id).order('created_at'),
+    db.from('user_niches').select('niche_id').eq('user_id', user.id),
+    db.from('niches').select('id, name, category').eq('status', 'active').order('name'),
+  ]);
 
-  // Scoring settings
-  const scoring = await getScoringSettings();
-
-  // Preview top 10
-  const { data: topTen } = await previewTopTenWithWeights();
-
-  // Niches
-  const { data: niches } = await db
-    .from('niches')
-    .select('id, name, category, rpm_coefficient, owner_channel, status, rpm_low, rpm_high, rpm_source')
-    .order('name');
-
-  // API tokens
-  const { data: tokens } = await listApiTokens();
-
-  // Collections
-  const { data: collections } = await getCollections();
-
-  // Alert rules
-  const { data: alertRules } = await getAlertRules();
+  const catalogue = ((nichesRes.data ?? []) as { id: string; name: string; category: string | null }[]).map((n) => ({
+    id: n.id,
+    name: n.name,
+    color: nicheColor(n.category),
+  }));
+  const nicheName = new Map(catalogue.map((n) => [n.id, n.name]));
+  const channels = ((channelsRes.data ?? []) as { id: string; title: string; niche_id: string; youtube_channel_id: string | null }[]).map((c) => ({
+    id: c.id,
+    title: c.title,
+    nicheId: c.niche_id,
+    nicheName: nicheName.get(c.niche_id) ?? 'Thématique retirée',
+    youtube: c.youtube_channel_id,
+  }));
+  const followed = ((followedRes.data ?? []) as { niche_id: string }[]).map((f) => f.niche_id);
 
   return (
-    <div className="flex-1 flex flex-col min-w-0">
-      <header className="h-[64px] shrink-0 flex items-center px-8 border-b border-[--glass-border] bg-[--bg-surface-1]/50 backdrop-blur-xl">
-        <h1 className="text-[20px] font-semibold text-foreground tracking-tight">Réglages</h1>
+    <div className="mx-auto flex w-full max-w-[720px] flex-col gap-10 px-4 py-6 md:px-8 md:py-8">
+      <header className="flex flex-col gap-1.5">
+        <h1 className="text-[28px] font-semibold tracking-[-0.02em] md:text-[32px]">Réglages</h1>
+        <p className="text-[15px] text-muted-foreground">Tes chaînes décident des sujets que TubLyTI te montre.</p>
       </header>
 
-      <div className="flex-1 p-6 md:p-8 max-w-4xl">
-        <Suspense>
-        <SettingsTabs
-          scoring={scoring}
-          defaultScoring={DEFAULT_SCORING}
-          topTen={topTen ?? []}
-          niches={(niches ?? []).map((n: Record<string, unknown>) => ({
-            id: n.id as string,
-            name: n.name as string,
-            category: n.category as string,
-            rpmCoefficient: Number(n.rpm_coefficient),
-            ownerChannel: (n.owner_channel as string) ?? '',
-            status: n.status as string,
-            rpmLow: n.rpm_low != null ? Number(n.rpm_low) : null,
-            rpmHigh: n.rpm_high != null ? Number(n.rpm_high) : null,
-            rpmSource: (n.rpm_source as string) ?? null,
-          }))}
-          tokens={(tokens ?? []).map((t: Record<string, unknown>) => ({
-            id: t.id as string,
-            name: t.name as string,
-            tokenPrefix: t.token_prefix as string,
-            permission: t.permission as string,
-            lastUsedAt: (t.last_used_at as string) ?? null,
-            createdAt: t.created_at as string,
-            revokedAt: (t.revoked_at as string) ?? null,
-          }))}
-          collections={(collections ?? []).map((c: Record<string, unknown>) => ({
-            id: c.id as string,
-            name: c.name as string,
-            isDefault: c.is_default as boolean,
-          }))}
-          alertRules={(alertRules ?? []).map((r: Record<string, unknown>) => ({
-            id: r.id as string,
-            rule_type: r.rule_type as string,
-            params: (r.params as Record<string, unknown>) ?? {},
-            label: r.label as string,
-            instant_email: r.instant_email as boolean,
-            enabled: r.enabled as boolean,
-            created_at: r.created_at as string,
-          }))}
-        />
-        </Suspense>
-      </div>
+      <section id="chaines" aria-labelledby="titre-chaines" className="flex scroll-mt-6 flex-col gap-3">
+        <div className="flex flex-col gap-1">
+          <h2 id="titre-chaines" className="text-lg font-semibold">Mes chaînes</h2>
+          <p className="text-sm text-muted-foreground">Une chaîne par thématique. Chaque chaîne apparaît dans le sélecteur « Afficher » de la barre latérale.</p>
+        </div>
+        <MyChannels channels={channels} catalogue={catalogue} />
+      </section>
+
+      <section aria-labelledby="titre-themes" className="flex flex-col gap-3">
+        <div className="flex flex-col gap-1">
+          <h2 id="titre-themes" className="text-lg font-semibold">Thématiques à explorer</h2>
+          <p className="text-sm text-muted-foreground">Suis une thématique sans y avoir de chaîne, pour repérer des sujets avant de te lancer.</p>
+        </div>
+        <FollowedNiches catalogue={catalogue} followed={followed} withChannel={channels.map((c) => c.nicheId)} />
+      </section>
+
+      <section aria-labelledby="titre-profil" className="flex flex-col gap-3">
+        <h2 id="titre-profil" className="text-lg font-semibold">Profil</h2>
+        <ProfileForm displayName={user.displayName} email={user.email} />
+      </section>
+
+      <section aria-labelledby="titre-apparence" className="flex flex-col gap-3">
+        <h2 id="titre-apparence" className="text-lg font-semibold">Apparence</h2>
+        <ThemeChoice />
+      </section>
     </div>
   );
 }

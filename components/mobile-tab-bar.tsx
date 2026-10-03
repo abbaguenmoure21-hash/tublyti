@@ -2,38 +2,36 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Sun, ScatterChart, Columns3, MoreHorizontal } from 'lucide-react';
+import { SlidersHorizontal } from 'lucide-react';
+import { SPACES, isActive } from '@/components/app-shell/nav-config';
 
 const TABS = [
-  { href: '/today', label: "Aujourd'hui", icon: Sun },
-  { href: '/dashboard', label: 'Matrice', icon: ScatterChart },
-  { href: '/pipeline', label: 'Pipeline', icon: Columns3 },
-  { href: '/settings', label: 'Plus', icon: MoreHorizontal },
+  ...SPACES.map((s) => ({ href: s.href, label: s.label, icon: s.icon, match: s.match })),
+  { href: '/settings', label: 'Réglages', icon: SlidersHorizontal, match: ['/settings', '/profile', '/admin', '/guide'] },
 ];
 
+/** Barre d'onglets du bas sur mobile (4 entrées, cibles de 64 px de haut). */
 export function MobileTabBar() {
   const pathname = usePathname();
 
   return (
     <nav
       aria-label="Navigation principale"
-      className="md:hidden fixed bottom-0 left-0 right-0 z-40 h-16 grid grid-cols-4 bg-card border-t border-border"
+      className="elev-3 fixed inset-x-3 bottom-[max(12px,env(safe-area-inset-bottom))] z-40 grid h-16 grid-cols-4 rounded-[24px] bg-card/80 backdrop-blur-2xl backdrop-saturate-150 md:hidden"
     >
       {TABS.map((tab) => {
-        const active =
-          tab.href === '/today'
-            ? pathname === '/today' || pathname === '/'
-            : pathname.startsWith(tab.href);
+        const active = isActive(pathname, tab.match);
         const Icon = tab.icon;
         return (
           <Link
             key={tab.href}
             href={tab.href}
+            aria-current={active ? 'page' : undefined}
             className={`flex flex-col items-center justify-center gap-[3px] text-[11px] font-medium transition-colors ${
               active ? 'text-primary' : 'text-muted-foreground'
             }`}
           >
-            <Icon className="w-5 h-5" />
+            <Icon className="h-[22px] w-[22px]" aria-hidden="true" />
             {tab.label}
           </Link>
         );

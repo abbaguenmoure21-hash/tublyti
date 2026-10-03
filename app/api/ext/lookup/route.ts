@@ -4,6 +4,7 @@ import { createServiceClient } from '@/lib/supabase/server';
 import { getLatestScoreDate } from '@/lib/scoring/latest-score-date';
 import { handleCors, jsonWithCors } from '@/lib/ext/cors';
 import { authenticateExtRequest, isAuthError } from '@/lib/ext/auth';
+import { canSeeNiche } from '@/lib/mcp/auth';
 import { RealYouTubeClient } from '@/lib/youtube/client';
 import { escapeLike } from '@/lib/utils';
 
@@ -140,17 +141,32 @@ export async function POST(request: NextRequest) {
   const input = parsed.data;
   if (input.type === 'ping') return jsonWithCors(request, { ok: true });
 
-  const cacheKey = input.type === 'search' ? `s:${input.query}` : `${input.type[0]}:${input.id}`;
+  // Le cache est séparé par compte : un client ne voit que ses thématiques.
+  const scopeKey = auth.nicheIds === null ? 'admin' : auth.userId ?? 'legacy';
+  const cacheKey = `${scopeKey}|${input.type === 'search' ? `s:${input.query}` : `${input.type[0]}:${input.id}`}`;
   const cached = getCached(cacheKey);
   if (cached) return jsonWithCors(request, cached);
 
   const db = createServiceClient();
 
+  if (auth.nicheIds !== null && input.type !== 'search') {
+    // Vidéo ou chaîne hors des thématiques du client : rien à montrer.
+    const nicheId =
+      input.type === 'video'
+        ? ((await db.from('videos').select('channels(niche_id)').eq('id', input.id).maybeSingle()).data?.channels as unknown as { niche_id: string } | null)?.niche_id
+        : ((await db.from('channels').select('niche_id').eq('id', input.id).maybeSingle()).data?.niche_id as string | undefined);
+    if (!canSeeNiche(auth, nicheId)) {
+      const empty = { found: false, type: input.type, outOfScope: true };
+      setCache(cacheKey, empty);
+      return jsonWithCors(request, empty);
+    }
+  }
+
   try {
     let result: unknown;
     if (input.type === 'video') result = await lookupVideo(db, input.id);
     else if (input.type === 'channel') result = await lookupChannel(db, input.id);
-    else result = await lookupSearch(db, input.query);
+    else result = await lookupSearch(db, input.query, auth.nicheIds);
     setCache(cacheKey, result);
     return jsonWithCors(request, result);
   } catch {
@@ -487,14 +503,17 @@ async function lookupUnknownChannel(db: DB, channelId: string) {
 
 // ── Search ──────────────────────────────────────────────────────────
 
-async function lookupSearch(db: DB, query: string) {
+async function lookupSearch(db: DB, query: string, allowed: string[] | null) {
   const scoreDate = await getLatestScoreDate(db);
 
-  const { data: topics } = await db
+  let topicsQ = db
     .from('topics')
     .select('id, label, phase, niche_id')
-    .ilike('label', `%${escapeLike(query)}%`)
-    .limit(10);
+    .ilike('label', `%${escapeLike(query)}%`);
+  if (allowed !== null) {
+    topicsQ = topicsQ.in('niche_id', allowed.length ? allowed : ['00000000-0000-0000-0000-000000000000']).in('status', ['active', 'in_production']);
+  }
+  const { data: topics } = await topicsQ.limit(10);
 
   if (!topics || topics.length === 0) {
     return { found: false, type: 'search', topics: [] };

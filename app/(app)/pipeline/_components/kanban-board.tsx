@@ -196,83 +196,12 @@ export function KanbanBoard({
 
   return (
     <>
-      {/* Header */}
-      <header className="sticky top-0 z-20 h-[64px] shrink-0 flex items-center gap-4 px-6 md:px-8 border-b border-black/5 dark:border-white/10 bg-white/60 dark:bg-[#08090C]/60 backdrop-blur-2xl shadow-sm">
-        <h1 className="text-[20px] font-bold text-foreground tracking-tight shrink-0">Pipeline</h1>
-
-        {/* Niche filter */}
-        {niches.length > 0 && (
-          <div className="flex items-center gap-2 max-w-full">
-            <div className="flex flex-wrap items-center gap-2 pb-1 -mb-1">
-              <button
-                type="button"
-                onClick={() => router.push('/pipeline')}
-                className={`haptic-btn whitespace-nowrap shrink-0 h-[32px] px-4 rounded-full text-[13px] font-bold transition-all cursor-pointer shadow-sm border ${
-                  !activeNiche
-                    ? 'bg-gradient-to-b from-primary to-blue-600 text-primary-foreground border-primary/20 shadow-[0_2px_8px_rgba(10,132,255,0.4)]'
-                    : 'bg-white dark:bg-white/10 border-black/5 dark:border-white/10 text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/20'
-                }`}
-              >
-                Toutes
-              </button>
-              {visibleNiches.map((n) => (
-                <button
-                  key={n.id}
-                  type="button"
-                  onClick={() => router.push(`/pipeline?niche=${n.id}`)}
-                  className={`haptic-btn whitespace-nowrap shrink-0 h-[32px] px-4 rounded-full text-[13px] font-bold transition-all cursor-pointer shadow-sm border ${
-                    activeNiche === n.id
-                      ? 'bg-gradient-to-b from-primary to-blue-600 text-primary-foreground border-primary/20 shadow-[0_2px_8px_rgba(10,132,255,0.4)]'
-                      : 'bg-white dark:bg-white/10 border-black/5 dark:border-white/10 text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/20'
-                  }`}
-                >
-                  {n.name}
-                </button>
-              ))}
-            </div>
-
-            <Dialog>
-              <DialogTrigger
-                className="haptic-btn flex-shrink-0 h-[32px] px-3.5 flex items-center gap-2 bg-white dark:bg-white/5 hover:bg-black/5 dark:hover:bg-white/10 text-foreground rounded-full font-bold text-[13px] transition-colors border border-black/5 dark:border-white/10 shadow-sm"
-              >
-                <LayoutGrid className="w-4 h-4 text-muted-foreground" />
-                <span className="hidden sm:inline">Tout voir</span>
-              </DialogTrigger>
-              <DialogContent className="max-w-2xl bg-white/70 dark:bg-[#08090C]/70 backdrop-blur-2xl border-glass shadow-[0_8px_40px_rgba(0,0,0,0.12)]">
-                <DialogHeader>
-                  <DialogTitle className="text-xl">Toutes les niches</DialogTitle>
-                </DialogHeader>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-4 max-h-[60vh] overflow-y-auto pr-2 pb-2">
-                  <button
-                    type="button"
-                    onClick={() => router.push('/pipeline')}
-                    className={`text-left p-3 rounded-xl border transition-all ${
-                      !activeNiche
-                        ? 'bg-primary/10 border-primary/20 font-bold text-primary'
-                        : 'border-black/5 dark:border-white/10 hover:bg-black/5 dark:hover:bg-white/5 text-muted-foreground font-medium'
-                    }`}
-                  >
-                    Toutes les niches
-                  </button>
-                  {niches.map((n) => (
-                    <button
-                      key={n.id}
-                      type="button"
-                      onClick={() => router.push(`/pipeline?niche=${n.id}`)}
-                      className={`text-left p-3 rounded-xl border transition-all ${
-                        activeNiche === n.id
-                          ? 'bg-primary/10 border-primary/20 font-bold text-primary'
-                          : 'border-black/5 dark:border-white/10 hover:bg-black/5 dark:hover:bg-white/5 text-muted-foreground font-medium'
-                      }`}
-                    >
-                      {n.name}
-                    </button>
-                  ))}
-                </div>
-              </DialogContent>
-            </Dialog>
-          </div>
-        )}
+      <header className="flex flex-col gap-1.5 px-4 pb-2 pt-5 md:px-8">
+        <h1 className="text-[28px] font-semibold leading-tight tracking-[-0.02em] md:text-[32px]">Mes vidéos</h1>
+        <p className="text-[15px] text-muted-foreground">
+          Fais glisser chaque vidéo d’une colonne à l’autre, de l’idée à la mesure des résultats.
+          {niches.length > 1 && !activeNiche ? ' Choisis une chaîne dans « Afficher » pour ne voir que la sienne.' : ''}
+        </p>
       </header>
 
       {/* Kanban */}

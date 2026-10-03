@@ -1,6 +1,6 @@
 # PROMPTS_V2.md — TubLyTI V2 (fluidité, design, fonctionnalités, MCP, extension)
 
-À coller dans Claude Code, dans l'ordre, une session par prompt. Ordre d'exécution : **P37 d'abord (qualité des données), puis P37-bis**, puis P15 → P17, puis **P36 (découverte) au plus tôt pour que la base grossisse pendant le reste du travail**, puis P18 → P27, P29 → P35, et P28 (contrôle qualité) en dernier. Rituel inchangé : l'agent lit les fichiers, propose un plan court, tu valides, il code, il te montre, tu testes dans le navigateur avant le prompt suivant. Après chaque prompt : `pnpm lint && pnpm test && pnpm build` doivent passer, puis commit.
+À coller dans Claude Code, dans l'ordre, une session par prompt. Ordre d'exécution : **P37 d'abord (qualité des données), puis P37-bis, puis P37-ter, puis P37-quater, puis P38 (déploiement)**, puis P15 → P17, puis **P36 (découverte) au plus tôt pour que la base grossisse pendant le reste du travail**, puis P18 → P27, P29 → P35, et P28 (contrôle qualité) en dernier. Rituel inchangé : l'agent lit les fichiers, propose un plan court, tu valides, il code, il te montre, tu testes dans le navigateur avant le prompt suivant. Après chaque prompt : `pnpm lint && pnpm test && pnpm build` doivent passer, puis commit.
 
 ---
 
@@ -56,6 +56,121 @@ Lis `design/diagnostic.md`, AI_RULES.md et ARCHITECTURE.md, puis :
 10. Relance `node --env-file=.env.local scripts/diagnose-data.mjs` et résume-moi : vidéos rattachées par niche, sujets par statut, commentaires classés, sujets avec confiance `medium` ou `high`.
 
 Critère de sortie : ≥ 60 % des vidéos longues < 90 j rattachées ; ≥ 20 sujets par niche principale avec ≥ 5 vidéos ; ≥ 90 % des commentaires classés ; tous les sujets actifs scorés le même jour.
+
+## P37-ter — Rendre le score utile (demande, frustration, sujets propres)
+
+> Diagnostic du 3 oct. 2026 (01:43) après P37-bis. Rattachement OK (2 859 vidéos, 217 sujets actifs) et commentaires tous classés. Mais le score ne sert à rien : **Demande = 0 pour tous les nouveaux sujets**, donc MGI = 0 partout. Les seuls MGI à 100 sont des sujets avec 0 ou presque 0 vidéo (« real estate vs stocks », « Could AI Destroy Humanity? »). La frustration est ≈ 0, car aucun commentaire n'a été collecté pour les nouveaux sujets (5 310, inchangé). Tous les sujets sont en phase 1. Beaucoup de sujets n'ont que 2 ou 3 vidéos ou sont du bruit (« LIVE AMA | Summer of CCNA | 07/09/2026 »). Business & Case Studies a 0 sujet. Un job `collect` est resté NON TERMINÉ (03/10 01:45), et deux jobs `embed` ont échoué sur des timeouts.
+
+Lis `design/diagnostic.md`, puis `lib/scoring/*` et la formule MGI dans ARCHITECTURE.md, puis :
+
+1. **Verrou de job** : nettoie le job `collect` NON TERMINÉ (marquer `error='abandoned'` si démarré il y a plus de 2 h) et ajoute cette règle au verrou atomique, pour qu'un job planté ne bloque plus les suivants. Les embeddings passent par lots de 64 avec 3 tentatives et un backoff ; un lot qui échoue ne coupe pas le job.
+2. **Demande calculée depuis YouTube**, sans dépendre de Google Trends. Pour chaque sujet, sur les vidéos rattachées des 90 derniers jours :
+   - (a) **vélocité** = vues/jour médianes des vidéos < 30 j ;
+   - (b) **ratio outlier** = médiane de (vues / médiane des vues de la chaîne) ;
+   - (c) **nombre de vidéos outliers** (ratio ≥ 3).
+
+   Normalise chaque composante en percentile **à l'intérieur de la niche**, puis D = 0,4·a + 0,4·b + 0,2·c, sur 0–1. Google Trends (SerpApi) devient un simple bonus : uniquement les 5 meilleurs sujets par niche, une fois par semaine (≈ 130 requêtes/mois, sous le quota de 250).
+3. **Offre O_q** : nombre de vidéos longues de qualité (≥ 8 min, chaîne ≥ 10 k abonnés) publiées sur 90 j, divisé par la médiane de la niche.
+4. **Garde-fous du MGI** : MGI = null et confiance `insufficient` si le sujet a moins de 5 vidéos rattachées. Un sujet sans score n'apparaît jamais dans un top. Le MGI final est le percentile du score brut dans la niche (0–100), pour comparer facilement les sujets entre eux.
+5. **Phase** : calcule la phase à partir de la pente des uploads sur les sujets (4 semaines contre les 8 précédentes) et de l'âge médian des outliers. Montre-moi la répartition des phases par niche ; si plus de 80 % des sujets sont dans la même phase, c'est un bug à corriger.
+6. **Nettoyage des sujets** :
+   - fusionne les sujets dont les centroïdes ont une similarité ≥ 0,85 ;
+   - passe en `proposed` (et non `active`) tous les sujets créés automatiquement, sauf `in_production` ;
+   - rejette les sujets de moins de 5 vidéos et ceux dont le libellé contient une date, « LIVE », « AMA », « Q&A » ou « stream ».
+
+   Utilise `--dry-run` d'abord, puis montre-moi la liste par niche et attends ma validation.
+7. **Commentaires des nouveaux sujets** : pour chaque sujet restant, prends les 3 vidéos longues les plus vues et récupère 100 commentaires `order=relevance` par vidéo (≈ 1 unité par appel). Classe les nouveaux commentaires avec la Batch API Haiku et affiche le coût avant. Frustration = part pondérée par les likes des labels ≠ `none`.
+8. **Business & Case Studies** (0 sujet, 45 vidéos) : liste les chaînes de cette niche avec leur nombre de vidéos sur 90 j. Si plus de 50 % n'ont rien publié, propose-moi de les passer en `inactive`. Je compléterai la niche avec P36 ou vidIQ.
+9. Recalcule tous les scores, relance `node --env-file=.env.local scripts/diagnose-data.mjs`, puis commit.
+
+Critère de sortie :
+- Demande > 0 pour au moins 90 % des sujets scorés.
+- MGI réparti sur toute l'échelle 0–100 dans chaque niche.
+- Aucun sujet de moins de 5 vidéos dans les tops.
+- Au moins 3 phases représentées dans chaque niche principale.
+- ≥ 200 commentaires classés pour les 10 meilleurs sujets de chaque niche.
+
+## P37-quater — Derniers trous du pipeline (court)
+
+> Diagnostic du 3 oct. 2026 (07:22). Le score fonctionne pour Finance, Psych et IA. Il reste 5 trous.
+
+1. **Nouvelles vidéos non rattachées.** Le job `collect` de 01:45 a ajouté environ 2 400 éléments, mais `embed` a traité 0 vidéo à 02:00. Les vidéos rattachées sont restées à 2 859 alors qu'il y a 4 816 vidéos < 90 j. Trouve pourquoi `runClustering` ne sélectionne pas les vidéos sans embedding (filtre de date, `is_qualified`, ou niche ?). Corrige, puis rattrape toutes les vidéos < 90 j sans embedding et rattache-les (seuil 0,75). Affiche le coût Voyage avant.
+2. **History et Health non scorés.** Des sujets avec 8 à 18 vidéos sont marqués `insufficient` (ex. « personalized nutrition », 18 vidéos). Vérifie que le seuil de 5 vidéos compte bien les vidéos rattachées sur 90 j, et que le score tourne pour **toutes** les niches.
+3. **Garde-fou < 5 vidéos incohérent.** « Carl Jung - How Life Changes After 40 » a 2 vidéos et un MGI de 67 en Finance. Ce sujet est en plus dans la mauvaise niche. Applique le garde-fou partout (MGI null si < 5) et rejette les sujets restants issus des anciennes requêtes manuelles, dont le libellé est un titre de vidéo.
+4. **Business & Case Studies : 0 sujet** malgré 64 vidéos longues. Lance la proposition de sujets pour cette niche et dis-moi pourquoi elle avait été sautée.
+5. **Ordre du nightly** : chaque étape doit voir les données écrites par la précédente. Ajoute un test qui le vérifie.
+
+Relance ensuite le diagnostic et fais un commit.
+
+Critère de sortie :
+- ≥ 85 % des vidéos longues < 90 j rattachées.
+- Les 6 niches ont au moins 10 sujets scorés.
+- Aucun sujet de moins de 5 vidéos avec un MGI.
+
+## P38 — Déployer : l'app sur Vercel, le pipeline de nuit sur GitHub Actions
+
+> La phase données est validée (diagnostic du 3 oct. 15:19). Jusqu'ici tout tourne à la main depuis le Mac. Objectif : que la collecte, le classement et le score tournent seuls chaque nuit, même Mac éteint.
+
+1. **Pipeline de nuit = GitHub Actions** (pas les crons Vercel, dont la durée par fonction est limitée). Vérifie d'abord dans la doc à jour les limites du plan Vercel Hobby et de GitHub Actions, puis crée un dépôt GitHub **privé** et pousse le code (vérifie avant que `.env.local` n'est pas suivi). Ajoute `.github/workflows/nightly.yml` :
+   - déclenché par `schedule` à 02:00 UTC et par `workflow_dispatch` ;
+   - lance `pnpm install --frozen-lockfile` puis `pnpm nightly` ;
+   - timeout de 60 min ;
+   - lit les clés depuis les **GitHub Secrets**. Donne-moi la liste exacte des noms de secrets à créer : je les colle moi-même dans GitHub, jamais dans le chat.
+2. **App = Vercel** : `vercel link` puis variables d'environnement Production, en me listant les noms. Je colle les valeurs dans le tableau de bord Vercel. Retire de `vercel.json` les crons remplacés par GitHub Actions, garde le digest du dimanche s'il est court.
+3. **Supabase Auth** : ajoute l'URL Vercel dans Site URL et Redirect URLs.
+4. **MCP et extension** : mets à jour l'URL de base (`/api/mcp`) et l'origine autorisée de l'extension vers le domaine Vercel.
+5. **Alerte d'échec** : si `pnpm nightly` échoue ou utilise 0 quota deux nuits de suite, envoie un e-mail Resend à mon adresse.
+6. Lance le workflow une fois à la main (`workflow_dispatch`), montre-moi le log, ouvre l'app en production et vérifie la connexion, l'accueil et une fiche sujet. Commit.
+
+Critère de sortie :
+- Le lendemain à 03:00 UTC, le diagnostic montre de nouveaux jobs `collect`, `embed`, `classify` et `score` datés de la nuit, lancés sans moi.
+- L'app répond en production.
+
+## P36-bis — Corriger la découverte et le budget de temps du pipeline de nuit
+
+> Diagnostic du 3 oct. 2026 (19:41), après le premier run GitHub Actions, qui a réussi en 55 min.
+
+**Ce qui marche :**
+- La collecte a apporté 13 777 éléments pour 509 unités de quota.
+- Il y a 7 626 vidéos de moins de 90 j, et Business compte maintenant 629 vidéos longues.
+- History et Health sont scorés.
+
+**Ce qui ne marche pas :**
+
+1. **La collecte a mangé tout le temps.** `collect` a duré environ 50 min (18:35 → 19:25), puis toutes les étapes suivantes ont tourné en 5 min avec **0 élément** : embed, attach, discover-topics, quality-gates, discover-channels, auto-triage et classify. Résultat :
+   - environ 3 450 nouvelles vidéos ne sont pas rattachées (toujours 4 173 rattachées) ;
+   - environ 3 400 nouveaux commentaires ne sont pas classés (24 274 commentaires pour 20 854 labels) ;
+   - Business n'a toujours aucun sujet scorable.
+2. **La découverte ramène du bruit.** Les 99 candidates viennent toutes de la source `trending` (mostPopular), que P37 avait demandé de supprimer : Mrwhosetheboss, des chaînes gaming, Zack D. Films… Elles n'ont ni abonnés, ni médiane, ni niche, et l'auto-triage n'a rien évalué.
+
+Lis `design/diagnostic.md`, `scripts/nightly.ts`, `lib/youtube/discover-*.ts` et `lib/youtube/auto-triage.ts`, puis :
+
+1. **Budget de temps par étape** dans `nightly.ts` :
+   - collect : 40 % du temps au maximum ;
+   - embed + attach : 15 % ;
+   - discover (topics + channels + triage) : 15 % ;
+   - classify : 15 % ;
+   - score : le reste.
+
+   Une étape qui atteint son budget s'arrête proprement et reprend la nuit suivante, sans être marquée NON TERMINÉ. L'ordre ne change pas, mais **score tourne toujours**. Passe aussi le workflow à `timeout-minutes: 120` et `NIGHTLY_DEADLINE_MIN: 100`.
+2. **Collect plus léger** :
+   - RSS d'abord pour les 541 chaînes ;
+   - `videos.list` par lots de 50, uniquement pour les nouvelles vidéos et pour les snapshots dus selon les paliers (J+1, J+3, J+7, J+30) ;
+   - mesure et affiche la durée de chaque sous-étape dans le log.
+3. **Découverte** :
+   - Supprime la source `trending`/mostPopular et rejette les 99 candidates actuelles (`--dry-run` d'abord).
+   - Garde uniquement des sources liées aux niches : (a) search.list `order=relevance`, `videoDuration=medium|long` sur les requêtes des 10 meilleurs sujets de chaque niche ; (b) chaînes présentes dans les résultats de ces recherches ; (c) les « featured channels » des chaînes suivies.
+   - Chaque candidate doit avoir une `niche_id` dès sa création.
+4. **Auto-triage réel** : pour chaque candidate, appelle `channels.list` (lots de 50) et `playlistItems` sur ses 10 dernières vidéos, puis applique les seuils de P37 (≥ 4 vidéos longues sur 90 j, ≥ 10 k abonnés ou médiane ≥ 5 k vues, similarité ≥ 0,80 avec la niche). Les chaînes acceptées passent dans `channels`. Objectif : **+50 chaînes par niche et par semaine**, en commençant par Business, Psych et History.
+5. **Rattrapage maintenant, en local** : lance embed → attach → discover-topics → quality-gates → classify → score sur les données existantes. Affiche le coût Voyage et Haiku avant de lancer.
+6. Relance le diagnostic, puis commit et push.
+
+**Critère de sortie :**
+- ≥ 85 % des vidéos longues < 90 j rattachées.
+- Business a ≥ 10 sujets scorés.
+- 0 candidate venant de `trending`.
+- Les candidates ont une niche et des abonnés.
+- Le prochain run de nuit montre des items > 0 pour chaque étape.
 
 ## P15 — Lecture et plan V2
 

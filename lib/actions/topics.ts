@@ -2,56 +2,46 @@
 
 import { revalidatePath } from 'next/cache';
 import { createServiceClient } from '@/lib/supabase/server';
+import { getSessionUser, assertAdmin, isDbReady } from '@/lib/auth/session';
+import { createVideoFromTopic } from '@/lib/actions/sujets';
 
+/** « Passer en production » depuis la fiche d'un sujet : crée une vidéo pour le client connecté. */
 export async function markTopicProduction(topicId: string) {
-  const db = createServiceClient();
-
-  const { error } = await db
-    .from('topics')
-    .update({ status: 'in_production' })
-    .eq('id', topicId);
-
-  if (error) return { error: error.message };
-
+  const res = await createVideoFromTopic(topicId);
+  if ('error' in res) return { error: res.error };
   revalidatePath(`/topics/${topicId}`);
-  revalidatePath('/dashboard');
-  revalidatePath('/today');
   return { success: true };
 }
 
+/** Relie la vidéo YouTube publiée à la vidéo en cours du client sur ce sujet. */
 export async function markTopicPublished(topicId: string, videoId: string) {
   if (!videoId?.trim()) {
     return { error: "L'identifiant de la vidéo publiée est requis." };
   }
-
+  const user = await getSessionUser();
+  if (!user) return { error: 'Connecte-toi pour continuer.' };
   const db = createServiceClient();
 
-  const { error } = await db
-    .from('topics')
-    .update({ status: 'published' })
-    .eq('id', topicId);
-
-  if (error) return { error: error.message };
-
-  // Link published video to the first in_production angle
-  const { data: firstAngle } = await db
-    .from('angles')
-    .select('id')
-    .eq('topic_id', topicId)
+  const ready = await isDbReady();
+  let mineQ = db.from('angles').select('id').eq('topic_id', topicId);
+  if (ready) mineQ = mineQ.eq('user_id', user.id);
+  const { data: mine } = await mineQ
     .eq('status', 'in_production')
     .limit(1)
-    .single();
+    .maybeSingle();
 
-  if (firstAngle) {
-    await db
+  if (mine) {
+    const { error } = await db.from('angles').update({ status: 'published', video_id: videoId.trim() }).eq('id', mine.id);
+    if (error) return { error: error.message };
+  } else {
+    const { error } = await db
       .from('angles')
-      .update({ status: 'published', video_id: videoId })
-      .eq('id', firstAngle.id);
+      .insert({ topic_id: topicId, title: 'Vidéo publiée', status: 'published', video_id: videoId.trim(), ...(ready ? { user_id: user.id } : {}) });
+    if (error) return { error: error.message };
   }
 
   revalidatePath(`/topics/${topicId}`);
-  revalidatePath('/dashboard');
-  revalidatePath('/today');
+  revalidatePath('/pipeline');
   return { success: true };
 }
 
@@ -60,6 +50,7 @@ export async function reviewTopic(
   action: 'accept' | 'reject' | 'merge',
   mergeInto?: string,
 ) {
+  await assertAdmin();
   const db = createServiceClient();
 
   if (action === 'accept') {

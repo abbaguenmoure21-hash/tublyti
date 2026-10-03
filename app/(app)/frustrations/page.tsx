@@ -6,6 +6,8 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { MessageSquareWarning, AlertTriangle, ThumbsUp, TrendingUp, Lightbulb, Target, Clock, Search, PlaySquare } from 'lucide-react';
 import { createServiceClient } from '@/lib/supabase/server';
+import { requireUser } from '@/lib/auth/session';
+import { resolveScope } from '@/lib/scope';
 import { LabelCorrector } from './_components/label-corrector';
 import { NicheFilter } from './_components/niche-filter';
 import { OutlierBadge } from '@/components/tublyti/outlier-badge';
@@ -57,7 +59,7 @@ function LabelBadge({ label }: { label: string }) {
 /*  Data fetching                                                      */
 /* ------------------------------------------------------------------ */
 
-async function getFrustrations(): Promise<FrustrationItem[]> {
+async function getFrustrations(ids: string[]): Promise<FrustrationItem[]> {
   const db = createServiceClient();
 
   const { data, error } = await db
@@ -90,6 +92,7 @@ async function getFrustrations(): Promise<FrustrationItem[]> {
     `,
     )
     .neq('label', 'none')
+    .in('comments.videos.channels.niche_id', ids)
     .order('labeled_at', { ascending: false })
     .limit(200);
 
@@ -144,7 +147,7 @@ interface OutlierVideo {
   nicheName: string;
 }
 
-async function getSmallChannelOutliers(filterNiche: string): Promise<OutlierVideo[]> {
+async function getSmallChannelOutliers(filterNiche: string, ids: string[]): Promise<OutlierVideo[]> {
   const db = createServiceClient();
 
   let query = db
@@ -154,7 +157,7 @@ async function getSmallChannelOutliers(filterNiche: string): Promise<OutlierVide
       videos!inner (
         id, title, thumbnail_url,
         channels!inner (
-          id, title, subscriber_count,
+          id, title, subscriber_count, niche_id,
           niches!inner (
             name
           )
@@ -162,6 +165,7 @@ async function getSmallChannelOutliers(filterNiche: string): Promise<OutlierVide
       )
     `)
     .gte('score', 1.5)
+    .in('videos.channels.niche_id', ids)
     .lte('videos.channels.subscriber_count', 50000)
     .lte('age_days', 365); // Filter out old videos (>1 year)
     
@@ -245,12 +249,17 @@ export default async function FrustrationsPage({
   let outlierVideos: OutlierVideo[] = [];
   let allNicheNames: string[] = [];
 
+  const user = await requireUser();
+  const isAdmin = user.role === 'admin';
   try {
     const db = createServiceClient();
+    // Uniquement les thématiques du client.
+    const { nicheIds } = await resolveScope(db, user.id);
+    const ids = nicheIds.length ? nicheIds : ['00000000-0000-0000-0000-000000000000'];
     const [frustrationItems, outliers, { data: nichesData }] = await Promise.all([
-      getFrustrations(),
-      getSmallChannelOutliers(filterNiche),
-      db.from('niches').select('name').order('name'),
+      getFrustrations(ids),
+      getSmallChannelOutliers(filterNiche, ids),
+      db.from('niches').select('name').in('id', ids).order('name'),
     ]);
     items = frustrationItems;
     outlierVideos = outliers;
@@ -273,7 +282,6 @@ export default async function FrustrationsPage({
     return (
       <div className="flex-1 flex flex-col min-h-full relative overflow-x-clip">
         <div className="absolute inset-0 pointer-events-none -z-10">
-          <div className="absolute -top-[20%] -left-[10%] w-[50%] h-[50%] rounded-full bg-blue-400/15 dark:bg-blue-600/15 blur-[100px]" />
         </div>
         <div className="flex-1 p-6 md:px-12 md:py-10 flex flex-col gap-8 w-full max-w-[1400px] mx-auto">
           <h1 className="text-title-1 leading-tight">Que réclament les spectateurs ?</h1>
@@ -298,7 +306,6 @@ export default async function FrustrationsPage({
     return (
       <div className="flex-1 flex flex-col min-h-full relative overflow-x-clip">
         <div className="absolute inset-0 pointer-events-none -z-10">
-          <div className="absolute -top-[20%] -left-[10%] w-[50%] h-[50%] rounded-full bg-blue-400/15 dark:bg-blue-600/15 blur-[100px]" />
         </div>
         <div className="flex-1 p-6 md:px-12 md:py-10 flex flex-col gap-8 w-full max-w-[1400px] mx-auto">
           <h1 className="text-title-1 leading-tight">Que réclament les spectateurs ?</h1>
@@ -375,9 +382,6 @@ export default async function FrustrationsPage({
     <div className="flex-1 flex flex-col min-h-full relative overflow-x-clip">
       {/* Background gradients multi-niveaux */}
       <div className="absolute inset-0 pointer-events-none -z-10">
-        <div className="absolute -top-[20%] -left-[10%] w-[50%] h-[50%] rounded-full bg-blue-400/15 dark:bg-blue-600/15 blur-[100px]" />
-        <div className="absolute top-[20%] -right-[10%] w-[40%] h-[60%] rounded-full bg-purple-400/15 dark:bg-purple-600/15 blur-[120px]" />
-        <div className="absolute -bottom-[20%] left-[20%] w-[60%] h-[50%] rounded-full bg-cyan-400/15 dark:bg-cyan-600/15 blur-[100px]" />
       </div>
 
       <div className="flex-1 p-6 md:px-12 md:py-10 flex flex-col gap-8 overflow-x-hidden w-full max-w-[1400px] mx-auto">
@@ -420,7 +424,7 @@ export default async function FrustrationsPage({
           }`}
         >
           <TrendingUp className="w-[15px] h-[15px]" />
-          Outliers petites chaînes
+          Petites chaînes qui surperforment
           {outlierVideos.length > 0 && (
             <Badge variant="secondary" className="ml-1 text-[11px] h-5 rounded-md px-1.5">{outlierVideos.length}</Badge>
           )}
@@ -439,7 +443,7 @@ export default async function FrustrationsPage({
             <div className="bg-white/60 dark:bg-white/5 backdrop-blur-2xl border border-white/40 dark:border-white/10 shadow-sm rounded-[24px] py-16 flex flex-col items-center justify-center text-center gap-3">
               <Search className="w-10 h-10 text-muted-foreground/30" />
               <p className="text-[15px] text-muted-foreground font-medium">
-                Aucun outlier de petite chaîne détecté récemment.
+                Aucune petite chaîne n’a surperformé récemment.
               </p>
             </div>
           ) : (
@@ -587,10 +591,12 @@ export default async function FrustrationsPage({
                                 {Math.round(item.confidence * 100)}% {item.model === 'human' && <span className="opacity-40 px-1">·</span>} {item.model === 'human' && ' corrigé'}
                               </span>
 
-                              <LabelCorrector
-                                commentId={item.commentId}
-                                currentLabel={item.label}
-                              />
+                              {isAdmin && (
+                                <LabelCorrector
+                                  commentId={item.commentId}
+                                  currentLabel={item.label}
+                                />
+                              )}
                             </div>
                           </div>
                         </div>

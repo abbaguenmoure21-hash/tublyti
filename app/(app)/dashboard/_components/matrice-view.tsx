@@ -105,7 +105,7 @@ function ScatterPlot({
         </g>
         {/* Axis titles */}
         <text x={388} y={440} textAnchor="middle" fontWeight={500} fontSize={11} fill="var(--muted-foreground)">
-          Offre qualifiée · vidéos publiées sur 180 jours
+          Vidéos de qualité publiées sur 180 jours
         </text>
         <text x={14} y={205} textAnchor="middle" fontWeight={500} fontSize={11} fill="var(--muted-foreground)" transform="rotate(-90 14 205)">
           Demande (0–100)
@@ -226,7 +226,7 @@ export function MatriceView({ topics, selectedId, onSelect }: { topics: TopicRow
           >
             <span>Sujet</span>
             <span>Phase</span>
-            <span>MGI ↓</span>
+            <span>Potentiel ↓</span>
             <span>Fais.</span>
             <span>Demande</span>
             <span>Offre</span>

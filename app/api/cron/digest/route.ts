@@ -1,28 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
-import { buildDigestData } from '@/lib/services/digest';
-import { buildDigestHtml, sendDigestEmail } from '@/lib/email/digest-email';
+import { sendAllDigests } from '@/lib/services/digest-send';
 import { timingSafeCompare } from '@/lib/auth/timing-safe';
 
+/** Envoi hebdomadaire du résumé : un e-mail par compte (ses chaînes, ses vidéos, ses alertes). */
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
   if (!timingSafeCompare(authHeader ?? '', `Bearer ${process.env.CRON_SECRET}`)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const db = createServiceClient();
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://tublyti.vercel.app';
-
   try {
-    const data = await buildDigestData(db);
-    const html = buildDigestHtml(data, appUrl);
-    const result = await sendDigestEmail(html);
-
-    return NextResponse.json({
-      ok: result.ok,
-      blocksCount: data.blocks.length,
-      ...(result.error ? { error: result.error } : {}),
-    });
+    const result = await sendAllDigests(createServiceClient());
+    return NextResponse.json({ ok: result.failed === 0, ...result });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     console.error('[Digest cron]', message);

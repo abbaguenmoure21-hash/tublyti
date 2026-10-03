@@ -57,10 +57,10 @@ export function MatriceFilters({ channels }: { channels: Channel[] }) {
   ];
 
   const PHASES = [
-    { value: 0, label: 'Émergence', dot: 'bg-phase-0' },
-    { value: 1, label: 'Viralité courte', dot: 'bg-phase-1' },
-    { value: 2, label: 'Fenêtre idéale', dot: 'bg-phase-2' },
-    { value: 3, label: 'Saturation', dot: 'bg-phase-3' },
+    { value: 0, label: 'À surveiller', dot: 'bg-phase-0' },
+    { value: 1, label: 'Ça monte', dot: 'bg-phase-1' },
+    { value: 2, label: 'C’est le moment', dot: 'bg-phase-2' },
+    { value: 3, label: 'Trop tard', dot: 'bg-phase-3' },
   ];
 
   return (
@@ -165,7 +165,7 @@ export function MatriceFilters({ channels }: { channels: Channel[] }) {
           activeClass="border-[#30D158]/50 bg-[#30D158]/15 text-[#24a142] dark:text-[#30D158]"
           icon={<Waves className="w-3.5 h-3.5" />}
         >
-          Océan bleu
+          Sujets peu traités
         </FilterPill>
 
         <FilterPill

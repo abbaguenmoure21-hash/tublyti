@@ -5,22 +5,22 @@ const PHASE_CONFIG: Record<
   { label: string; icon: typeof Sprout; classes: string }
 > = {
   0: {
-    label: 'Émergence',
+    label: 'À surveiller',
     icon: Sprout,
     classes: 'bg-phase-0-soft text-phase-0-ink',
   },
   1: {
-    label: 'Viralité courte',
+    label: 'Ça monte',
     icon: Flame,
     classes: 'bg-phase-1-soft text-phase-1-ink',
   },
   2: {
-    label: 'Fenêtre idéale',
+    label: 'C’est le moment',
     icon: Target,
     classes: 'bg-phase-2-soft text-phase-2-ink',
   },
   3: {
-    label: 'Saturation',
+    label: 'Trop tard',
     icon: Ban,
     classes: 'bg-phase-3-soft text-phase-3-ink',
   },
@@ -55,8 +55,8 @@ export function phaseColor(phase: number): string {
 }
 
 export const PHASE_LABELS: Record<number, string> = {
-  0: 'Émergence',
-  1: 'Viralité courte',
-  2: 'Fenêtre idéale',
-  3: 'Saturation',
+  0: 'À surveiller',
+  1: 'Ça monte',
+  2: 'C’est le moment',
+  3: 'Trop tard',
 };

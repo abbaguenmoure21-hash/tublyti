@@ -5,7 +5,7 @@ import { join } from 'path';
 
 // ── Constants ────────────────────────────────────────────────────────
 const PROMPT_VERSION = 'title_patterns_v1';
-const MODEL = 'claude-3-5-haiku-latest';
+const MODEL = 'claude-haiku-4-5-20251001';
 const MODEL_TAG = `haiku-4.5-${PROMPT_VERSION}`;
 
 // Batch API pricing (50% off standard Haiku 4.5)

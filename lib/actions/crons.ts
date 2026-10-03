@@ -1,8 +1,11 @@
 'use server';
 
+import { assertAdmin } from '@/lib/auth/session';
+
 import { revalidatePath } from 'next/cache';
 
 export async function relaunchCron(kind: string, secret: string) {
+  await assertAdmin();
   if (!secret) return { error: 'Secret requis.' };
 
   const baseUrl = process.env.NEXT_PUBLIC_SITE_URL ?? process.env.VERCEL_URL
@@ -21,6 +24,7 @@ export async function relaunchCron(kind: string, secret: string) {
 }
 
 export async function testAlert(secret: string) {
+  await assertAdmin();
   if (!secret) return { error: 'Secret requis.' };
 
   const baseUrl = process.env.NEXT_PUBLIC_SITE_URL ?? process.env.VERCEL_URL

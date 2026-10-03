@@ -1,9 +1,12 @@
 'use server';
 
+import { assertAdmin } from '@/lib/auth/session';
+
 import { revalidatePath } from 'next/cache';
 import { createServiceClient } from '@/lib/supabase/server';
 
 export async function correctLabel(commentId: string, newLabel: string) {
+  await assertAdmin();
   if (!commentId || !newLabel) {
     return { error: 'Paramètres manquants.' };
   }

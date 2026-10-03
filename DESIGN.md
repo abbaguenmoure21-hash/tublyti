@@ -4,7 +4,7 @@ Ce fichier fait autorité pour tout ce qui est visuel. Aucune couleur, taille ou
 
 ## Principes
 
-1. **Une réponse en 5 secondes.** Chaque écran répond à une question (« Quel sujet je tourne cette semaine ? »). Le chiffre clé est en haut, gros, lisible.
+1. **Une réponse en 5 secondes.** Chaque écran répond à une question (« Quel sujet je choisis cette semaine ? »). Le chiffre clé est en haut, gros, lisible.
 2. **La couleur = une signification.** La couleur n'est jamais décorative. Violet = marque/action. Les 4 couleurs de phase ne servent qu'aux phases. Rouge = erreur ou saturation, jamais autre chose.
 3. **Calme par défaut.** Fond presque blanc, surfaces blanches, bordures fines, une seule ombre légère. L'œil va vers les données, pas vers le décor.
 4. **Instantané.** Aucun écran blanc : squelettes pendant le chargement, mises à jour optimistes, transitions ≤ 200 ms.
@@ -38,7 +38,7 @@ Chaque phase a une couleur pleine (points du graphique, pastilles) et un couple 
 | --- | --- | --- | --- | --- | --- |
 | 0 · Émergence | Surveiller | `oklch(0.56 0.16 300)` #8459c3 | #f1ebff | #65389f | `Sprout` |
 | 1 · Viralité courte | Ça chauffe | `oklch(0.66 0.15 65)` #cf7c00 | #fff0d7 | #8a4b00 | `Flame` |
-| 2 · Fenêtre idéale | **Tourner maintenant** | `oklch(0.58 0.14 155)` #0e9254 | #d8f8e2 | #006337 | `Target` |
+| 2 · Fenêtre idéale | **C’est le moment** | `oklch(0.58 0.14 155)` #0e9254 | #d8f8e2 | #006337 | `Target` |
 | 3 · Saturation | Trop tard | `oklch(0.58 0.19 20)` #d33949 | #ffe8e8 | #a51c30 | `Ban` |
 
 ### Échelle MGI (séquentielle, une seule teinte)
@@ -86,7 +86,7 @@ Mêmes rôles, luminosités inversées : `--background oklch(0.16 0.012 265)`, `
 
 ## Rédaction de l'interface
 
-- Titres de page = la question à laquelle l'écran répond (« Quoi tourner cette semaine ? » plutôt que « Dashboard »).
+- Titres de page = la question à laquelle l'écran répond (« Quels sujets choisir cette semaine ? » plutôt que « Dashboard »). Ne jamais utiliser « tourner » pour parler de créer une vidéo : dire « créer », « publier » ou « choisir un sujet ».
 - Boutons = verbe + objet (« Générer 5 angles », « Suivre cette chaîne »).
 - Nombres : séparateur fin « 12 400 vues », pourcentages sans décimale sauf < 10 %.
 - Dates relatives pour < 7 jours (« il y a 3 h »), absolues au-delà.
@@ -138,3 +138,16 @@ Mêmes rôles, luminosités inversées : `--background oklch(0.16 0.012 265)`, `
 ```
 
 Dans `@theme inline`, exposer aussi `--color-primary-soft`, `--color-primary-ink`, `--color-success`, `--color-warning` et les 12 `--color-phase-*` pour disposer des classes `bg-phase-2-soft text-phase-2-ink`, etc.
+
+## Relief (profondeur façon Apple)
+
+Défini dans `app/globals.css` (bloc « Profondeur façon Apple »). Ne pas créer d'autres ombres à la main.
+
+- `elev-1` : cartes, listes, onglet actif d'un contrôle segmenté, élément actif de la barre latérale. Appliqué automatiquement à toute `bg-card` arrondie (`rounded-xl`, `rounded-2xl`) ou bordée.
+- `elev-2` : barre latérale flottante, carte cliquable au survol.
+- `elev-3` : panneau inspecteur, barre d'onglets mobile, fenêtres et feuilles.
+- `well` : surfaces creusées (champs, pistes de contrôles segmentés, sélecteur « Afficher »).
+- Bouton principal : liseré de lumière en haut + ombre teintée de la couleur primaire.
+- Rayons : 9–10 px pour les boutons et lignes, 12–14 px pour les petits blocs, 17 px (`rounded-xl`) pour les cartes, 22 px pour les panneaux flottants, 24 px pour la barre mobile.
+- Les panneaux flottants (barre latérale, inspecteur) sont décollés de 8 px du bord de la fenêtre.
+- Interdit : ombres dures, dégradés colorés, relief sur du texte, animation d'ombre quand « réduire les animations » est actif.

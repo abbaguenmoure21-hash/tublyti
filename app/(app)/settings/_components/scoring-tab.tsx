@@ -52,7 +52,7 @@ export function ScoringTab({
         <h2 className="text-[15px] font-semibold">Demande (D)</h2>
         <p className="text-[13px] text-muted-foreground">
           La demande est calculée automatiquement depuis YouTube :
-          vélocité des vues (40 %), ratio outlier (40 %), nombre d&apos;outliers (20 %).
+          vitesse de croissance des vues (40 %), écart avec la moyenne habituelle de la chaîne (40 %), nombre de vidéos qui surperforment (20 %).
           Chaque composante est normalisée en percentile au sein de la niche.
         </p>
       </section>

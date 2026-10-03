@@ -1,9 +1,12 @@
 'use server';
 
+import { assertAdmin } from '@/lib/auth/session';
+
 import { createServiceClient } from '@/lib/supabase/server';
 import { revalidatePath } from 'next/cache';
 
 export async function followCandidate(candidateId: string, nicheId: string) {
+  await assertAdmin();
   const db = createServiceClient();
 
   // Get candidate info
@@ -57,6 +60,7 @@ export async function followCandidate(candidateId: string, nicheId: string) {
 }
 
 export async function ignoreCandidate(candidateId: string) {
+  await assertAdmin();
   const db = createServiceClient();
 
   const { error } = await db.from('candidate_channels')

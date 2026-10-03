@@ -55,7 +55,7 @@ const RULE_TYPES: { value: AlertRuleType; label: string; description: string }[]
   },
   {
     value: 'video_outlier',
-    label: 'Vidéo outlier',
+    label: 'Vidéo qui surperforme',
     description: 'Une vidéo fait N× la moyenne sur une chaîne de moins de K abonnés.',
   },
   {
@@ -68,7 +68,7 @@ const RULE_TYPES: { value: AlertRuleType; label: string; description: string }[]
 const RULE_TYPE_LABELS: Record<string, string> = {
   phase_change: 'Phase 2',
   collection_phase_change: 'Favori',
-  video_outlier: 'Outlier',
+  video_outlier: 'Surperformance',
   window_closing: 'Burn-down',
 };
 

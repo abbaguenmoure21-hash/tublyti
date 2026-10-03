@@ -1,8 +1,12 @@
 'use server';
 
+import { getAdminOrNull } from '@/lib/auth/session';
+
 import { revalidatePath } from 'next/cache';
 
 export async function generateAngles(topicId: string) {
+  // Génération payante (IA) : déclenchée par l'administration uniquement.
+  if (!(await getAdminOrNull())) return { error: 'La génération d’angles est faite par l’équipe TubLyTI.' };
   // This calls the existing API route which uses Claude for generation.
   // We keep it as an API call because it's a long-running operation.
   const baseUrl = process.env.NEXT_PUBLIC_SITE_URL 

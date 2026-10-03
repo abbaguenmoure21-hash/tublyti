@@ -253,10 +253,10 @@ export async function fetchDossierData(topicId: string): Promise<DossierData | n
 // ── Markdown rendering ───────────────────────────────────────────────
 
 const PHASE_LABELS: Record<number, string> = {
-  0: 'Émergence',
-  1: 'Viralité courte',
-  2: 'Fenêtre idéale',
-  3: 'Saturation',
+  0: 'À surveiller',
+  1: 'Ça monte',
+  2: 'C’est le moment',
+  3: 'Trop tard',
 };
 
 const LABEL_NAMES: Record<string, string> = {

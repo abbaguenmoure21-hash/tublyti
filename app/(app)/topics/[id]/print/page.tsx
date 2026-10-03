@@ -3,6 +3,8 @@ import type { Metadata } from 'next';
 import { fetchDossierData } from '@/lib/dossier/generate';
 import { getMgiBand } from '@/lib/scoring/mgi';
 import { createServiceClient } from '@/lib/supabase/server';
+import { requireUser } from '@/lib/auth/session';
+import { resolveScope } from '@/lib/scope';
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params;
@@ -12,10 +14,10 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
 }
 
 const PHASE_LABELS: Record<number, string> = {
-  0: 'Émergence',
-  1: 'Viralité courte',
-  2: 'Fenêtre idéale',
-  3: 'Saturation',
+  0: 'À surveiller',
+  1: 'Ça monte',
+  2: 'C’est le moment',
+  3: 'Trop tard',
 };
 
 const LABEL_NAMES: Record<string, string> = {
@@ -37,6 +39,16 @@ export default async function PrintDossierPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  const user = await requireUser();
+  if (user.role !== 'admin') {
+    // Un client n'exporte que les sujets de ses thématiques.
+    const db = createServiceClient();
+    const [{ nicheIds }, { data: t }] = await Promise.all([
+      resolveScope(db, user.id),
+      db.from('topics').select('niche_id').eq('id', id).maybeSingle(),
+    ]);
+    if (!t || !nicheIds.includes(t.niche_id as string)) notFound();
+  }
   const data = await fetchDossierData(id);
   if (!data) notFound();
 
@@ -107,10 +119,10 @@ export default async function PrintDossierPage({
             <h2>Market Gap Index</h2>
             <table>
               <tbody>
-                <tr><th>MGI</th><td><strong>{Math.round(score.mgi)}</strong> {band && <span className="badge" style={{ backgroundColor: band.color + '33' }}>({band.label})</span>}</td></tr>
+                <tr><th>Potentiel</th><td><strong>{Math.round(score.mgi)}</strong> {band && <span className="badge" style={{ backgroundColor: band.color + '33' }}>({band.label})</span>}</td></tr>
                 <tr><th>Demande (D)</th><td>{Math.round(score.demand)}</td></tr>
                 <tr><th>Frustration (F)</th><td>{Math.round(score.frustration * 100)} %</td></tr>
-                <tr><th>Offre qualifiée (Oq)</th><td>{Math.round(score.supplyQ)}</td></tr>
+                <tr><th>Vidéos de qualité existantes</th><td>{Math.round(score.supplyQ)}</td></tr>
                 <tr><th>Monétisation (P)</th><td>× {score.monetization.toFixed(1)}</td></tr>
                 {score.confidence && (
                   <tr><th>Confiance</th><td>{score.confidence === 'high' ? 'Élevée' : score.confidence === 'medium' ? 'Moyenne' : 'Faible'} — {score.confidenceReason ?? ''}</td></tr>

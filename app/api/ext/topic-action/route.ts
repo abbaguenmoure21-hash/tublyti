@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { createServiceClient } from '@/lib/supabase/server';
 import { handleCors, jsonWithCors } from '@/lib/ext/cors';
 import { authenticateExtRequest, isAuthError } from '@/lib/ext/auth';
-import { canWrite } from '@/lib/mcp/auth';
+import { canWrite, canSeeNiche } from '@/lib/mcp/auth';
 
 const bodySchema = z.object({
   action: z.enum(['mark_production', 'generate_angles', 'save_favorite']),
@@ -44,26 +44,44 @@ export async function POST(request: NextRequest) {
     // Verify topic exists
     const { data: topic } = await db
       .from('topics')
-      .select('id, label, status')
+      .select('id, label, status, niche_id')
       .eq('id', topic_id)
       .single();
 
-    if (!topic) {
+    if (!topic || !canSeeNiche(auth, topic.niche_id as string)) {
       return jsonWithCors(request, { error: 'Sujet introuvable.' }, { status: 404 });
     }
 
     switch (action) {
       case 'mark_production': {
-        await db.from('topics').update({ status: 'production' }).eq('id', topic_id);
-        return jsonWithCors(request, { ok: true, message: `"${topic.label}" passe en production.` });
+        if (auth.userId) {
+          // Nouvelle vidéo dans « Mes vidéos » du compte ; le sujet (commun) n'est pas modifié.
+          const { error } = await db.from('angles').insert({ topic_id, title: topic.label, status: 'in_production', user_id: auth.userId });
+          if (error) return jsonWithCors(request, { error: 'La vidéo n’a pas pu être créée.' }, { status: 500 });
+        } else {
+          await db.from('topics').update({ status: 'in_production' }).eq('id', topic_id);
+        }
+        return jsonWithCors(request, { ok: true, message: `"${topic.label}" ajouté à Mes vidéos.` });
       }
 
       case 'save_favorite': {
-        await db.from('topics').update({ status: 'saved' }).eq('id', topic_id);
-        return jsonWithCors(request, { ok: true, message: `"${topic.label}" sauvegarde.` });
+        let colQ = db.from('collections').select('id').eq('is_default', true);
+        if (auth.userId) colQ = colQ.eq('user_id', auth.userId);
+        let { data: col } = await colQ.limit(1).maybeSingle();
+        if (!col && auth.userId) {
+          ({ data: col } = await db.from('collections').insert({ name: 'Favoris', is_default: true, user_id: auth.userId }).select('id').single());
+        }
+        if (!col) return jsonWithCors(request, { error: 'Collection « Favoris » introuvable.' }, { status: 500 });
+        await db
+          .from('collection_items')
+          .upsert({ collection_id: col.id, item_type: 'topic', ref_id: topic_id }, { onConflict: 'collection_id,item_type,ref_id' });
+        return jsonWithCors(request, { ok: true, message: `"${topic.label}" ajouté aux favoris.` });
       }
 
       case 'generate_angles': {
+        if (!auth.isAdmin) {
+          return jsonWithCors(request, { error: 'La génération d’angles est faite par l’équipe TubLyTI.' }, { status: 403 });
+        }
         // Delegate to the existing angle generation API route
         const baseUrl = process.env.NEXT_PUBLIC_SITE_URL
           ?? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');

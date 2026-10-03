@@ -6,6 +6,8 @@ export interface AlertPayload {
   body: string;
   actionUrl?: string;
   actionLabel?: string;
+  /** Destinataire. Par défaut : ALERT_EMAIL (l'équipe TubLyTI). */
+  to?: string;
 }
 
 export interface AlertSender {

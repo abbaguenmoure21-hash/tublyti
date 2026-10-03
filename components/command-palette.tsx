@@ -10,7 +10,6 @@ import {
   ScatterChart,
   Columns3,
   MessageSquareWarning,
-  ListChecks,
   Tv,
   SlidersHorizontal,
   Settings,
@@ -20,21 +19,30 @@ import {
   Moon,
   Monitor,
   SunMedium,
+  BookOpen,
 } from 'lucide-react';
-import { createClient } from '@/lib/supabase/client';
+import { searchEverything } from '@/lib/actions/recherche';
 import { markTopicProduction } from '@/lib/actions/topics';
 import { generateAngles } from '@/lib/actions/angles';
-import { escapeLike } from '@/lib/utils';
 
 const PAGES = [
-  { href: '/today', label: "Aujourd'hui", icon: Sun },
-  { href: '/dashboard', label: 'Matrice', icon: ScatterChart },
-  { href: '/pipeline', label: 'Pipeline', icon: Columns3 },
-  { href: '/frustrations', label: 'Frustrations', icon: MessageSquareWarning },
-  { href: '/topics/review', label: 'Validation', icon: ListChecks },
-  { href: '/channels', label: 'Chaînes', icon: Tv },
+  { href: '/sujets', label: 'Sujets', icon: Sun },
+  
+  { href: '/dashboard', label: 'Carte des sujets', icon: ScatterChart },
+  { href: '/pipeline', label: 'Mes vidéos', icon: Columns3 },
+  { href: '/my-channel', label: 'Résultats de mes vidéos', icon: Columns3 },
+  { href: '/activity', label: 'Veille', icon: Tv },
+  { href: '/frustrations', label: 'Questions du public', icon: MessageSquareWarning },
   { href: '/settings', label: 'Réglages', icon: SlidersHorizontal },
-  { href: '/admin/jobs', label: 'Jobs', icon: Settings },
+  { href: '/guide', label: 'Aide', icon: BookOpen },
+];
+
+const ADMIN_PAGES = [
+  { href: '/admin', label: 'Console d’admin', icon: Settings },
+  { href: '/admin/sujets', label: 'Sujets à valider', icon: Settings },
+  { href: '/admin/jobs', label: 'Collecte', icon: Settings },
+  { href: '/channels', label: 'Chaînes analysées', icon: Tv },
+  { href: '/admin/utilisateurs', label: 'Clients', icon: Settings },
 ];
 
 interface SearchResult {
@@ -44,7 +52,7 @@ interface SearchResult {
   extra?: string;
 }
 
-export function CommandPalette() {
+export function CommandPalette({ isAdmin = false }: { isAdmin?: boolean }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
@@ -73,59 +81,8 @@ export function CommandPalette() {
 
     const controller = new AbortController();
     const timeout = setTimeout(async () => {
-      const supabase = createClient();
-      const pattern = `%${escapeLike(query)}%`;
-
-      const [topicsRes, nichesRes, channelsRes] = await Promise.all([
-        supabase
-          .from('topics')
-          .select('id, label, niches(name)')
-          .ilike('label', pattern)
-          .limit(8),
-        supabase
-          .from('niches')
-          .select('id, name')
-          .ilike('name', pattern)
-          .limit(4),
-        supabase
-          .from('channels')
-          .select('id, title, niches(name)')
-          .ilike('title', pattern)
-          .limit(4),
-      ]);
-
+      const items = await searchEverything(query);
       if (controller.signal.aborted) return;
-
-      const items: SearchResult[] = [];
-
-      if (topicsRes.data) {
-        for (const t of topicsRes.data) {
-          items.push({
-            id: t.id,
-            label: t.label,
-            type: 'topic',
-            extra: (t.niches as unknown as { name: string } | null)?.name,
-          });
-        }
-      }
-
-      if (nichesRes.data) {
-        for (const n of nichesRes.data) {
-          items.push({ id: n.id, label: n.name, type: 'niche' });
-        }
-      }
-
-      if (channelsRes.data) {
-        for (const c of channelsRes.data) {
-          items.push({
-            id: c.id,
-            label: c.title,
-            type: 'channel',
-            extra: (c.niches as unknown as { name: string } | null)?.name,
-          });
-        }
-      }
-
       setResults(items);
     }, 200);
 
@@ -163,7 +120,7 @@ export function CommandPalette() {
         if (result.error) {
           toast.error(result.error);
         } else {
-          toast.success('Sujet marqué en production.');
+          toast.success('Vidéo ajoutée à Mes vidéos.');
         }
       });
     }
@@ -218,7 +175,7 @@ export function CommandPalette() {
           {/* Pages */}
           {(!query || query.length < 2) && (
             <Command.Group heading="Pages" className="[&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wider">
-              {PAGES.map((p) => {
+              {(isAdmin ? [...PAGES, ...ADMIN_PAGES] : PAGES).map((p) => {
                 const Icon = p.icon;
                 return (
                   <Command.Item
@@ -292,6 +249,7 @@ export function CommandPalette() {
                     .slice(0, 3)
                     .map((r) => (
                       <div key={`actions-${r.id}`}>
+                        {isAdmin && (
                         <Command.Item
                           value={`generate-angles-${r.label}`}
                           onSelect={() => handleAction('generate-angles', r.id)}
@@ -300,13 +258,14 @@ export function CommandPalette() {
                           <Sparkles className="w-3.5 h-3.5 text-primary" />
                           <span className="truncate">Générer des angles pour « {r.label} »</span>
                         </Command.Item>
+                        )}
                         <Command.Item
                           value={`mark-production-${r.label}`}
                           onSelect={() => handleAction('mark-production', r.id)}
                           className="flex items-center gap-2.5 h-9 px-3 rounded-lg text-[13px] text-foreground cursor-pointer data-[selected=true]:bg-accent transition-colors"
                         >
                           <ArrowRight className="w-3.5 h-3.5 text-phase-2" />
-                          <span className="truncate">Marquer en production « {r.label} »</span>
+                          <span className="truncate">Créer la vidéo « {r.label} »</span>
                         </Command.Item>
                       </div>
                     ))}

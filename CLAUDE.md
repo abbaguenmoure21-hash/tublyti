@@ -55,4 +55,4 @@ Un créateur faceless choisit ses sujets en regardant ce qui a déjà marché ch
 
 ## Fichiers à lire avant toute session
 
-`PRD.md`, `ARCHITECTURE.md`, `AI_RULES.md`, `PLAN.md`, et pour la V2 : `DESIGN.md` (fait autorité pour tout le visuel : aucune couleur, taille ou ombre en dur hors `globals.css`) et `PLAN_V2.md` (phases 8 à 13). Puis proposer un plan, attendre validation, coder phase par phase, montrer, attendre validation.
+`PRD.md`, `ARCHITECTURE.md`, `AI_RULES.md`, `PLAN.md`, et pour la V2 : `DESIGN.md` (fait autorité pour tout le visuel : aucune couleur, taille ou ombre en dur hors `globals.css`), `LEXIQUE.md` (fait autorité pour tous les mots affichés : aucun terme technique visible), `ERGONOMIE.md` (fait autorité pour la structure des écrans et les parcours : 3 espaces Sujets / Mes vidéos / Veille, panneau sujet, sélecteur de chaîne global) et `PLAN_V2.md` (phases 8 à 13). Puis proposer un plan, attendre validation, coder phase par phase, montrer, attendre validation.

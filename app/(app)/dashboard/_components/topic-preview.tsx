@@ -67,14 +67,14 @@ export function TopicPreview({
           {Math.round(topic.mgi)}
         </span>
         <span className="text-[14px] text-muted-foreground">
-          MGI · top {topic.rank} de la niche
+          Potentiel · n°{topic.rank} de la niche
         </span>
       </div>
 
       {/* 4 mini-cards */}
       <div className="grid grid-cols-2 gap-2.5">
         <MiniStat label="Demande" value={String(Math.round(topic.demand))} />
-        <MiniStat label="Offre qualifiée" value={supplyLabel} />
+        <MiniStat label="Vidéos existantes" value={supplyLabel} />
         <MiniStat label="Frustration" value={`${Math.round(topic.frustration * 100)} %`} />
         <MiniStat label="Monétisation" value={`× ${topic.monetization.toFixed(1)}`} />
       </div>

@@ -90,7 +90,7 @@ export function KanbanCardComponent({
         {card.mgi !== null && (
           <>
             <span className="text-black/10 dark:text-white/10">·</span>
-            <span className="tabular-nums text-mono-metric">MGI {Math.round(card.mgi)}</span>
+            <span className="tabular-nums text-mono-metric">Potentiel {Math.round(card.mgi)}</span>
           </>
         )}
       </div>

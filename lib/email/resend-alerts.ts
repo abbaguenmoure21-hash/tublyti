@@ -34,7 +34,8 @@ export class ResendAlertSender implements AlertSender {
   }
 
   async send(payload: AlertPayload): Promise<void> {
-    if (!this.apiKey || !this.to) {
+    const to = payload.to || this.to;
+    if (!this.apiKey || !to) {
       console.warn(`[Alert] ${payload.kind}: ${payload.subject} (no Resend config, skipping)`);
       return;
     }
@@ -47,7 +48,7 @@ export class ResendAlertSender implements AlertSender {
       },
       body: JSON.stringify({
         from: this.from,
-        to: [this.to],
+        to: [to],
         subject: `[TubLyTI] ${payload.subject}`,
         html: buildHtml(payload),
       }),

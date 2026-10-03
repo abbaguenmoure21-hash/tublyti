@@ -4,28 +4,28 @@ import { motion } from 'framer-motion';
 
 const PHASE_CONFIG = {
   0: {
-    label: 'Émergence',
+    label: 'À surveiller',
     dotClass: 'bg-phase-0',
     textClass: 'text-phase-0-ink',
     borderClass: 'border-phase-0/30',
     ringClass: 'bg-phase-0',
   },
   1: {
-    label: 'Viralité courte',
+    label: 'Ça monte',
     dotClass: 'bg-phase-1',
     textClass: 'text-phase-1-ink',
     borderClass: 'border-phase-1/30',
     ringClass: 'bg-phase-1',
   },
   2: {
-    label: 'Fenêtre dorée',
+    label: 'C’est le moment',
     dotClass: 'bg-phase-2',
     textClass: 'text-phase-2-ink',
     borderClass: 'border-phase-2/30',
     ringClass: 'bg-phase-2',
   },
   3: {
-    label: 'Saturé',
+    label: 'Trop tard',
     dotClass: 'bg-phase-3',
     textClass: 'text-phase-3-ink',
     borderClass: 'border-phase-3/30',
@@ -34,10 +34,10 @@ const PHASE_CONFIG = {
 } as const;
 
 export const PHASE_LABELS: Record<number, string> = {
-  0: 'Émergence',
-  1: 'Viralité courte',
-  2: 'Fenêtre dorée',
-  3: 'Saturation',
+  0: 'À surveiller',
+  1: 'Ça monte',
+  2: 'C’est le moment',
+  3: 'Trop tard',
 };
 
 interface PhaseBadgeAnimatedProps {

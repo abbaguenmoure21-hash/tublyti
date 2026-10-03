@@ -4,16 +4,17 @@ import { createServiceClient } from '@/lib/supabase/server';
 import { resolveNiche } from '@/lib/niches/resolve';
 import { getLatestScoreDate } from '@/lib/scoring/latest-score-date';
 import { checkRateLimit } from './rate-limit';
-import { canWrite, type McpTokenInfo } from './auth';
+import { canWrite, canSeeNiche, type McpTokenInfo } from './auth';
+import { listScopeNiches } from '@/lib/scope';
 import { escapeLike } from '@/lib/utils';
 
 // ── Constants ──────────────────────────────────────────────────────────
 
 const PHASE_LABELS: Record<number, string> = {
-  0: 'Emergence',
-  1: 'Viralite courte',
-  2: 'Fenetre ideale',
-  3: 'Saturation',
+  0: 'A surveiller',
+  1: 'Ca monte',
+  2: "C'est le moment",
+  3: 'Trop tard',
 };
 
 function phaseLabel(p: number | null | undefined): string {
@@ -38,11 +39,26 @@ function fail(text: string): TextResult {
   return { content: [{ type: 'text' as const, text }], isError: true };
 }
 
+const OUT_OF_SCOPE = 'Ce contenu ne fait pas partie de tes thematiques. Ajoute la thematique dans Reglages > Mes chaines.';
+
 async function guard(
   token: McpTokenInfo,
   toolName: string,
-  opts?: { write?: boolean },
+  opts?: { write?: boolean; admin?: boolean; topicId?: string; channelId?: string },
 ): Promise<string | null> {
+  if (opts?.admin && !token.isAdmin) {
+    return 'Outil reserve a l\'equipe TubLyTI.';
+  }
+  if (opts?.topicId && token.nicheIds !== null) {
+    const { data } = await createServiceClient().from('topics').select('niche_id').eq('id', opts.topicId).maybeSingle();
+    if (!data) return 'Sujet introuvable.';
+    if (!canSeeNiche(token, data.niche_id as string)) return OUT_OF_SCOPE;
+  }
+  if (opts?.channelId && token.nicheIds !== null) {
+    const { data } = await createServiceClient().from('channels').select('niche_id').eq('id', opts.channelId).maybeSingle();
+    if (!data) return 'Chaine introuvable.';
+    if (!canSeeNiche(token, data.niche_id as string)) return OUT_OF_SCOPE;
+  }
   if (opts?.write && !canWrite(token)) {
     return 'Acces refuse : ce jeton est en lecture seule. Cree un jeton lecture/ecriture dans Reglages > Acces API.';
   }
@@ -53,11 +69,21 @@ async function guard(
   return null;
 }
 
-async function resolveNicheOrFail(db: ReturnType<typeof createServiceClient>, query: string) {
+async function resolveNicheOrFail(db: ReturnType<typeof createServiceClient>, query: string, token: McpTokenInfo) {
   const { data: allNiches } = await db
     .from('niches')
     .select('id, name, category, owner_channel');
-  return resolveNiche(query, allNiches ?? []);
+  // Un jeton client ne voit que ses thematiques.
+  const visible = (allNiches ?? []).filter((n: { id: string }) => canSeeNiche(token, n.id));
+  return resolveNiche(query, visible);
+}
+
+/** Restreint une requete aux thematiques du jeton (aucun filtre pour un administrateur). */
+function inScope<Q>(q: Q, column: string, token: McpTokenInfo): Q {
+  if (token.nicheIds === null) return q;
+  const ids = token.nicheIds.length ? token.nicheIds : ['00000000-0000-0000-0000-000000000000'];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (q as any).in(column, ids);
 }
 
 // ── Server factory ─────────────────────────────────────────────────────
@@ -83,11 +109,11 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
       if (blocked) return fail(blocked);
 
       const db = createServiceClient();
-      const { data: niches } = await db
-        .from('niches')
-        .select('id, name, category, rpm_coefficient, owner_channel, status')
-        .eq('status', 'active')
-        .order('name');
+      const { data: niches } = await inScope(
+        db.from('niches').select('id, name, category, rpm_coefficient, owner_channel, status').eq('status', 'active'),
+        'id',
+        token,
+      ).order('name');
 
       if (!niches?.length) return ok('Aucune niche configuree.');
 
@@ -104,7 +130,7 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
 
   mcp.tool(
     'list_today',
-    'Retourne le flux « Aujourd\'hui » : par chaine, les 3 meilleures opportunites (phase 2 d\'abord, puis MGI), avec la frustration principale. Utilise cet outil pour repondre a « Quoi tourner cette semaine ? ».',
+    'Retourne le flux « Aujourd\'hui » : par chaine, les 3 meilleures opportunites (phase 2 d\'abord, puis MGI), avec la frustration principale. Utilise cet outil pour repondre a « Quels sujets choisir cette semaine ? ».',
     {},
     async () => {
       const blocked = await guard(token, 'list_today');
@@ -113,19 +139,22 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
       const db = createServiceClient();
       const scoredAt = await getLatestScoreDate(db);
 
-      const { data: channels } = await db
-        .from('channels')
-        .select('id, title, niche_id, niches(id, name)')
-        .order('title');
+      // Client : ses propres chaines. Administrateur : les chaines du catalogue.
+      const channels = token.userId && !token.isAdmin
+        ? (await listScopeNiches(db, token.userId)).map((n) => ({ id: n.id, title: n.label, niche_id: n.id, niches: { id: n.id, name: n.nicheName } }))
+        : (await db.from('channels').select('id, title, niche_id, niches(id, name)').order('title')).data;
 
-      if (!channels?.length) return ok('Aucune chaine configuree.');
+      if (!channels?.length) return ok('Aucune chaine configuree. Ajoute ta chaine dans Reglages > Mes chaines.');
 
-      const { data: allScores } = await db
-        .from('topic_scores')
-        .select('mgi, demand, frustration, supply_q, phase, topic_id, topics!inner(id, label, status, niche_id)')
-        .eq('scored_at', scoredAt)
-        .in('topics.status', ['active', 'in_production'])
-        .order('mgi', { ascending: false });
+      const { data: allScores } = await inScope(
+        db
+          .from('topic_scores')
+          .select('mgi, demand, frustration, supply_q, phase, topic_id, topics!inner(id, label, status, niche_id)')
+          .eq('scored_at', scoredAt)
+          .in('topics.status', ['active', 'in_production']),
+        'topics.niche_id',
+        token,
+      ).order('mgi', { ascending: false });
 
       const scoresByNiche = new Map<string, { topicId: string; label: string; mgi: number; phase: number }[]>();
       for (const s of allScores ?? []) {
@@ -186,7 +215,7 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
       const db = createServiceClient();
       const maxResults = Math.min(limit ?? 10, 50);
 
-      const resolved = await resolveNicheOrFail(db, niche);
+      const resolved = await resolveNicheOrFail(db, niche, token);
       if (!resolved.niche) {
         return fail(`Niche « ${niche} » introuvable. Disponibles : ${resolved.available.join(', ')}.`);
       }
@@ -243,12 +272,15 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
       if (!voyageKey) {
         // Fallback to text search
         const db = createServiceClient();
-        const { data: textResults } = await db
-          .from('topics')
-          .select('id, label, phase, status, niches(name)')
-          .ilike('label', `%${escapeLike(query)}%`)
-          .in('status', ['active', 'in_production', 'proposed'])
-          .limit(maxResults);
+        const { data: textResults } = await inScope(
+          db
+            .from('topics')
+            .select('id, label, phase, status, niches(name)')
+            .ilike('label', `%${escapeLike(query)}%`)
+            .in('status', token.isAdmin ? ['active', 'in_production', 'proposed'] : ['active', 'in_production']),
+          'niche_id',
+          token,
+        ).limit(maxResults);
 
         if (!textResults?.length) return ok(`Aucun sujet trouve pour « ${query} ».`);
 
@@ -289,12 +321,15 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
 
       if (searchErr) {
         // Fallback to text search
-        const { data: textResults } = await db
-          .from('topics')
-          .select('id, label, phase, status, niches(name)')
-          .ilike('label', `%${escapeLike(query)}%`)
-          .in('status', ['active', 'in_production', 'proposed'])
-          .limit(maxResults);
+        const { data: textResults } = await inScope(
+          db
+            .from('topics')
+            .select('id, label, phase, status, niches(name)')
+            .ilike('label', `%${escapeLike(query)}%`)
+            .in('status', token.isAdmin ? ['active', 'in_production', 'proposed'] : ['active', 'in_production']),
+          'niche_id',
+          token,
+        ).limit(maxResults);
 
         if (!textResults?.length) return ok(`Aucun sujet trouve pour « ${query} ».`);
 
@@ -305,13 +340,24 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
         return ok(`# Recherche : « ${query} » (${textResults.length} resultats, recherche textuelle)\n\n${lines.join('\n')}`);
       }
 
-      if (!results?.length) return ok(`Aucun sujet trouve pour « ${query} ».`);
+      let visible = (results ?? []) as Record<string, unknown>[];
+      if (token.nicheIds !== null && visible.length) {
+        // Recherche semantique : ne garder que les sujets des thematiques du client.
+        const { data: owned } = await inScope(
+          db.from('topics').select('id').in('id', visible.map((r) => r.id as string)).in('status', ['active', 'in_production']),
+          'niche_id',
+          token,
+        );
+        const ok2 = new Set(((owned ?? []) as { id: string }[]).map((o) => o.id));
+        visible = visible.filter((r) => ok2.has(r.id as string));
+      }
+      if (!visible.length) return ok(`Aucun sujet trouve pour « ${query} ».`);
 
-      const lines = results.map((r: Record<string, unknown>, i: number) =>
+      const lines = visible.map((r: Record<string, unknown>, i: number) =>
         `${i + 1}. **${r.label}** (similarite ${fmt(r.similarity as number, 2)}) — ${phaseLabel(r.phase as number)} — ID: \`${r.id}\``,
       );
 
-      return ok(`# Recherche semantique : « ${query} » (${results.length} resultats)\n\n${lines.join('\n')}`);
+      return ok(`# Recherche semantique : « ${query} » (${visible.length} resultats)\n\n${lines.join('\n')}`);
     },
   );
 
@@ -324,7 +370,7 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
       topic_id: z.string().uuid().describe('UUID du sujet'),
     },
     async ({ topic_id }) => {
-      const blocked = await guard(token, 'get_topic_gap');
+      const blocked = await guard(token, 'get_topic_gap', { topicId: topic_id });
       if (blocked) return fail(blocked);
 
       const db = createServiceClient();
@@ -436,7 +482,7 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
       topic_id: z.string().uuid().describe('UUID du sujet'),
     },
     async ({ topic_id }) => {
-      const blocked = await guard(token, 'get_topic_phase');
+      const blocked = await guard(token, 'get_topic_phase', { topicId: topic_id });
       if (blocked) return fail(blocked);
 
       const db = createServiceClient();
@@ -493,7 +539,7 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
       limit: z.number().optional().describe('Nombre max (defaut 20, max 50)'),
     },
     async ({ topic_id, limit }) => {
-      const blocked = await guard(token, 'list_frustrations');
+      const blocked = await guard(token, 'list_frustrations', { topicId: topic_id });
       if (blocked) return fail(blocked);
 
       const maxResults = Math.min(limit ?? 20, 50);
@@ -542,7 +588,7 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
       if (blocked) return fail(blocked);
 
       const db = createServiceClient();
-      const resolved = await resolveNicheOrFail(db, niche);
+      const resolved = await resolveNicheOrFail(db, niche, token);
       if (!resolved.niche) {
         return fail(`Niche « ${niche} » introuvable. Disponibles : ${resolved.available.join(', ')}.`);
       }
@@ -722,7 +768,7 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
       limit: z.number().optional().describe('Nombre max (defaut 10)'),
     },
     async ({ channel_id, min_ratio, limit }) => {
-      const blocked = await guard(token, 'channel_outliers');
+      const blocked = await guard(token, 'channel_outliers', { channelId: channel_id });
       if (blocked) return fail(blocked);
 
       const db = createServiceClient();
@@ -808,7 +854,7 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
       limit: z.number().optional().describe('Nombre max (defaut 5, max 20)'),
     },
     async ({ channel_id, limit }) => {
-      const blocked = await guard(token, 'similar_channels');
+      const blocked = await guard(token, 'similar_channels', { channelId: channel_id });
       if (blocked) return fail(blocked);
 
       const db = createServiceClient();
@@ -873,7 +919,7 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
       topic_id: z.string().uuid().describe('UUID du sujet'),
     },
     async ({ topic_id }) => {
-      const blocked = await guard(token, 'generate_angles', { write: true });
+      const blocked = await guard(token, 'generate_angles', { write: true, admin: true });
       if (blocked) return fail(blocked);
 
       const baseUrl = process.env.NEXT_PUBLIC_SITE_URL ?? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
@@ -919,11 +965,13 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
 
       const db = createServiceClient();
 
-      const { data: defaultCol } = await db
-        .from('collections')
-        .select('id')
-        .eq('is_default', true)
-        .single();
+      // Favoris du proprietaire du jeton (crees au premier usage).
+      let colQ = db.from('collections').select('id').eq('is_default', true);
+      if (token.userId) colQ = colQ.eq('user_id', token.userId);
+      let { data: defaultCol } = await colQ.limit(1).maybeSingle();
+      if (!defaultCol && token.userId) {
+        ({ data: defaultCol } = await db.from('collections').insert({ name: 'Favoris', is_default: true, user_id: token.userId }).select('id').single());
+      }
 
       if (!defaultCol) return fail('Collection par defaut introuvable. Cree-en une dans Reglages.');
 
@@ -950,7 +998,7 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
       angle_id: z.string().uuid().describe('UUID de l\'angle a mettre en production'),
     },
     async ({ topic_id, angle_id }) => {
-      const blocked = await guard(token, 'create_pipeline_card', { write: true });
+      const blocked = await guard(token, 'create_pipeline_card', { write: true, topicId: topic_id });
       if (blocked) return fail(blocked);
 
       const db = createServiceClient();
@@ -972,8 +1020,21 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
 
       if (!angle) return fail('Angle introuvable ou ne correspond pas au sujet.');
 
-      await db.from('topics').update({ status: 'in_production' }).eq('id', topic_id);
-      await db.from('angles').update({ status: 'in_production' }).eq('id', angle_id);
+      if (token.userId) {
+        // Compte client : nouvelle video dans SES « Mes videos » ; l'angle propose (commun) n'est pas modifie.
+        const { data: full } = await db.from('angles').select('title, hook').eq('id', angle_id).single();
+        const { error: insErr } = await db.from('angles').insert({
+          topic_id,
+          title: (full?.title as string) ?? angle.title,
+          hook: (full?.hook as string | null) ?? null,
+          status: 'in_production',
+          user_id: token.userId,
+        });
+        if (insErr) return fail(`Erreur : ${insErr.message}`);
+      } else {
+        await db.from('topics').update({ status: 'in_production' }).eq('id', topic_id);
+        await db.from('angles').update({ status: 'in_production' }).eq('id', angle_id);
+      }
 
       return ok(`« ${topic.label} » passe en production avec l'angle « ${angle.title} ».`);
     },
@@ -996,13 +1057,11 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
 
       const db = createServiceClient();
 
-      const { data: angle } = await db
-        .from('angles')
-        .select('id, title, topic_id')
-        .eq('id', angle_id)
-        .single();
+      let angleQ = db.from('angles').select('id, title, topic_id').eq('id', angle_id);
+      if (token.userId) angleQ = angleQ.eq('user_id', token.userId);
+      const { data: angle } = await angleQ.maybeSingle();
 
-      if (!angle) return fail('Angle introuvable.');
+      if (!angle) return fail('Video introuvable dans tes « Mes videos ».');
 
       const ytKey = process.env.YOUTUBE_API_KEY;
       if (ytKey) {
@@ -1014,7 +1073,7 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
       }
 
       await db.from('angles').update({ status: 'published', video_id: video_id.trim() }).eq('id', angle_id);
-      await db.from('topics').update({ status: 'published' }).eq('id', angle.topic_id);
+      if (!token.userId) await db.from('topics').update({ status: 'published' }).eq('id', angle.topic_id);
 
       return ok(`Angle « ${angle.title} » marque comme publie (video ${video_id.trim()}).`);
     },
@@ -1030,7 +1089,7 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
       niche: z.string().describe('Nom de la niche a laquelle rattacher la chaine'),
     },
     async ({ channel_id, niche }) => {
-      const blocked = await guard(token, 'add_candidate_channel', { write: true });
+      const blocked = await guard(token, 'add_candidate_channel', { write: true, admin: true });
       if (blocked) return fail(blocked);
 
       const db = createServiceClient();
@@ -1043,7 +1102,7 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
 
       if (existing) return fail(`La chaine « ${existing.title ?? channel_id} » est deja suivie.`);
 
-      const resolved = await resolveNicheOrFail(db, niche);
+      const resolved = await resolveNicheOrFail(db, niche, token);
       if (!resolved.niche) {
         return fail(`Niche « ${niche} » introuvable. Disponibles : ${resolved.available.join(', ')}.`);
       }
@@ -1091,11 +1150,15 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
       const db = createServiceClient();
       const scoredAt = await getLatestScoreDate(db);
 
-      const { data: allScores } = await db
-        .from('topic_scores')
-        .select('mgi, phase, topic_id, topics!inner(id, label, niche_id, niches(name))')
-        .eq('scored_at', scoredAt)
-        .eq('phase', 2)
+      const { data: allScores } = await inScope(
+        db
+          .from('topic_scores')
+          .select('mgi, phase, topic_id, topics!inner(id, label, niche_id, niches(name))')
+          .eq('scored_at', scoredAt)
+          .eq('phase', 2),
+        'topics.niche_id',
+        token,
+      )
         .order('mgi', { ascending: false })
         .limit(15);
 

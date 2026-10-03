@@ -28,16 +28,19 @@ export async function middleware(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   // If not logged in and trying to access protected routes, redirect to login
-  if (!user && !request.nextUrl.pathname.startsWith('/login')) {
+  const path = request.nextUrl.pathname;
+  const isPublic = path === '/' || path.startsWith('/login') || path.startsWith('/auth/');
+
+  if (!user && !isPublic) {
     const url = request.nextUrl.clone();
     url.pathname = '/login';
     return NextResponse.redirect(url);
   }
 
   // If logged in and on login page, redirect to dashboard
-  if (user && request.nextUrl.pathname.startsWith('/login')) {
+  if (user && path.startsWith('/login')) {
     const url = request.nextUrl.clone();
-    url.pathname = '/dashboard';
+    url.pathname = '/sujets';
     return NextResponse.redirect(url);
   }
 

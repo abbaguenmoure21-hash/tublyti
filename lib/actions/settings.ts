@@ -1,11 +1,14 @@
 'use server';
 
+import { assertAdmin } from '@/lib/auth/session';
+
 import { revalidatePath } from 'next/cache';
 import { createServiceClient } from '@/lib/supabase/server';
 import { DEFAULT_SCORING } from '@/lib/scoring/scoring-config';
 import type { ScoringSettings } from '@/lib/scoring/scoring-config';
 
 export async function getScoringSettings(): Promise<ScoringSettings> {
+  await assertAdmin();
   const db = createServiceClient();
 
   const { data: thresholdsRow } = await db
@@ -20,6 +23,7 @@ export async function getScoringSettings(): Promise<ScoringSettings> {
 }
 
 export async function saveScoringSettings(settings: ScoringSettings) {
+  await assertAdmin();
   const db = createServiceClient();
 
   const { error } = await db
@@ -34,6 +38,7 @@ export async function saveScoringSettings(settings: ScoringSettings) {
 }
 
 export async function previewTopTenWithWeights() {
+  await assertAdmin();
   const db = createServiceClient();
 
   const { data: topics } = await db
@@ -90,6 +95,7 @@ export async function updateNiche(
     rpm_source?: string;
   },
 ) {
+  await assertAdmin();
   const db = createServiceClient();
 
   const { error } = await db

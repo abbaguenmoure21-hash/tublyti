@@ -20,6 +20,7 @@ import {
   SunMedium,
   Activity,
   Bell,
+  BookOpen,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
@@ -35,30 +36,32 @@ import {
 
 const NAV_ITEMS = [
   { href: '/today', label: 'Aujourd\u2019hui', icon: Sun },
-  { href: '/dashboard', label: 'Matrice', icon: ScatterChart },
-  { href: '/pipeline', label: 'Pipeline', icon: Columns3 },
-  { href: '/frustrations', label: 'Frustrations', icon: MessageSquareWarning },
-  { href: '/activity', label: 'Activité', icon: Activity },
-  { href: '/topics/review', label: 'Validation', icon: ListChecks },
-  { href: '/channels', label: 'Chaînes', icon: Tv },
+  { href: '/dashboard', label: 'Carte des sujets', icon: ScatterChart },
+  { href: '/pipeline', label: 'Production', icon: Columns3 },
+  { href: '/frustrations', label: 'Questions du public', icon: MessageSquareWarning },
+  { href: '/activity', label: 'Concurrents', icon: Activity },
+  { href: '/topics/review', label: 'Sujets à valider', icon: ListChecks },
+  { href: '/channels', label: 'Chaînes suivies', icon: Tv },
 ];
 
 const BOTTOM_NAV = [
+  { href: '/guide', label: 'Guide d’utilisation', icon: BookOpen },
   { href: '/settings', label: 'Réglages', icon: SlidersHorizontal },
-  { href: '/admin/jobs', label: 'Jobs', icon: Settings },
+  { href: '/admin/jobs', label: 'Santé des données', icon: Settings },
 ];
 
 const PAGE_TITLES: Record<string, string> = {
   '/today': 'Aujourd\u2019hui',
   '/': 'Aujourd\u2019hui',
-  '/dashboard': 'Matrice',
-  '/pipeline': 'Pipeline',
-  '/frustrations': 'Frustrations',
-  '/activity': 'Activité',
-  '/topics/review': 'Validation',
-  '/channels': 'Chaînes',
+  '/dashboard': 'Carte des sujets',
+  '/pipeline': 'Production',
+  '/frustrations': 'Questions du public',
+  '/activity': 'Concurrents',
+  '/topics/review': 'Sujets à valider',
+  '/channels': 'Chaînes suivies',
+  '/guide': 'Guide d’utilisation',
   '/settings': 'Réglages',
-  '/admin/jobs': 'Jobs',
+  '/admin/jobs': 'Santé des données',
 };
 
 const COOKIE_KEY = 'tublyti-sidebar';
@@ -336,7 +339,7 @@ function SidebarContent({
 function getPageTitle(pathname: string): string {
   if (PAGE_TITLES[pathname]) return PAGE_TITLES[pathname];
   if (pathname.startsWith('/topics/')) return 'Sujet';
-  if (pathname.startsWith('/dashboard')) return 'Matrice';
+  if (pathname.startsWith('/dashboard')) return 'Carte des sujets';
   return 'TubLyTI';
 }
 

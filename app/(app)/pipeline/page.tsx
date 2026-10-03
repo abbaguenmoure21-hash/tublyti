@@ -1,7 +1,9 @@
 import { createServiceClient } from '@/lib/supabase/server';
 import { KanbanBoard } from './_components/kanban-board';
+import { requireUser, isDbReady } from '@/lib/auth/session';
+import { resolveScope } from '@/lib/scope';
 
-export const metadata = { title: 'Pipeline' };
+export const metadata = { title: 'Mes vidéos' };
 
 export interface PipelineCard {
   angleId: string;
@@ -47,18 +49,23 @@ export default async function PipelinePage({
   searchParams: Promise<{ niche?: string }>;
 }) {
   const { niche: nicheFilter } = await searchParams;
+  const user = await requireUser();
   const db = createServiceClient();
+  const { nicheIds: scopeNicheIds, niches: myNiches } = await resolveScope(db, user.id);
+  const labelByNiche = new Map(myNiches.map((n) => [n.id, n.label]));
 
-  // Fetch all angles with their topics and niches
-  const query = db
+  // Les vidéos du client connecté uniquement
+  const ready = await isDbReady();
+  let query = db
     .from('angles')
     .select(`
       id, title, hook, status, video_id, created_at,
       topics!inner(id, label, phase, status, niche_id,
-        niches(id, name, owner_channel))
+        niches(id, name))
     `)
     .in('status', ['idea', 'in_production', 'published'])
     .order('created_at', { ascending: false });
+  if (ready) query = query.eq('user_id', user.id);
 
   const { data: angles } = await query;
 
@@ -165,12 +172,6 @@ export default async function PipelinePage({
     }
   }
 
-  // Fetch all niches for the filter
-  const { data: niches } = await db
-    .from('niches')
-    .select('id, name, owner_channel')
-    .eq('status', 'active')
-    .order('name');
 
   // Build cards
   const cards: PipelineCard[] = (angles ?? []).map((a: Record<string, unknown>) => {
@@ -179,7 +180,7 @@ export default async function PipelinePage({
       label: string;
       phase: number;
       niche_id: string;
-      niches: { id: string; name: string; owner_channel: string | null } | null;
+      niches: { id: string; name: string } | null;
     };
 
     const vid = a.video_id as string | null;
@@ -198,7 +199,7 @@ export default async function PipelinePage({
       topicLabel: topic.label,
       nicheId: topic.niche_id,
       nicheName: topic.niches?.name ?? '',
-      channelName: topic.niches?.owner_channel ?? '',
+      channelName: labelByNiche.get(topic.niche_id) ?? '',
       phase: topic.phase ?? 0,
       mgi: scoreMap[topic.id] ?? null,
       status: a.status as 'idea' | 'in_production' | 'published',
@@ -207,7 +208,9 @@ export default async function PipelinePage({
       publishedDaysAgo,
       performanceVsMedian: vid ? (videoPerformance[vid] ?? null) : null,
     };
-  }).filter((c: PipelineCard) => !nicheFilter || c.nicheId === nicheFilter);
+  })
+    .filter((c: PipelineCard) => scopeNicheIds.length === 0 || scopeNicheIds.includes(c.nicheId))
+    .filter((c: PipelineCard) => !nicheFilter || c.nicheId === nicheFilter);
 
   // Group cards by column
   const columns: Record<PipelineColumn, PipelineCard[]> = {
@@ -222,20 +225,10 @@ export default async function PipelinePage({
     columns[col].push(card);
   }
 
-  const nichesList = (niches ?? []).map((n: Record<string, unknown>) => ({
-    id: n.id as string,
-    name: n.name as string,
-    channelName: (n.owner_channel as string) ?? '',
-  }));
+  const nichesList = myNiches.map((n) => ({ id: n.id, name: n.nicheName, channelName: n.label }));
 
   return (
     <div className="flex flex-col min-h-full relative overflow-x-clip">
-      {/* Background gradients multi-niveaux */}
-      <div className="absolute inset-0 pointer-events-none -z-10">
-        <div className="absolute -top-[20%] -left-[10%] w-[50%] h-[50%] rounded-full bg-blue-400/15 dark:bg-blue-600/15 blur-[100px]" />
-        <div className="absolute top-[20%] -right-[10%] w-[40%] h-[60%] rounded-full bg-purple-400/15 dark:bg-purple-600/15 blur-[120px]" />
-        <div className="absolute -bottom-[20%] left-[20%] w-[60%] h-[50%] rounded-full bg-cyan-400/15 dark:bg-cyan-600/15 blur-[100px]" />
-      </div>
 
       <KanbanBoard
         columns={columns}

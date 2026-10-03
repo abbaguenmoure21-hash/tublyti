@@ -81,7 +81,7 @@ export default async function JobsPage() {
     <div className="p-6 md:p-8 max-w-5xl mx-auto space-y-6">
       {/* En-tête */}
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Les collectes tournent-elles ?</h1>
+        <h1 className="text-2xl font-bold tracking-tight">La collecte de données fonctionne-t-elle ?</h1>
         <p className="text-sm text-muted-foreground mt-1">
           Historique des jobs et relance manuelle des crons
         </p>

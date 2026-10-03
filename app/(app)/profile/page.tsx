@@ -15,7 +15,7 @@ export default async function ProfilePage() {
   return (
     <div className="flex-1 flex flex-col min-h-full">
       <header className="h-[64px] shrink-0 flex items-center px-8 border-b border-[--glass-border] bg-[--bg-surface-1]/50 backdrop-blur-xl">
-        <h1 className="text-[20px] font-semibold text-foreground tracking-tight">Mon Profil</h1>
+        <h1 className="text-[20px] font-semibold text-foreground tracking-tight">Mon profil</h1>
       </header>
 
       <div className="flex-1 p-6 md:p-12 max-w-4xl mx-auto w-full space-y-8 fade-in">

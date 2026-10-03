@@ -1,5 +1,7 @@
 import Link from 'next/link';
 import { createServiceClient } from '@/lib/supabase/server';
+import { requireUser } from '@/lib/auth/session';
+import { resolveScope } from '@/lib/scope';
 import {
   Upload,
   Type,
@@ -10,7 +12,7 @@ import {
 } from 'lucide-react';
 import { ActivityFilters } from './_components/activity-filters';
 
-export const metadata = { title: 'Activité' };
+export const metadata = { title: 'Veille' };
 
 interface EventRow {
   id: string;
@@ -94,13 +96,17 @@ export default async function ActivityPage({
   const nicheFilter = params.niche || null;
   const channelSizeFilter = params.chsize || null;
 
+  const user = await requireUser();
   const db = createServiceClient();
+  const { nicheIds: allowed } = await resolveScope(db, user.id);
+  const ids = allowed.length ? allowed : ['00000000-0000-0000-0000-000000000000'];
 
-  // Fetch niches for filter tabs
+  // Thématiques du client uniquement
   const { data: niches } = await db
     .from('niches')
     .select('id, name')
     .eq('status', 'active')
+    .in('id', ids)
     .order('name');
 
   // Fetch events (last 30 days)
@@ -112,13 +118,14 @@ export default async function ActivityPage({
        videos!inner(id, title, thumbnail_url, channel_id, channels!inner(id, title, subscriber_count, niche_id, niches!inner(id, name)))`,
     )
     .gte('created_at', thirtyDaysAgo)
+    .in('videos.channels.niche_id', ids)
     .order('created_at', { ascending: false })
     .limit(100);
 
   if (typeFilter) {
     query = query.eq('event_type', typeFilter);
   }
-  if (nicheFilter) {
+  if (nicheFilter && ids.includes(nicheFilter)) {
     query = query.eq('videos.channels.niche_id', nicheFilter);
   }
 
@@ -198,22 +205,15 @@ export default async function ActivityPage({
     <div className="flex-1 flex flex-col min-h-full relative overflow-x-clip">
       {/* Background gradients multi-niveaux */}
       <div className="absolute inset-0 pointer-events-none -z-10">
-        <div className="absolute -top-[20%] -left-[10%] w-[50%] h-[50%] rounded-full bg-blue-400/15 dark:bg-blue-600/15 blur-[100px]" />
-        <div className="absolute top-[20%] -right-[10%] w-[40%] h-[60%] rounded-full bg-purple-400/15 dark:bg-purple-600/15 blur-[120px]" />
-        <div className="absolute -bottom-[20%] left-[20%] w-[60%] h-[50%] rounded-full bg-cyan-400/15 dark:bg-cyan-600/15 blur-[100px]" />
       </div>
 
-      <header className="sticky top-0 z-20 h-[64px] shrink-0 flex items-center gap-3 px-8 border-b border-black/5 dark:border-white/10 bg-white/60 dark:bg-[#08090C]/60 backdrop-blur-2xl shadow-sm text-[13px] text-muted-foreground">
-        <span className="font-medium text-[16px]">Activité</span>
-      </header>
+
 
       <div className="flex-1 p-6 md:px-12 md:py-10 flex flex-col gap-8 overflow-x-hidden w-full max-w-[1400px] mx-auto">
         <div className="flex flex-col gap-2">
-          <h1 className="text-[32px] font-bold tracking-tight text-foreground leading-tight">
-            Fil d&apos;activité
-          </h1>
-          <p className="text-[16px] font-medium text-muted-foreground/80">
-            Changements détectés sur les vidéos suivies : uploads, modifications de titre ou miniature, pics de vues.
+          <h1 className="text-[28px] font-semibold leading-tight tracking-[-0.02em] md:text-[32px]">À voir cette semaine</h1>
+          <p className="text-[15px] text-muted-foreground">
+            Ce qui bouge dans tes thématiques : nouvelles vidéos, titres ou miniatures changés, vidéos qui surperforment.
           </p>
         </div>
 

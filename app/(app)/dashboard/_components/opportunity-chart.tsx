@@ -32,9 +32,9 @@ export function OpportunityChart({ data }: { data: ScatterPoint[] }) {
         <XAxis
           type="number"
           dataKey="x"
-          name="Offre qualifiée"
+          name="Vidéos de qualité existantes"
           label={{
-            value: 'Offre qualifiée (O_q)',
+            value: 'Vidéos de qualité existantes',
             position: 'insideBottom',
             offset: -15,
             style: { fontSize: 12, fill: 'var(--muted-foreground)' },
@@ -60,7 +60,7 @@ export function OpportunityChart({ data }: { data: ScatterPoint[] }) {
             return (
               <div className="bg-popover border border-border rounded-lg px-3 py-2 shadow-lg text-sm">
                 <p className="font-medium text-popover-foreground">{d.label}</p>
-                <p className="text-muted-foreground tabular-nums">MGI : {d.mgi.toFixed(1)}</p>
+                <p className="text-muted-foreground tabular-nums">Potentiel : {Math.round(d.mgi)}</p>
                 <p className="text-muted-foreground tabular-nums">Demande : {d.y.toFixed(0)}</p>
                 <p className="text-muted-foreground tabular-nums">Offre : {d.x.toFixed(1)}</p>
                 <p className="text-muted-foreground">Phase : {PHASE_LABELS[d.phase] ?? '?'}</p>

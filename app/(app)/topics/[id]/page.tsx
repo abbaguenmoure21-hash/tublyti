@@ -2,6 +2,8 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import type { Metadata } from 'next';
 import { createServiceClient } from '@/lib/supabase/server';
+import { requireUser, isDbReady } from '@/lib/auth/session';
+import { resolveScope } from '@/lib/scope';
 import { PhaseBadge, MgiScore, PHASE_LABELS } from '@/components/tublyti';
 import { getMgiBand, type ConfidenceResult } from '@/lib/scoring/mgi';
 import { OutlierBadge } from '@/components/tublyti/outlier-badge';
@@ -105,6 +107,7 @@ export default async function TopicPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  const user = await requireUser();
   const db = createServiceClient();
 
   // Topic + niche
@@ -115,6 +118,13 @@ export default async function TopicPage({
     .single();
 
   if (error || !topic) notFound();
+
+  // Un client ne voit que les sujets de ses thématiques (l'admin voit tout).
+  if (user.role !== 'admin') {
+    const { nicheIds } = await resolveScope(db, user.id);
+    const topicNiche = (topic.niches as unknown as { id: string } | null)?.id;
+    if (!topicNiche || !nicheIds.includes(topicNiche)) notFound();
+  }
 
   // Latest score
   const { data: score } = await db
@@ -232,11 +242,13 @@ export default async function TopicPage({
   });
 
   // Angles
-  const { data: angles } = await db
+  let anglesQ = db
     .from('angles')
     .select('id, title, hook, rationale, status, video_id, created_at')
     .eq('topic_id', id)
     .order('created_at', { ascending: false });
+  if (await isDbReady()) anglesQ = anglesQ.or(`user_id.is.null,user_id.eq.${user.id}`);
+  const { data: angles } = await anglesQ;
 
   // Signals (90 days)
   const ninetyDaysAgo = new Date(Date.now() - 90 * 86_400_000).toISOString().slice(0, 10);
@@ -371,7 +383,7 @@ export default async function TopicPage({
                       : confidenceData.level === 'medium' ? 'bg-[#FF9F0A] text-[#FF9F0A]'
                       : 'bg-[#FF453A] text-[#FF453A]'
                     }`} />
-                    Confiance : {confidenceData.level === 'high' ? 'Élevée' : confidenceData.level === 'medium' ? 'Moyenne' : 'Faible'}
+                    Fiabilité : {confidenceData.level === 'high' ? 'Élevée' : confidenceData.level === 'medium' ? 'Moyenne' : 'Faible'}
                     <span className="absolute bottom-full left-0 mb-1 hidden group-hover:block bg-[--bg-surface-2] text-foreground text-[11px] px-2 py-1 rounded shadow-md border border-[--glass-border] whitespace-nowrap z-10 backdrop-blur-md">
                       {confidenceData.reason}
                     </span>
@@ -384,7 +396,7 @@ export default async function TopicPage({
               </div>
             </div>
             <ScoreCard label="Demande" value={String(Math.round(Number(score.demand)))} sub="Trends" />
-            <ScoreCard label="Offre qualifiée" value={String(Math.round(Number(score.supply_q)))} sub="vidéo(s) de qualité en 180 j" />
+            <ScoreCard label="Vidéos de qualité existantes" value={String(Math.round(Number(score.supply_q)))} sub="vidéo(s) de qualité en 180 j" />
             <ScoreCard
               label="Frustration"
               value={`${Math.round(Number(score.frustration) * 100)} %`}

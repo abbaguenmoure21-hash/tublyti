@@ -1,5 +1,7 @@
 'use server';
 
+import { assertAdmin } from '@/lib/auth/session';
+
 import { revalidatePath } from 'next/cache';
 import { createServiceClient } from '@/lib/supabase/server';
 import { z } from 'zod';
@@ -10,6 +12,7 @@ const AddChannelSchema = z.object({
 });
 
 export async function addChannel(url: string, nicheId: string) {
+  await assertAdmin();
   const parsed = AddChannelSchema.safeParse({ url, niche_id: nicheId });
 
   if (!parsed.success) {
@@ -58,6 +61,7 @@ export async function addChannel(url: string, nicheId: string) {
 }
 
 export async function deleteChannel(channelId: string) {
+  await assertAdmin();
   if (!channelId) return { error: 'ID manquant.' };
 
   const db = createServiceClient();

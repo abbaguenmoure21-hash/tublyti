@@ -1,5 +1,7 @@
 'use server';
 
+import { assertAdmin } from '@/lib/auth/session';
+
 import { createServiceClient } from '@/lib/supabase/server';
 
 function monthKey(): string {
@@ -45,6 +47,7 @@ export interface AiSpendEntry {
 }
 
 export async function getAiSpendHistory(limit = 50): Promise<{ data: AiSpendEntry[] }> {
+  await assertAdmin();
   const db = createServiceClient();
 
   const { data: rows } = await db

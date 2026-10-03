@@ -22,6 +22,9 @@ export async function POST(request: NextRequest) {
   const auth = await authenticateExtRequest(request);
   if (isAuthError(auth)) return auth;
 
+  if (!auth.isAdmin) {
+    return jsonWithCors(request, { error: 'Le suivi de nouvelles chaînes est géré par l’équipe TubLyTI.' }, { status: 403 });
+  }
   if (!canWrite(auth)) {
     return jsonWithCors(request, { error: 'Jeton en lecture seule.' }, { status: 403 });
   }
