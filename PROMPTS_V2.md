@@ -107,6 +107,38 @@ Critère de sortie :
 - Les 6 niches ont au moins 10 sujets scorés.
 - Aucun sujet de moins de 5 vidéos avec un MGI.
 
+## P39 — Faire grossir les sujets émergents (« À surveiller » vides)
+
+Contexte : sur la Carte (dashboard), 60 des 61 sujets « À surveiller » n'ont que 2 ou 3 vidéos. Le score les classe en confiance `insufficient` (mgi null, demand 0, supply_q 0) et ils restent bloqués là : rien ne leur rattache de nouvelles vidéos et rien ne les ferme. Lis d'abord `design/AUDIT_PIPELINE_2026-10-03.md` (points 6 et suivants) et `lib/topics/attach-service.ts`, `scripts/attach-videos.ts`, `scripts/reject-empty-topics.ts`, `lib/scoring/score-service.ts`.
+
+Objectif : un sujet « insuffisant » doit, en 2 à 3 nuits, soit atteindre 5 vidéos et être mesuré, soit être fermé. Plus aucun sujet ne doit rester plus de 21 jours à moins de 5 vidéos.
+
+1. Rattachement ciblé (gratuit en quota) : chaque nuit, après la collecte, pour chaque sujet `active` dont le dernier score est `insufficient`, compare son centroïde d'embeddings aux vidéos des 30 derniers jours de la même niche qui n'ont pas de sujet (`topic_id is null`). Rattache au-dessus du seuil de rattachement (0,72, cf. audit), au maximum 40 vidéos par sujet et par nuit. Journalise le nombre rattaché par sujet dans le job.
+2. Recherche YouTube ciblée (payante en quota, plafonnée) : pour les sujets encore sous 5 vidéos après l'étape 1 ET créés depuis plus de 3 jours, lance une recherche via `lib/youtube/search.ts` (seul fichier autorisé à appeler search.list, 100 unités l'appel) avec le libellé du sujet, `publishedAfter` = 90 jours, `type=video`, `videoDuration=medium|long`. Plafond : 15 recherches par nuit (1 500 unités), priorité aux sujets dont les 2–3 vidéos ont le plus de vues. Les vidéos trouvées passent par le même contrôle de similarité que l'étape 1 avant d'être rattachées (pas de rattachement aveugle). Ajoute la variable `EMERGING_SEARCHES_PER_NIGHT` (défaut 15, 0 = désactivé) et respecte le budget de temps par étape déjà en place.
+3. Fermeture : un sujet toujours sous 5 vidéos 21 jours après sa création passe `status = 'rejected'` avec la raison « trop peu de vidéos après 21 jours » (réutilise `reject-empty-topics`). Ne ferme jamais un sujet qui a au moins une vidéo dans « Mes vidéos » d'un client (`angles.user_id is not null`).
+4. Score : pas de changement de formule. Vérifie seulement que les sujets `insufficient` gardent `mgi = null` (l'interface les affiche « Pas encore mesuré · N vidéos repérées »).
+5. Rapport : le job `nightly` écrit dans `items_processed`/`error` un résumé « sujets enrichis X, vidéos rattachées Y, recherches Z (quota Q), sujets fermés W ».
+
+Règles : ne lance pas `pnpm nightly` ni le workflow à la main pendant qu'un autre run tourne ; script de fermeture testé d'abord en `--dry-run` et résultat montré avant exécution ; `pnpm build` doit passer avant tout push ; demande-moi confirmation avant toute action qui consomme de l'IA payante.
+
+Test d'acceptation : après une nuit, la page Carte filtrée sur « À surveiller » montre au moins 30 % de sujets placés sur le graphique (mesurés), et le résumé du job indique le quota YouTube consommé par l'étape.
+
+## P40 — Faisabilité calculée pour chaque client (fini le « C » partout)
+
+Contexte : `computeFeasibility` (lib/scoring/feasibility.ts) compare la taille de la chaîne du propriétaire aux chaînes concurrentes. Elle lit encore `niches.owner_channel` (score-service.ts, ~l. 389 et 493). Avec l'espace client (migration 00018), chaque client a ses chaînes dans `user_channels` et deux clients d'une même niche n'ont pas la même taille : une note unique écrite dans `topic_scores` ne peut pas être juste. Résultat aujourd'hui : « C — Aucune chaîne propriétaire configurée » sur tous les sujets (l'interface masque cette note en attendant).
+
+1. Migration `00020_faisabilite_par_client.sql` :
+   - `topic_scores.competitor_subs int[]` : abonnés des chaînes concurrentes retenues (vidéos ≥ 8 min, 90 derniers jours, chaînes ≥ 10 k), triés, 200 valeurs au plus.
+   - `user_channels.subscriber_count int` et `user_channels.subscribers_checked_at timestamptz`.
+2. Score (score-service.ts) : écris `competitor_subs` à chaque calcul. Garde `feasibility_grade/reason` uniquement pour l'administrateur (calcul avec `niches.owner_channel` comme aujourd'hui) le temps de la transition.
+3. Abonnés des chaînes clients : nouvelle étape de nuit (après la collecte) qui lit les `user_channels` ayant un `youtube_channel_id` commençant par `UC` et met à jour `subscriber_count` via `channels.list` (lots de 50, 1 unité par lot). Pour un `@pseudo`, résous-le une seule fois avec `channels.list?forHandle=` et remplace la valeur par l'identifiant `UC…`.
+4. Calcul à l'affichage : ajoute `lib/scoring/feasibility-for-user.ts` qui, pour un client, une niche et un sujet, appelle `computeFeasibility(subsDeSaChaîneDansCetteNiche, competitor_subs, competitor_subs.length)`. Utilise-le dans `app/(app)/dashboard/page.tsx` (colonne Faisabilité et fiche à droite), `app/(app)/sujets` (panneau du sujet, ligne « Faisabilité ») et `app/(app)/topics/[id]`. Sans chaîne YouTube renseignée ou sans `subscriber_count`, n'affiche pas de note : affiche « Ajoute l'adresse YouTube de ta chaîne dans Réglages pour voir tes chances » avec un lien vers `/settings#chaines`.
+5. Textes : garde les raisons en français tutoyé (déjà le cas dans feasibility.ts) ; remplace « vidéos qualifiées » par « bonnes vidéos » dans les raisons.
+
+Règles : migration montrée avant exécution (je la lance moi-même dans Supabase) ; `pnpm build` doit passer ; pas de push pendant un run de nuit.
+
+Test d'acceptation : avec un compte client dont la chaîne a 3 000 abonnés et un autre à 300 000 sur la même niche, un même sujet affiche deux notes différentes, chacune avec sa raison.
+
 ## P38 — Déployer : l'app sur Vercel, le pipeline de nuit sur GitHub Actions
 
 > La phase données est validée (diagnostic du 3 oct. 15:19). Jusqu'ici tout tourne à la main depuis le Mac. Objectif : que la collecte, le classement et le score tournent seuls chaque nuit, même Mac éteint.

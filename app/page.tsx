@@ -22,7 +22,7 @@ export const metadata: Metadata = {
 const PREVIEW = [
   { title: 'Tax strategies for a normal salary', niche: 'Finance personnelle', phase: 2, mgi: 94 },
   { title: 'Housing market: what changes in 2027', niche: 'Finance personnelle', phase: 2, mgi: 88 },
-  { title: 'Claude for non-coders, start to finish', niche: 'IA et automatisation', phase: 1, mgi: 91 },
+  { title: 'Claude for non-coders, start to finish', niche: 'IA et automatisation', phase: 1, mgi: 84 },
   { title: 'Habits that quietly drain your energy', niche: 'Psychologie', phase: 1, mgi: 79 },
 ];
 
@@ -65,9 +65,9 @@ const FEATURES = [
 ];
 
 const TIERS = [
-  { name: 'Créateur', desc: 'Pour une chaîne.', items: ['1 niche', '150 chaînes concurrentes suivies', 'Résumé par e-mail chaque dimanche', 'Extension Chrome'] },
-  { name: 'Studio', desc: 'Pour gérer plusieurs chaînes.', items: ['3 niches', '600 chaînes concurrentes suivies', 'Idées d’angles et de titres', 'Suivi de production', 'Connexion à Claude'], featured: true },
-  { name: 'Agence', desc: 'Pour les équipes.', items: ['Niches illimitées', 'Plusieurs utilisateurs', 'Export des fiches sujets en PDF', 'Assistance prioritaire'] },
+  { name: 'Créateur', slug: 'createur', desc: 'Pour une chaîne.', items: ['1 niche', '150 chaînes concurrentes suivies', 'Résumé par e-mail chaque dimanche', 'Extension Chrome'] },
+  { name: 'Studio', slug: 'studio', desc: 'Pour gérer plusieurs chaînes.', items: ['3 niches', '600 chaînes concurrentes suivies', 'Idées d’angles et de titres', 'Suivi de production', 'Connexion à Claude'], featured: true },
+  { name: 'Agence', slug: 'agence', desc: 'Pour les équipes.', items: ['Niches illimitées', 'Plusieurs utilisateurs', 'Export des fiches sujets en PDF', 'Assistance prioritaire'] },
 ];
 
 const FAQ = [
@@ -119,9 +119,9 @@ export default async function LandingPage() {
           </nav>
           <div className="flex-1" />
           <Link href="/login" className="text-[15px] font-medium text-foreground hover:text-primary">Se connecter</Link>
-          <a href="#liste" className="hidden h-10 items-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground hover:opacity-90 sm:inline-flex">
+          <Link href="/liste-attente?source=menu" className="hidden h-10 items-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground hover:opacity-90 sm:inline-flex">
             Rejoindre la liste
-          </a>
+          </Link>
         </div>
       </header>
 
@@ -286,14 +286,14 @@ export default async function LandingPage() {
                   <h3 className="text-xl font-semibold">{t.name}</h3>
                   <p className="text-2xl font-semibold tracking-[-0.01em]">Prix à venir</p>
                   <p className="text-[15px] leading-normal text-muted-foreground">{t.desc}</p>
-                  <a
-                    href="#liste"
+                  <Link
+                    href={`/liste-attente?offre=${t.slug}`}
                     className={`inline-flex h-11 items-center justify-center rounded-lg text-sm font-medium ${
                       t.featured ? 'bg-primary text-primary-foreground hover:opacity-90' : 'border border-border bg-card hover:bg-muted'
                     }`}
                   >
                     Rejoindre la liste
-                  </a>
+                  </Link>
                   <ul className="flex flex-col gap-2.5">
                     {t.items.map((it) => (
                       <li key={it} className="flex gap-2.5 text-[15px] leading-snug">

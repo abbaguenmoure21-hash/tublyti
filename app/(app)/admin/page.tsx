@@ -2,16 +2,10 @@ import Link from 'next/link';
 import { ChevronRight } from 'lucide-react';
 import { createServiceClient } from '@/lib/supabase/server';
 import { requireAdmin } from '@/lib/auth/session';
+import { jobLabel } from '@/lib/jobs/labels';
 
 export const metadata = { title: 'Console d’admin' };
 
-const KIND: Record<string, string> = {
-  nightly: 'Collecte de nuit',
-  collect: 'Collecte des vidéos',
-  score: 'Calcul du potentiel',
-  comments: 'Commentaires',
-  embed: 'Regroupement en sujets',
-};
 
 function ago(iso: string) {
   const h = Math.round((Date.now() - new Date(iso).getTime()) / 3_600_000);
@@ -92,7 +86,7 @@ export default async function AdminPage() {
             return (
               <li key={j.id} className="flex items-center gap-3 border-b border-muted px-4 py-3 text-sm last:border-b-0">
                 <span className="flex-1">
-                  <span className="font-medium">{KIND[j.kind] ?? j.kind}</span>
+                  <span className="font-medium">{jobLabel(j.kind)}</span>
                   <span className="text-muted-foreground"> · {ago(j.started_at)}</span>
                   {j.error && <span className="mt-0.5 block truncate text-xs text-destructive">{j.error}</span>}
                 </span>

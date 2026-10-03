@@ -1,350 +1,271 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
+import { ArrowRight, Upload, Type, Image as ImageIcon, TrendingUp } from 'lucide-react';
 import { createServiceClient } from '@/lib/supabase/server';
 import { requireUser } from '@/lib/auth/session';
 import { resolveScope } from '@/lib/scope';
-import {
-  Upload,
-  Type,
-  Image,
-  TrendingUp,
-  ArrowRight,
-  Activity as ActivityIcon,
-} from 'lucide-react';
-import { ActivityFilters } from './_components/activity-filters';
 
-export const metadata = { title: 'Veille' };
+export const metadata: Metadata = { title: 'Veille' };
+
+type Kind = 'new_upload' | 'title_change' | 'thumbnail_change' | 'spike';
+
+const KINDS: { key: Kind | 'tous'; label: string }[] = [
+  { key: 'tous', label: 'Tout' },
+  { key: 'spike', label: 'Vidéos qui décollent' },
+  { key: 'title_change', label: 'Titres changés' },
+  { key: 'thumbnail_change', label: 'Miniatures changées' },
+  { key: 'new_upload', label: 'Nouvelles vidéos' },
+];
+
+const BADGE: Record<Kind, { label: string; icon: typeof Upload; tone: string }> = {
+  spike: { label: 'Décolle', icon: TrendingUp, tone: 'bg-phase-2-soft text-phase-2-ink' },
+  title_change: { label: 'Titre changé', icon: Type, tone: 'bg-primary-soft text-primary-ink' },
+  thumbnail_change: { label: 'Miniature changée', icon: ImageIcon, tone: 'bg-phase-1-soft text-phase-1-ink' },
+  new_upload: { label: 'Nouvelle vidéo', icon: Upload, tone: 'bg-muted text-muted-foreground' },
+};
 
 interface EventRow {
   id: string;
   videoId: string;
-  eventType: string;
+  kind: Kind;
   oldValue: string | null;
   newValue: string | null;
   meta: Record<string, unknown> | null;
   createdAt: string;
-  videoTitle: string;
-  thumbnailUrl: string | null;
-  channelTitle: string;
-  channelId: string;
-  nicheName: string;
-  nicheId: string;
-  subscriberCount: number;
-  // Snapshot data for view evolution after change
+  title: string;
+  thumbnail: string;
+  channel: string;
+  subscribers: number;
+  myChannel: string;
   viewsBefore: number | null;
   viewsAfter: number | null;
 }
 
-function parseChannelSize(chsize: string | null): { min: number; max: number } | null {
-  if (!chsize) return null;
-  const parts = chsize.split('-');
-  return {
-    min: parseInt(parts[0], 10) || 0,
-    max: parts[1] ? parseInt(parts[1], 10) || Infinity : Infinity,
-  };
+const nf = new Intl.NumberFormat('fr-FR');
+function compact(n: number): string {
+  if (n >= 1_000_000) return `${nf.format(Math.round(n / 100_000) / 10)} M`;
+  if (n >= 1_000) return `${nf.format(Math.round(n / 100) / 10)} k`;
+  return nf.format(n);
 }
 
-function formatNumber(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace('.0', '')} M`;
-  if (n >= 1000) return `${(n / 1000).toFixed(1).replace('.0', '')} k`;
-  return String(n);
-}
-
-function formatDate(iso: string): string {
+function dayLabel(iso: string): string {
   const d = new Date(iso);
-  const now = new Date();
-  const diffMs = now.getTime() - d.getTime();
-  const diffH = Math.floor(diffMs / 3_600_000);
-
-  if (diffH < 1) return 'Il y a quelques minutes';
-  if (diffH < 24) return `Il y a ${diffH} h`;
-
-  const diffDays = Math.floor(diffMs / 86_400_000);
-  if (diffDays === 1) return 'Hier';
-  if (diffDays < 7) return `Il y a ${diffDays} jours`;
-
-  return d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
+  const today = new Date();
+  const start = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diff = Math.round((start(today) - start(d)) / 86_400_000);
+  if (diff === 0) return 'Aujourd’hui';
+  if (diff === 1) return 'Hier';
+  const s = d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+  return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-const EVENT_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
-  new_upload: Upload,
-  title_change: Type,
-  thumbnail_change: Image,
-  spike: TrendingUp,
-};
+/** Miniature YouTube : l'adresse enregistrée, sinon l'image standard de la vidéo. */
+function thumb(videoId: string, url: string | null): string {
+  return url && url.startsWith('http') ? url : `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`;
+}
 
-const EVENT_LABELS: Record<string, string> = {
-  new_upload: 'Nouvel upload',
-  title_change: 'Titre modifié',
-  thumbnail_change: 'Miniature modifiée',
-  spike: 'Pic de vues',
-};
-
-const EVENT_COLORS: Record<string, string> = {
-  new_upload: 'text-phase-0 bg-phase-0/10',
-  title_change: 'text-primary bg-primary/10',
-  thumbnail_change: 'text-phase-2 bg-phase-2/10',
-  spike: 'text-destructive bg-destructive/10',
-};
-
-export default async function ActivityPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ type?: string; niche?: string; chsize?: string }>;
-}) {
+export default async function VeillePage({ searchParams }: { searchParams: Promise<{ type?: string }> }) {
   const params = await searchParams;
-  const typeFilter = params.type || null;
-  const nicheFilter = params.niche || null;
-  const channelSizeFilter = params.chsize || null;
-
   const user = await requireUser();
   const db = createServiceClient();
-  const { nicheIds: allowed } = await resolveScope(db, user.id);
-  const ids = allowed.length ? allowed : ['00000000-0000-0000-0000-000000000000'];
+  const { scope, nicheIds, niches } = await resolveScope(db, user.id);
+  const ids = nicheIds.length ? nicheIds : ['00000000-0000-0000-0000-000000000000'];
+  const labelByNiche = new Map(niches.map((n) => [n.id, n.label]));
+  const scopeLabel = scope ? labelByNiche.get(scope) : null;
 
-  // Thématiques du client uniquement
-  const { data: niches } = await db
-    .from('niches')
-    .select('id, name')
-    .eq('status', 'active')
-    .in('id', ids)
-    .order('name');
-
-  // Fetch events (last 30 days)
-  const thirtyDaysAgo = new Date(Date.now() - 30 * 86_400_000).toISOString();
-  let query = db
+  const since = new Date(Date.now() - 14 * 86_400_000).toISOString();
+  const { data: raw } = await db
     .from('video_events')
     .select(
       `id, video_id, event_type, old_value, new_value, meta, created_at,
-       videos!inner(id, title, thumbnail_url, channel_id, channels!inner(id, title, subscriber_count, niche_id, niches!inner(id, name)))`,
+       videos!inner(id, title, thumbnail_url, channels!inner(id, title, subscriber_count, niche_id))`,
     )
-    .gte('created_at', thirtyDaysAgo)
+    .gte('created_at', since)
     .in('videos.channels.niche_id', ids)
     .order('created_at', { ascending: false })
-    .limit(100);
+    .limit(200);
 
-  if (typeFilter) {
-    query = query.eq('event_type', typeFilter);
-  }
-  if (nicheFilter && ids.includes(nicheFilter)) {
-    query = query.eq('videos.channels.niche_id', nicheFilter);
-  }
-
-  const { data: rawEvents } = await query;
-
-  // Map to typed rows
-  let events: EventRow[] = (rawEvents ?? []).map((e: Record<string, unknown>) => {
-    const video = e.videos as unknown as {
-      id: string;
-      title: string;
-      thumbnail_url: string | null;
-      channel_id: string;
-      channels: {
-        id: string;
-        title: string;
-        subscriber_count: number | null;
-        niche_id: string;
-        niches: { id: string; name: string };
-      };
+  const all: EventRow[] = ((raw ?? []) as Record<string, unknown>[]).map((e) => {
+    const v = e.videos as unknown as {
+      id: string; title: string; thumbnail_url: string | null;
+      channels: { id: string; title: string; subscriber_count: number | null; niche_id: string };
     };
     return {
       id: e.id as string,
       videoId: e.video_id as string,
-      eventType: e.event_type as string,
-      oldValue: e.old_value as string | null,
-      newValue: e.new_value as string | null,
-      meta: e.meta as Record<string, unknown> | null,
+      kind: e.event_type as Kind,
+      oldValue: (e.old_value as string | null) ?? null,
+      newValue: (e.new_value as string | null) ?? null,
+      meta: (e.meta as Record<string, unknown> | null) ?? null,
       createdAt: e.created_at as string,
-      videoTitle: video.title,
-      thumbnailUrl: video.thumbnail_url,
-      channelTitle: video.channels.title,
-      channelId: video.channels.id,
-      nicheName: video.channels.niches.name,
-      nicheId: video.channels.niches.id,
-      subscriberCount: video.channels.subscriber_count ?? 0,
+      title: v.title,
+      thumbnail: thumb(v.id, v.thumbnail_url),
+      channel: v.channels.title,
+      subscribers: v.channels.subscriber_count ?? 0,
+      myChannel: labelByNiche.get(v.channels.niche_id) ?? '',
       viewsBefore: null,
       viewsAfter: null,
     };
   });
 
-  // Channel size filter (client-side since it's on a joined field)
-  const sizeRange = parseChannelSize(channelSizeFilter);
-  if (sizeRange) {
-    events = events.filter(
-      (e) => e.subscriberCount >= sizeRange.min && e.subscriberCount < sizeRange.max,
-    );
-  }
+  const counts: Record<string, number> = { tous: all.length };
+  for (const e of all) counts[e.kind] = (counts[e.kind] ?? 0) + 1;
+  const kind = KINDS.some((k) => k.key === params.type) ? (params.type as Kind) : 'tous';
+  const events = kind === 'tous' ? all : all.filter((e) => e.kind === kind);
 
-  // For title/thumbnail changes, fetch view evolution (snapshot before and after the event)
-  const changeEvents = events.filter(
-    (e) => e.eventType === 'title_change' || e.eventType === 'thumbnail_change',
-  );
-  if (changeEvents.length > 0) {
-    for (const evt of changeEvents) {
-      const { data: snaps } = await db
-        .from('video_snapshots')
-        .select('captured_at, views')
-        .eq('video_id', evt.videoId)
-        .order('captured_at', { ascending: false })
-        .limit(5);
-
-      if (snaps && snaps.length >= 2) {
-        const evtDate = new Date(evt.createdAt).getTime();
-        const before = snaps.find(
-          (s: Record<string, unknown>) => new Date(s.captured_at as string).getTime() <= evtDate,
-        );
-        const after = snaps.find(
-          (s: Record<string, unknown>) => new Date(s.captured_at as string).getTime() > evtDate,
-        );
-        if (before) evt.viewsBefore = Number(before.views);
-        if (after) evt.viewsAfter = Number(after.views);
+  // Vues avant / après un changement de titre ou de miniature : une seule requête.
+  const changed = events.filter((e) => e.kind === 'title_change' || e.kind === 'thumbnail_change').slice(0, 80);
+  if (changed.length) {
+    const { data: snaps } = await db
+      .from('video_snapshots')
+      .select('video_id, captured_at, views')
+      .in('video_id', [...new Set(changed.map((e) => e.videoId))])
+      .gte('captured_at', new Date(Date.now() - 30 * 86_400_000).toISOString())
+      .order('captured_at', { ascending: true })
+      .limit(5000);
+    const byVideo = new Map<string, { t: number; views: number }[]>();
+    for (const s of (snaps ?? []) as { video_id: string; captured_at: string; views: number | null }[]) {
+      const list = byVideo.get(s.video_id) ?? [];
+      list.push({ t: new Date(s.captured_at).getTime(), views: Number(s.views ?? 0) });
+      byVideo.set(s.video_id, list);
+    }
+    for (const e of changed) {
+      const list = byVideo.get(e.videoId) ?? [];
+      const at = new Date(e.createdAt).getTime();
+      const before = [...list].reverse().find((s) => s.t <= at);
+      const after = list[list.length - 1];
+      if (before && after && after.t > at) {
+        e.viewsBefore = before.views;
+        e.viewsAfter = after.views;
       }
     }
   }
 
+  // Regroupement par jour
+  const groups: { day: string; items: EventRow[] }[] = [];
+  for (const e of events) {
+    const day = dayLabel(e.createdAt);
+    const g = groups[groups.length - 1];
+    if (g && g.day === day) g.items.push(e);
+    else groups.push({ day, items: [e] });
+  }
+
+  const href = (k: string) => (k === 'tous' ? '/activity' : `/activity?type=${k}`);
+
   return (
-    <div className="flex-1 flex flex-col min-h-full relative overflow-x-clip">
-      {/* Background gradients multi-niveaux */}
-      <div className="absolute inset-0 pointer-events-none -z-10">
-      </div>
+    <div className="flex flex-col gap-6 px-4 pb-12 pt-5 md:px-8">
+      <header className="flex flex-col gap-1.5">
+        <h1 className="text-[28px] font-semibold leading-tight tracking-[-0.02em] md:text-[32px]">
+          {scopeLabel ? `À voir cette semaine · ${scopeLabel}` : 'À voir cette semaine'}
+        </h1>
+        <p className="max-w-[760px] text-[15px] leading-relaxed text-muted-foreground">
+          Ce que font les chaînes de tes thématiques depuis 14 jours. Une vidéo qui décolle signale un sujet qui plaît ; un titre ou une miniature
+          changés montrent ce que les créateurs testent pour gagner des vues.
+        </p>
+      </header>
 
+      <nav aria-label="Filtrer par type" className="well inline-flex max-w-full gap-0.5 self-start overflow-x-auto rounded-[12px] bg-muted p-[3px]">
+        {KINDS.map((k) => {
+          const on = k.key === kind;
+          return (
+            <Link
+              key={k.key}
+              href={href(k.key)}
+              scroll={false}
+              aria-current={on ? 'true' : undefined}
+              className={`flex h-8 shrink-0 items-center gap-1.5 rounded-[9px] px-3 text-[13px] transition-all ${
+                on ? 'elev-1 bg-card font-semibold text-foreground' : 'font-medium text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              {k.label}
+              <span className="text-[12px] font-normal tabular-nums text-muted-foreground">{counts[k.key] ?? 0}</span>
+            </Link>
+          );
+        })}
+      </nav>
 
-
-      <div className="flex-1 p-6 md:px-12 md:py-10 flex flex-col gap-8 overflow-x-hidden w-full max-w-[1400px] mx-auto">
-        <div className="flex flex-col gap-2">
-          <h1 className="text-[28px] font-semibold leading-tight tracking-[-0.02em] md:text-[32px]">À voir cette semaine</h1>
-          <p className="text-[15px] text-muted-foreground">
-            Ce qui bouge dans tes thématiques : nouvelles vidéos, titres ou miniatures changés, vidéos qui surperforment.
-          </p>
+      {groups.length === 0 ? (
+        <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-border px-6 py-16 text-center">
+          <p className="text-[15px] font-medium">Rien de nouveau pour ce filtre depuis 14 jours.</p>
+          <p className="max-w-md text-sm text-muted-foreground">La veille se met à jour chaque nuit avec les chaînes que TubLyTI analyse dans tes thématiques.</p>
+          {kind !== 'tous' && (
+            <Link href="/activity" className="mt-1 text-sm font-semibold text-primary">
+              Voir tout
+            </Link>
+          )}
         </div>
-
-        <ActivityFilters niches={niches ?? []} />
-
-        {events.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 auto-rows-max">
-            {events.map((evt) => {
-              const Icon = EVENT_ICONS[evt.eventType] ?? Upload;
-              const colorClass = EVENT_COLORS[evt.eventType] ?? 'text-muted-foreground bg-muted';
-
-              return (
-                <div
-                  key={evt.id}
-                  className="group relative px-4 py-3.5 bg-white dark:bg-white/5 border border-black/5 dark:border-white/10 rounded-2xl flex items-start gap-4 transition-all hover:shadow-[0_4px_20px_rgb(0,0,0,0.06)]"
-                >
-                  {/* Visual / Thumbnail */}
-                  <div className="flex flex-col gap-1.5 shrink-0 w-[120px] pt-1">
-                    {evt.eventType === 'thumbnail_change' && evt.oldValue && evt.newValue ? (
-                      <div className="flex flex-col gap-1.5">
-                        <div className="relative aspect-video rounded-md overflow-hidden opacity-50 grayscale transition-all group-hover:opacity-100 group-hover:grayscale-0">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={evt.oldValue} alt="" className="object-cover w-full h-full" />
-                          <div className="absolute inset-0 flex items-center justify-center">
-                            <span className="text-[9px] uppercase tracking-wider font-bold bg-black/60 text-white px-1.5 py-0.5 rounded backdrop-blur-sm">Avant</span>
-                          </div>
-                        </div>
-                        <div className="relative aspect-video rounded-md overflow-hidden shadow-sm border border-black/10">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={evt.newValue} alt="" className="object-cover w-full h-full" />
-                          <div className="absolute inset-0 flex items-center justify-center">
-                            <span className="text-[9px] uppercase tracking-wider font-bold bg-green-500/80 text-white px-1.5 py-0.5 rounded backdrop-blur-sm">Après</span>
-                          </div>
-                        </div>
-                      </div>
-                    ) : evt.thumbnailUrl && (evt.eventType === 'new_upload' || evt.eventType === 'spike') ? (
-                      <div className="relative aspect-video rounded-lg overflow-hidden shadow-sm border border-black/5 mt-0.5">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={evt.thumbnailUrl} alt="" className="object-cover w-full h-full" />
-                        <div
-                          className={`absolute top-1.5 left-1.5 w-6 h-6 rounded-md flex items-center justify-center backdrop-blur-md shadow-sm ${colorClass}`}
-                        >
-                          <Icon className="w-3.5 h-3.5" />
-                        </div>
-                      </div>
-                    ) : (
-                      <div
-                        className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-sm mt-0.5 ${colorClass}`}
-                      >
-                        <Icon className="w-4 h-4" />
-                      </div>
-                    )}
-                    
-                    {/* Niche Badge */}
-                    <div className="flex items-center justify-center bg-black/5 dark:bg-white/5 border border-black/5 dark:border-white/5 rounded py-0.5 px-1.5 w-full overflow-hidden mt-0.5">
-                      <span className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground truncate" title={evt.nicheName}>
-                        {evt.nicheName}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Content */}
-                  <div className="flex-1 min-w-0 flex flex-col justify-center min-h-[40px] py-0.5">
-                    <div className="flex flex-col gap-0.5">
-                      <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider">
-                        <span className={`whitespace-nowrap ${colorClass.split(' ')[0]}`}>{EVENT_LABELS[evt.eventType] ?? evt.eventType}</span>
-                      </div>
-                      <span className="text-[12.5px] font-medium text-muted-foreground truncate">
-                        {evt.channelTitle} <span className="text-[11.5px] opacity-70">({formatNumber(evt.subscriberCount)} abo)</span>
-                      </span>
-                    </div>
-                    <Link
-                      href={`https://youtube.com/watch?v=${evt.videoId}`}
+      ) : (
+        groups.map((g) => (
+          <section key={g.day} aria-label={g.day} className="flex flex-col gap-2">
+            <h2 className="px-1 text-[13px] font-semibold text-muted-foreground">{g.day}</h2>
+            <ul className="overflow-hidden rounded-2xl bg-card">
+              {g.items.map((e) => {
+                const b = BADGE[e.kind] ?? BADGE.new_upload;
+                const gain =
+                  e.viewsBefore != null && e.viewsAfter != null && e.viewsBefore > 0
+                    ? Math.round(((e.viewsAfter - e.viewsBefore) / e.viewsBefore) * 100)
+                    : null;
+                const multiplier = typeof e.meta?.multiplier === 'number' ? (e.meta.multiplier as number) : null;
+                return (
+                  <li key={e.id} className="border-b border-muted last:border-b-0">
+                    <a
+                      href={`https://www.youtube.com/watch?v=${e.videoId}`}
                       target="_blank"
-                      className="text-[14.5px] font-bold leading-snug mt-1.5 line-clamp-2 text-foreground/90 group-hover:text-foreground hover:text-primary transition-colors block"
-                      title={evt.videoTitle}
+                      rel="noopener noreferrer"
+                      className="group flex gap-4 px-4 py-4 transition-colors hover:bg-muted/50 md:px-5"
                     >
-                      {evt.videoTitle}
-                    </Link>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={e.kind === 'thumbnail_change' && e.newValue?.startsWith('http') ? e.newValue : e.thumbnail}
+                        alt=""
+                        loading="lazy"
+                        className="elev-1 aspect-video w-[132px] shrink-0 rounded-[10px] bg-muted object-cover md:w-[176px]"
+                      />
+                      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-muted-foreground">
+                          <span className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[12px] font-semibold ${b.tone}`}>
+                            <b.icon className="h-3.5 w-3.5" aria-hidden="true" />
+                            {b.label}
+                          </span>
+                          <span className="font-medium text-foreground">{e.channel}</span>
+                          <span>· {compact(e.subscribers)} abonnés</span>
+                          {!scope && e.myChannel && <span>· {e.myChannel}</span>}
+                        </div>
 
-                    {evt.eventType === 'spike' && evt.meta && (
-                      <div className="mt-2.5">
-                        <span className="inline-flex items-center gap-1.5 text-[12px] text-destructive font-semibold px-2.5 py-1 rounded-md bg-destructive/10 border border-destructive/20">
-                          <TrendingUp className="w-3.5 h-3.5" />
-                          {evt.meta.multiplier as number}× la médiane
-                        </span>
-                      </div>
-                    )}
+                        {e.kind === 'title_change' ? (
+                          <div className="flex flex-col gap-1">
+                            <p className="text-[15px] font-semibold leading-snug">{e.newValue ?? e.title}</p>
+                            {e.oldValue && <p className="text-[13px] leading-snug text-muted-foreground">Avant : {e.oldValue}</p>}
+                          </div>
+                        ) : (
+                          <p className="text-[15px] font-semibold leading-snug">{e.title}</p>
+                        )}
 
-                    {evt.eventType === 'title_change' && evt.oldValue && evt.newValue && (
-                      <div className="mt-2.5 flex flex-col gap-1.5 bg-black/5 dark:bg-white/5 p-2.5 rounded-xl border border-black/5 dark:border-white/5">
-                        <p className="text-[12px] text-muted-foreground line-through opacity-70 truncate" title={evt.oldValue}>
-                          {evt.oldValue}
-                        </p>
-                        <p className="text-[13px] text-foreground font-medium truncate" title={evt.newValue}>
-                          {evt.newValue}
-                        </p>
-                      </div>
-                    )}
-                      {/* View evolution after change */}
-                      {(evt.eventType === 'title_change' ||
-                        evt.eventType === 'thumbnail_change') &&
-                        evt.viewsBefore !== null &&
-                        evt.viewsAfter !== null && (
-                          <div className="flex items-center gap-1.5 mt-2.5 text-[11px] font-semibold text-muted-foreground/80 bg-black/5 dark:bg-white/5 w-fit px-2 py-1 rounded-md">
-                            <TrendingUp className="w-3 h-3" />
-                            <span>
-                              {formatNumber(evt.viewsBefore)} → {formatNumber(evt.viewsAfter)} vues
-                              {evt.viewsAfter > evt.viewsBefore && (
-                                <span className="text-success ml-1">
-                                  (+{formatNumber(evt.viewsAfter - evt.viewsBefore)})
-                                </span>
-                              )}
-                            </span>
+                        {e.kind === 'thumbnail_change' && e.oldValue?.startsWith('http') && (
+                          <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
+                            Avant :
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={e.oldValue} alt="Ancienne miniature" loading="lazy" className="aspect-video w-[88px] rounded-md object-cover opacity-80" />
                           </div>
                         )}
-                    </div>
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          <div className="bg-white/60 dark:bg-white/5 backdrop-blur-2xl border border-white/40 dark:border-white/10 shadow-[0_8px_30px_rgb(0,0,0,0.04)] rounded-[24px] p-12 text-center">
-            <ActivityIcon className="w-8 h-8 text-muted-foreground/60 mx-auto mb-3" />
-            <p className="text-[20px] font-bold tracking-tight text-foreground">Aucun événement détecté</p>
-            <p className="text-sm text-muted-foreground mt-1">
-              Les événements apparaîtront ici après la prochaine collecte.
-            </p>
-          </div>
-        )}
-      </div>
+
+                        <p className="text-[13px] text-muted-foreground">
+                          {e.kind === 'spike' && multiplier
+                            ? `${nf.format(multiplier)} fois plus de vues par heure que d’habitude pour cette chaîne`
+                            : gain !== null
+                              ? `${gain >= 0 ? '+' : ''}${gain} % de vues depuis le changement`
+                              : null}
+                        </p>
+                      </div>
+                      <ArrowRight className="mt-1 hidden h-4 w-4 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 md:block" aria-hidden="true" />
+                    </a>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        ))
+      )}
     </div>
   );
 }

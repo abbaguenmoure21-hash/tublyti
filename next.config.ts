@@ -10,6 +10,10 @@ const nextConfig: NextConfig = {
       { source: "/profile", destination: "/settings", permanent: false },
       { source: "/videos", destination: "/pipeline", permanent: false },
       { source: "/veille", destination: "/activity", permanent: false },
+      { source: "/waitlist", destination: "/liste-attente", permanent: true },
+      { source: "/inscription", destination: "/liste-attente", permanent: true },
+      { source: "/signup", destination: "/liste-attente", permanent: true },
+      { source: "/rejoindre", destination: "/liste-attente", permanent: true },
     ];
   },
 };

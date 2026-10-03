@@ -21,10 +21,10 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
 }
 
 const LABEL_NAMES: Record<string, string> = {
-  no_one_explains: "Personne n'explique",
-  wish_video_on: 'Souhait de vidéo',
-  stopped_too_early: "S'arrête trop tôt",
-  searched_long: 'Longue recherche',
+  no_one_explains: 'Explication manquante',
+  wish_video_on: 'Vidéo réclamée',
+  stopped_too_early: 'Sujet survolé',
+  searched_long: 'Recherche difficile',
 };
 
 const COMPETITOR_TAGS: Record<string, { label: string; color: string }> = {
@@ -154,7 +154,7 @@ export default async function TopicPage({
   // Videos (competitors)
   const { data: videos } = await db
     .from('videos')
-    .select('id, title, published_at, duration_seconds, is_qualified, channel_id, channels(title)')
+    .select('id, title, published_at, duration_s, is_qualified, channel_id, channels(title)')
     .eq('topic_id', id)
     .order('published_at', { ascending: false })
     .limit(20);
@@ -197,7 +197,7 @@ export default async function TopicPage({
   }
 
   const competitors: Competitor[] = (videos ?? []).map((v: Record<string, unknown>) => {
-    const durationSec = (v.duration_seconds as number) ?? 0;
+    const durationSec = (v.duration_s as number) ?? 0;
     const publishedAt = v.published_at as string;
     const tag = classifyCompetitor({ publishedAt, durationSec });
     const vid = v.id as string;
@@ -293,36 +293,30 @@ export default async function TopicPage({
 
   return (
     <div className="flex-1 flex flex-col min-w-0">
-      {/* Breadcrumb header */}
-      <header className="h-[60px] shrink-0 flex items-center gap-3 px-8 border-b border-border bg-card text-[14px] text-muted-foreground">
-        <Link href="/dashboard" className="text-muted-foreground hover:text-foreground transition-colors">
-          Matrice
+      {/* Retour : un seul niveau, comme dans les apps Apple */}
+      <nav aria-label="Retour" className="px-4 pt-5 md:px-8">
+        <Link href={`/sujets?sujet=${id}&moment=tous`} className="inline-flex items-center gap-1 text-[15px] font-medium text-primary">
+          <span aria-hidden="true">‹</span> Sujets
         </Link>
-        <span className="text-border">/</span>
-        <Link href={`/dashboard${niche ? `?niche=${niche.id}` : ''}`} className="text-muted-foreground hover:text-foreground transition-colors">
-          {niche?.name ?? 'Niche'}
-        </Link>
-        <span className="text-border">/</span>
-        <span className="text-foreground font-medium truncate">{topic.label}</span>
-      </header>
+      </nav>
 
-      <div className="flex-1 p-7 flex flex-col gap-5">
+      <div className="flex flex-1 flex-col gap-5 px-4 pb-12 pt-3 md:px-8">
         {/* Title row */}
         <div className="flex items-start justify-between gap-6">
           <div className="flex flex-col gap-2.5">
             <div className="flex items-center gap-2.5">
               <PhaseBadge phase={phase} />
               <span className="text-[13px] text-muted-foreground">
-                Ouverte depuis {daysSinceCreated} jour{daysSinceCreated !== 1 ? 's' : ''}
+                {niche?.name ? `${niche.name} · ` : ''}repéré il y a {daysSinceCreated} jour{daysSinceCreated !== 1 ? 's' : ''}
               </span>
             </div>
-            <h1 className="text-[30px] font-semibold tracking-[-0.02em] leading-tight">
+            <h1 className="text-[28px] font-semibold leading-tight tracking-[-0.02em] md:text-[32px]">
               {topic.label}
             </h1>
           </div>
           <div className="flex items-center gap-2">
             <DossierExport topicId={id} />
-            <TopicActions topicId={id} status={topic.status} isFavorite={isFavorite} />
+            <TopicActions topicId={id} status={topic.status} isFavorite={isFavorite} canGenerate={user.role === 'admin'} />
           </div>
         </div>
         <TopicShortcuts topicId={id} status={topic.status} hasBrief={(angles ?? []).length > 0} />
@@ -331,7 +325,7 @@ export default async function TopicPage({
         {score && (Date.now() - new Date(score.scored_at).getTime() > 36 * 3_600_000) && (
           <div className="flex items-center gap-2 px-4 py-2.5 rounded-[10px] bg-[var(--warning)]/10 text-[var(--warning)] text-[13px] border border-[var(--warning)]/20">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-            Les données ont plus de 36 h. Le cron de collecte est peut-être en panne.
+            Ces chiffres datent de plus de 36 heures : la mise à jour de cette nuit n’est pas encore passée.
           </div>
         )}
 
@@ -343,76 +337,50 @@ export default async function TopicPage({
             ? { level: score.confidence as 'high' | 'medium' | 'low', reason: score.confidence_reason ?? '' }
             : null;
           return (
-          <div className="grid gap-4" style={{ gridTemplateColumns: '1.3fr 1fr 1fr 1fr 1fr' }}>
-            {/* MGI card */}
-            <div className="bento-card !px-[18px] !py-4 flex flex-col gap-1.5">
-              <span className="text-[13px] text-muted-foreground font-medium">Market Gap Index</span>
-              <div className="flex items-baseline gap-2">
-                <span className="text-display-giant text-mono-metric tabular-nums tracking-tight">
-                  {Math.round(mgiVal)}
-                </span>
-                <span
-                  className="text-[12px] font-semibold px-2 py-0.5 rounded-lg"
-                  style={{
-                    backgroundColor: band.color + '20',
-                    color: band.color === '#e2e6ff' || band.color === '#b7c0f8' ? '#424882' : band.color,
-                  }}
-                >
-                  {band.label}
-                </span>
-                {mgiDelta !== null && (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            <div className="flex flex-col gap-1.5 rounded-2xl bg-card px-4 py-4">
+              <span className="text-[13px] font-medium text-muted-foreground">Potentiel</span>
+              <span className="flex items-baseline gap-2">
+                <span className="text-[30px] font-semibold leading-none tabular-nums tracking-[-0.02em]">{Math.round(mgiVal)}</span>
+                <span className="text-sm text-muted-foreground">/ 100</span>
+                {mgiDelta !== null && Math.round(mgiDelta) !== 0 && (
                   <span className={`text-[13px] font-medium ${mgiDelta >= 0 ? 'text-phase-2-ink' : 'text-phase-3-ink'}`}>
                     {mgiDelta >= 0 ? '+' : ''}{Math.round(mgiDelta)} en 7 j
                   </span>
                 )}
-              </div>
-              <span className="block h-1.5 rounded-full bg-[--bg-surface-2] overflow-hidden mt-1">
-                <span
-                  className="block h-1.5 rounded-full"
-                  style={{
-                    width: `${Math.min(mgiVal, 100)}%`,
-                    backgroundColor: band.color,
-                  }}
-                />
               </span>
-              <div className="flex items-center gap-2 text-[11px] text-muted-foreground mt-1">
-                {confidenceData && (
-                  <span className="group relative cursor-help flex items-center gap-1 font-medium">
-                    <span className={`w-1.5 h-1.5 rounded-full shadow-[0_0_4px_currentColor] ${
-                      confidenceData.level === 'high' ? 'bg-[#30D158] text-[#30D158]'
-                      : confidenceData.level === 'medium' ? 'bg-[#FF9F0A] text-[#FF9F0A]'
-                      : 'bg-[#FF453A] text-[#FF453A]'
-                    }`} />
-                    Fiabilité : {confidenceData.level === 'high' ? 'Élevée' : confidenceData.level === 'medium' ? 'Moyenne' : 'Faible'}
-                    <span className="absolute bottom-full left-0 mb-1 hidden group-hover:block bg-[--bg-surface-2] text-foreground text-[11px] px-2 py-1 rounded shadow-md border border-[--glass-border] whitespace-nowrap z-10 backdrop-blur-md">
-                      {confidenceData.reason}
-                    </span>
-                  </span>
-                )}
-                {confidenceData && <span className="text-[--glass-border]">·</span>}
-                <span className={`font-medium ${Date.now() - new Date(score.scored_at).getTime() > 36 * 3_600_000 ? 'text-[#FF9F0A]' : ''}`}>
-                  {formatScoredAtFreshness(score.scored_at)}
-                </span>
-              </div>
+              <span className="h-1.5 overflow-hidden rounded-full bg-muted">
+                <span className="block h-full rounded-full bg-primary" style={{ width: `${Math.min(mgiVal, 100)}%` }} />
+              </span>
+              <span className="text-xs text-muted-foreground" title={confidenceData?.reason}>
+                {confidenceData ? (confidenceData.level === 'high' ? 'Fiable' : confidenceData.level === 'medium' ? 'Assez fiable' : 'Peu de données') : ''}
+                {confidenceData ? ' · ' : ''}
+                {formatScoredAtFreshness(score.scored_at)}
+              </span>
             </div>
-            <ScoreCard label="Demande" value={String(Math.round(Number(score.demand)))} sub="Trends" />
-            <ScoreCard label="Vidéos de qualité existantes" value={String(Math.round(Number(score.supply_q)))} sub="vidéo(s) de qualité en 180 j" />
+            <ScoreCard label="Demande du public" value={`${Math.round(Number(score.demand) * 100)}`} unit="/ 100" sub="Comparée aux autres sujets de la thématique" />
             <ScoreCard
-              label="Frustration"
-              value={`${Math.round(Number(score.frustration) * 100)} %`}
-              sub={totalComments > 0 ? `sur ${totalComments.toLocaleString('fr-FR')} commentaires` : undefined}
+              label="Bonnes vidéos existantes"
+              value={Number(score.supply_q) <= 0 ? 'Aucune' : `×${new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 1 }).format(Number(score.supply_q))}`}
+              sub={Number(score.supply_q) < 0.8 ? 'Moins que la moyenne : peu de concurrence' : Number(score.supply_q) <= 1.25 ? 'Dans la moyenne de la thématique' : 'Plus que la moyenne : concurrence forte'}
             />
             <ScoreCard
-              label="Monétisation"
-              value={niche?.rpm_low && niche?.rpm_high ? `${niche.rpm_low}–${niche.rpm_high} $` : `× ${Number(score.monetization).toFixed(1)}`}
-              sub={niche?.rpm_source ? `Source : ${niche.rpm_source}` : niche ? `catégorie ${niche.name}` : undefined}
+              label="Public frustré"
+              value={`${Math.round(Number(score.frustration) * 100)}`}
+              unit="%"
+              sub={totalComments > 0 ? `des ${totalComments.toLocaleString('fr-FR')} commentaires analysés` : 'des commentaires analysés'}
+            />
+            <ScoreCard
+              label="Revenus publicitaires"
+              value={niche?.rpm_low && niche?.rpm_high ? `${niche.rpm_low} à ${niche.rpm_high} $` : `×${Number(score.monetization).toFixed(1)}`}
+              sub={niche?.rpm_low && niche?.rpm_high ? 'pour 1 000 vues (estimation de la thématique)' : 'par rapport à une thématique moyenne'}
             />
           </div>
           );
         })()}
 
         {/* Feasibility card */}
-        {score?.feasibility_grade && (
+        {score?.feasibility_grade && !score.feasibility_reason?.startsWith('Aucune chaîne') && (
           <div className="bento-card !px-[18px] !py-3.5 flex items-center gap-3">
             <span className={`inline-flex items-center justify-center h-8 w-8 rounded-[8px] text-[16px] font-bold ${
               score.feasibility_grade === 'A' ? 'bg-[#30D158]/15 text-[#30D158]'
@@ -441,9 +409,9 @@ export default async function TopicPage({
             {/* Frustrations */}
             <section className="bento-card !p-0 flex flex-col">
               <div className="flex items-center justify-between px-5 py-4 border-b border-[--glass-border] bg-[--bg-surface-1]/50">
-                <h2 className="text-headline">Ce que les spectateurs réclament</h2>
+                <h2 className="text-headline">Ce que réclame le public</h2>
                 <span className="text-[13px] font-medium text-muted-foreground bg-[--bg-surface-2] px-2 py-0.5 rounded border border-[--glass-border]">
-                  {totalFrustrated} commentaire{totalFrustrated !== 1 ? 's' : ''} frustré{totalFrustrated !== 1 ? 's' : ''}
+                  {totalFrustrated} commentaire{totalFrustrated !== 1 ? 's' : ''}
                 </span>
               </div>
               {frustrationList.length === 0 ? (
@@ -451,11 +419,11 @@ export default async function TopicPage({
                   Aucun commentaire de frustration détecté.
                 </div>
               ) : (
-                frustrationList.map((f) => (
+                frustrationList.slice(0, 8).map((f) => (
                   <div key={f.commentId} className="px-5 py-4 border-b border-[--glass-border] flex flex-col gap-2.5 last:border-0 hover:bg-[--bg-surface-1]/30 transition-colors">
-                    <p className="text-[14px] leading-relaxed text-foreground/90 italic">« {f.text} »</p>
+                    <p className="line-clamp-4 text-[15px] leading-relaxed text-foreground">« {f.text} »</p>
                     <div className="flex items-center gap-2.5 text-[12px] text-muted-foreground">
-                      <span className="h-6 px-2 rounded-md bg-[--bg-surface-2] border border-[--glass-border] inline-flex items-center font-semibold uppercase tracking-wider text-muted-foreground">
+                      <span className="inline-flex h-6 shrink-0 items-center rounded-md bg-muted px-2 font-medium text-muted-foreground">
                         {LABEL_NAMES[f.label] ?? f.label}
                       </span>
                       {f.requestedAngle && (
@@ -463,10 +431,15 @@ export default async function TopicPage({
                           Angle demandé : <span className="font-semibold text-primary">{f.requestedAngle}</span>
                         </span>
                       )}
-                      <span className="ml-auto tabular-nums text-mono-metric font-medium">{formatLikes(f.likeCount)} likes</span>
+                      <span className="ml-auto shrink-0 tabular-nums font-medium">{formatLikes(f.likeCount)} like{f.likeCount > 1 ? 's' : ''}</span>
                     </div>
                   </div>
                 ))
+              )}
+              {frustrationList.length > 8 && (
+                <p className="px-5 py-3 text-[13px] text-muted-foreground">
+                  Et {frustrationList.length - 8} autre{frustrationList.length - 8 > 1 ? 's' : ''} commentaire{frustrationList.length - 8 > 1 ? 's' : ''} : ils sont tous dans le résumé copié et dans l’export.
+                </p>
               )}
             </section>
           </div>
@@ -476,6 +449,7 @@ export default async function TopicPage({
             <AngleSection
               topicId={id}
               angles={angles ?? []}
+              canGenerate={user.role === 'admin'}
               briefData={{
                 topicLabel: topic.label,
                 nicheName: niche?.name ?? '?',
@@ -505,7 +479,7 @@ export default async function TopicPage({
             {/* Competitors */}
             <section className="bento-card !p-0 flex flex-col">
               <div className="px-5 py-4 border-b border-[--glass-border] bg-[--bg-surface-1]/50">
-                <h2 className="text-headline">Concurrents</h2>
+                <h2 className="text-headline">Vidéos déjà publiées sur ce sujet</h2>
               </div>
               {competitors.length === 0 ? (
                 <div className="px-5 py-8 text-center text-[14px] text-muted-foreground font-medium">
@@ -520,7 +494,7 @@ export default async function TopicPage({
                         <img 
                           src={`https://i.ytimg.com/vi/${c.id}/mqdefault.jpg`} 
                           alt={c.title} 
-                          className="w-[72px] h-[40px] object-cover rounded-lg border border-[--glass-border] shadow-sm transition-transform group-hover:scale-105"
+                          className="elev-1 aspect-video w-[96px] rounded-lg object-cover"
                           loading="lazy"
                         />
                         <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center">
@@ -530,23 +504,20 @@ export default async function TopicPage({
                         </div>
                       </a>
                       <div className="flex-1 min-w-0 flex flex-col gap-1">
-                        <a href={`https://youtube.com/watch?v=${c.id}`} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold truncate text-foreground/90 hover:text-primary transition-colors">
+                        <a href={`https://youtube.com/watch?v=${c.id}`} target="_blank" rel="noopener noreferrer" className="line-clamp-2 text-[13px] font-semibold leading-snug text-foreground hover:text-primary">
                           {c.title}
                         </a>
                         <div className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
-                          <div className="w-4 h-4 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-500 shrink-0 flex items-center justify-center text-[8px] font-bold text-white uppercase">
-                            {c.channelTitle.charAt(0)}
-                          </div>
-                          <a href={`https://youtube.com/channel/${c.channelId}`} target="_blank" rel="noopener noreferrer" className="hover:underline truncate max-w-[120px]">
+                            <a href={`https://youtube.com/channel/${c.channelId}`} target="_blank" rel="noopener noreferrer" className="hover:underline truncate max-w-[120px]">
                             {c.channelTitle}
                           </a>
                           <span>·</span>
-                          <span className="text-mono-metric tabular-nums font-medium shrink-0">{formatViews(c.views)} vues</span>
+                          <span className="shrink-0 tabular-nums">{formatViews(c.views)} vues</span>
                           <span className="shrink-0">· {formatRelativeDate(c.publishedAt)} · {formatDuration(c.durationSec)}</span>
                         </div>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
-                        {c.outlier && (
+                        {c.outlier && c.outlier.score >= 2 && (
                           <OutlierBadge
                             score={c.outlier.score}
                             ageDays={c.outlier.ageDays}
@@ -554,9 +525,9 @@ export default async function TopicPage({
                             baseline={c.outlier.baseline}
                           />
                         )}
-                        <span className={`text-[11px] font-bold uppercase tracking-wider ${tagInfo.color} bg-[--bg-surface-2] px-1.5 py-0.5 rounded border border-[--glass-border]`}>
-                          {tagInfo.label}
-                        </span>
+                        {c.tag !== 'qualified' && (
+                          <span className={`rounded-md bg-muted px-1.5 py-0.5 text-[11px] font-medium ${tagInfo.color}`}>{tagInfo.label}</span>
+                        )}
                       </div>
                     </div>
                   );
@@ -570,12 +541,15 @@ export default async function TopicPage({
   );
 }
 
-function ScoreCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
+function ScoreCard({ label, value, unit, sub }: { label: string; value: string; unit?: string; sub?: string }) {
   return (
-    <div className="bento-card !px-[18px] !py-4 flex flex-col gap-1.5">
-      <span className="text-[13px] text-muted-foreground font-medium">{label}</span>
-      <span className="text-display-giant text-mono-metric tabular-nums tracking-tight">{value}</span>
-      {sub && <span className="text-[12px] text-muted-foreground/80">{sub}</span>}
+    <div className="flex flex-col gap-1.5 rounded-2xl bg-card px-4 py-4">
+      <span className="text-[13px] font-medium text-muted-foreground">{label}</span>
+      <span className="flex items-baseline gap-1.5">
+        <span className="text-[30px] font-semibold leading-none tabular-nums tracking-[-0.02em]">{value}</span>
+        {unit && <span className="text-sm text-muted-foreground">{unit}</span>}
+      </span>
+      {sub && <span className="text-xs leading-snug text-muted-foreground">{sub}</span>}
     </div>
   );
 }
@@ -593,16 +567,10 @@ const SIGNAL_LABELS: Record<string, string> = {
 };
 
 function SignalSection({ signals }: { signals: Record<string, { date: string; value: number }[]> }) {
-  const activeSources = Object.keys(signals).filter((s) => signals[s].length > 0);
+  // Une courbe a besoin d'au moins 3 points : sinon on n'affiche rien plutôt qu'un graphique vide.
+  const activeSources = Object.keys(signals).filter((s) => signals[s].length >= 3);
 
-  if (activeSources.length === 0) {
-    return (
-      <section className="bento-card px-5 py-4">
-        <h2 className="text-headline mb-3">Signaux sur 90 jours</h2>
-        <p className="text-[14px] text-muted-foreground font-medium">Aucune donnée de signal disponible.</p>
-      </section>
-    );
-  }
+  if (activeSources.length === 0) return null;
 
   const allDates = [...new Set(activeSources.flatMap((s) => signals[s].map((p) => p.date)))].sort();
   if (allDates.length === 0) return null;

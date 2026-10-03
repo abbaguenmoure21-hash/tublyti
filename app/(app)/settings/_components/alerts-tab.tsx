@@ -45,42 +45,46 @@ interface CollectionOption {
 const RULE_TYPES: { value: AlertRuleType; label: string; description: string }[] = [
   {
     value: 'phase_change',
-    label: 'Sujet passe en phase 2',
-    description: 'Un sujet de la niche sélectionnée passe en phase 2 (fenêtre idéale).',
+    label: 'Un sujet passe à « C’est le moment »',
+    description: 'Préviens-moi quand un sujet de cette thématique devient le bon moment pour publier.',
   },
   {
     value: 'collection_phase_change',
-    label: 'Favori change de phase',
-    description: 'Un sujet de ma collection change de phase.',
+    label: 'Un de mes favoris change de moment',
+    description: 'Préviens-moi quand un sujet mis en favori change d’étiquette (par exemple de « Ça monte » à « C’est le moment »).',
   },
   {
     value: 'video_outlier',
-    label: 'Vidéo qui surperforme',
-    description: 'Une vidéo fait N× la moyenne sur une chaîne de moins de K abonnés.',
+    label: 'Une vidéo surperforme',
+    description: 'Une vidéo fait N fois la moyenne de sa chaîne, sur une chaîne de moins de K abonnés.',
   },
   {
     value: 'window_closing',
-    label: 'Fenêtre qui se ferme',
-    description: 'Un sujet reçoit un afflux soudain de vidéos qualifiées (burn-down).',
+    label: 'Un sujet se remplit vite',
+    description: 'Préviens-moi quand beaucoup de vidéos de qualité sortent d’un coup sur un sujet : il risque de passer à « Trop tard ».',
   },
 ];
 
 const RULE_TYPE_LABELS: Record<string, string> = {
-  phase_change: 'Phase 2',
+  phase_change: 'C’est le moment',
   collection_phase_change: 'Favori',
   video_outlier: 'Surperformance',
-  window_closing: 'Burn-down',
+  window_closing: 'Se remplit vite',
 };
 
 export function AlertsTab({
   rules: initialRules,
   niches,
   collections,
+  isAdmin = true,
 }: {
   rules: AlertRuleData[];
   niches: NicheOption[];
   collections: CollectionOption[];
+  /** Le type « vidéo qui surperforme » porte sur tout le catalogue : réservé à l'administration. */
+  isAdmin?: boolean;
 }) {
+  const ruleTypes = isAdmin ? RULE_TYPES : RULE_TYPES.filter((r) => r.value !== 'video_outlier');
   const [rules, setRules] = useState(initialRules);
   const [isPending, startTransition] = useTransition();
   const [showForm, setShowForm] = useState(false);
@@ -199,9 +203,9 @@ export function AlertsTab({
       <section className="bg-card border border-border rounded-[10px] shadow-[0_1px_2px_rgba(20,24,34,0.06)]">
         <div className="px-5 py-3.5 border-b border-border flex items-center justify-between">
           <div>
-            <h2 className="text-[15px] font-semibold">Règles d&apos;alerte</h2>
+            <h3 className="text-[15px] font-semibold">Mes alertes</h3>
             <p className="text-[12px] text-muted-foreground mt-0.5">
-              Définissez quand vous souhaitez être notifié.
+              Choisis quand recevoir un e-mail.
             </p>
           </div>
           <button
@@ -210,7 +214,7 @@ export function AlertsTab({
             className="h-8 px-3 rounded-md bg-primary text-primary-foreground text-[12px] font-medium hover:bg-primary/90 transition-colors cursor-pointer flex items-center gap-1"
           >
             <Plus className="w-3 h-3" />
-            Nouvelle règle
+            Nouvelle alerte
           </button>
         </div>
 
@@ -225,7 +229,7 @@ export function AlertsTab({
                 onChange={(e) => setNewType(e.target.value as AlertRuleType)}
                 className="mt-1 w-full h-9 px-2.5 border border-border rounded-md bg-card text-[13px] text-foreground"
               >
-                {RULE_TYPES.map((rt) => (
+                {ruleTypes.map((rt) => (
                   <option key={rt.value} value={rt.value}>{rt.label}</option>
                 ))}
               </select>
@@ -364,7 +368,7 @@ export function AlertsTab({
         <div className="divide-y divide-border">
           {rules.length === 0 && (
             <div className="px-5 py-8 text-center text-[13px] text-muted-foreground">
-              Aucune règle d&apos;alerte. Créez-en une pour être notifié.
+              Aucune alerte pour l&apos;instant. Crée ta première alerte.
             </div>
           )}
           {rules.map((rule) => (

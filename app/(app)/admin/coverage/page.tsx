@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server';
+import { createServiceClient } from '@/lib/supabase/server';
 import {
   Card,
   CardContent,
@@ -30,7 +30,8 @@ interface QuotaDay {
 }
 
 export default async function CoveragePage() {
-  const db = await createClient();
+  // Page de la console (protégée par requireAdmin) : lecture avec la clé de service.
+  const db = createServiceClient();
 
   // --- Niche coverage ---
   const { data: niches } = await db
@@ -50,7 +51,7 @@ export default async function CoveragePage() {
       .from('channels')
       .select('id')
       .eq('niche_id', niche.id);
-    const channelIds = (nicheChannels ?? []).map(c => c.id);
+    const channelIds = ((nicheChannels ?? []) as { id: string }[]).map((c) => c.id);
 
     let videoCount = 0;
     if (channelIds.length > 0) {
@@ -103,11 +104,11 @@ export default async function CoveragePage() {
   const totalBudget = Object.values(quotaPlan).reduce((a, b) => a + b, 0);
 
   return (
-    <div className="p-6 md:p-8 max-w-5xl mx-auto space-y-8">
+    <div className="mx-auto max-w-5xl space-y-8 px-4 py-6 md:px-8">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Quelles niches sont bien couvertes ?</h1>
+        <h1 className="text-[28px] font-semibold tracking-[-0.02em]">Couverture et quota</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Suivi des chaînes par niche et consommation du quota API
+          Nombre de chaînes analysées par niche et consommation du quota YouTube.
         </p>
       </div>
 
@@ -180,7 +181,7 @@ export default async function CoveragePage() {
             {Object.entries(quotaPlan).map(([key, value]) => (
               <div key={key} className="text-center p-3 rounded-lg bg-muted/50">
                 <div className="text-lg font-bold font-mono">{value.toLocaleString('fr-FR')}</div>
-                <div className="text-xs text-muted-foreground capitalize">{key}</div>
+                <div className="text-xs text-muted-foreground">{({ tracking: 'Suivi des chaînes', discovery: 'Découverte', comments: 'Commentaires', reserve: 'Réserve' } as Record<string, string>)[key] ?? key}</div>
               </div>
             ))}
           </div>
@@ -203,9 +204,9 @@ export default async function CoveragePage() {
                 <thead>
                   <tr className="bg-muted/50 text-muted-foreground">
                     <th className="px-3 py-2 text-left font-medium">Date</th>
-                    <th className="px-3 py-2 text-right font-medium">Tracking</th>
-                    <th className="px-3 py-2 text-right font-medium">Discovery</th>
-                    <th className="px-3 py-2 text-right font-medium">Comments</th>
+                    <th className="px-3 py-2 text-right font-medium">Suivi</th>
+                    <th className="px-3 py-2 text-right font-medium">Découverte</th>
+                    <th className="px-3 py-2 text-right font-medium">Commentaires</th>
                     <th className="px-3 py-2 text-right font-medium">Autres</th>
                     <th className="px-3 py-2 text-right font-medium">Total</th>
                   </tr>

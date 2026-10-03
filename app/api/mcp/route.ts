@@ -17,7 +17,7 @@ async function handleMcp(request: NextRequest): Promise<Response> {
 
   if (!tokenInfo) {
     return new Response(
-      JSON.stringify({ error: 'Token invalide ou revoque. Cree un nouveau jeton dans Reglages > Acces API.' }),
+      JSON.stringify({ error: 'Token invalide ou revoque. Cree un nouveau jeton dans Reglages > Connexion a Claude.' }),
       { status: 401, headers: { 'Content-Type': 'application/json' } },
     );
   }

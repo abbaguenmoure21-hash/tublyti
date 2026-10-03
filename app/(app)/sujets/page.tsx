@@ -53,6 +53,9 @@ export default async function SujetsPage({ searchParams }: { searchParams: Promi
   const detail = params.sujet ? await getTopicDetail(db, params.sujet, user.id) : null;
   const ids = rows.map((r) => r.id);
   const hrefAt = (i: number) => (i >= 0 && i < rows.length ? sujetsHref(params, { sujet: rows[i].id }) : null);
+  // Panneau ouvert : la fiabilité est déjà dans le panneau, on libère la place pour le libellé.
+  const panelOpen = Boolean(params.sujet);
+  const COLS = panelOpen ? 'md:grid-cols-[32px_minmax(0,1fr)_140px_116px_20px]' : 'md:grid-cols-[32px_minmax(0,1fr)_140px_116px_132px_20px]';
   const filtered = Boolean(params.q) || reliableOnly || momentKey !== DEFAULT_MOMENTS.join(',');
 
   return (
@@ -70,25 +73,28 @@ export default async function SujetsPage({ searchParams }: { searchParams: Promi
           </p>
         </header>
 
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+        <div className={`flex flex-col gap-3 ${panelOpen ? "2xl:flex-row 2xl:items-center" : "lg:flex-row lg:items-center"}`}>
           <SearchField params={params} />
-          <div role="group" aria-label="Filtrer par moment" className="flex flex-wrap gap-1.5">
-            {MOMENT_CHIPS.map((c) => {
-              const on = c.value === momentKey;
-              return (
-                <Link
-                  key={c.value}
-                  href={sujetsHref(params, { moment: c.value === '2,1,0' ? null : c.value, sujet: null })}
-                  scroll={false}
-                  aria-pressed={on}
-                  className={`flex h-8 items-center rounded-full px-3 text-[13px] font-medium transition-colors ${
-                    on ? 'bg-foreground text-background' : 'bg-card text-foreground ring-1 ring-inset ring-border hover:bg-muted'
-                  }`}
-                >
-                  {c.label}
-                </Link>
-              );
-            })}
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Choix exclusif : contrôle segmenté (même style que la Carte) */}
+            <nav aria-label="Filtrer par moment" className="well inline-flex max-w-full gap-0.5 overflow-x-auto rounded-[12px] bg-muted p-[3px]">
+              {MOMENT_CHIPS.map((c) => {
+                const on = c.value === momentKey;
+                return (
+                  <Link
+                    key={c.value}
+                    href={sujetsHref(params, { moment: c.value === '2,1,0' ? null : c.value, sujet: null })}
+                    scroll={false}
+                    aria-current={on ? 'true' : undefined}
+                    className={`flex h-8 shrink-0 items-center rounded-[9px] px-3 text-[13px] transition-all ${
+                      on ? 'elev-1 bg-card font-semibold text-foreground' : 'font-medium text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    {c.label}
+                  </Link>
+                );
+              })}
+            </nav>
             <Link
               href={sujetsHref(params, { fiable: reliableOnly ? null : '1', sujet: null })}
               scroll={false}
@@ -115,12 +121,12 @@ export default async function SujetsPage({ searchParams }: { searchParams: Promi
           </div>
         ) : (
           <section aria-label="Liste des sujets" className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-            <div className="hidden grid-cols-[32px_minmax(0,1fr)_140px_116px_132px_20px] gap-4 border-b border-border bg-background px-5 py-2.5 text-xs font-medium text-muted-foreground md:grid">
+            <div className={`hidden gap-4 border-b border-border bg-background px-5 py-2.5 text-xs font-medium text-muted-foreground md:grid ${COLS}`}>
               <span>#</span>
               <span>Sujet</span>
               <span>Moment</span>
               <span>Potentiel</span>
-              <span>Fiabilité</span>
+              {!panelOpen && <span>Fiabilité</span>}
               <span />
             </div>
             <ol>
@@ -134,14 +140,14 @@ export default async function SujetsPage({ searchParams }: { searchParams: Promi
                       href={sujetsHref(params, { sujet: selected ? null : r.id })}
                       scroll={false}
                       aria-current={selected ? 'true' : undefined}
-                      className={`grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-2 px-4 py-3.5 transition-colors md:grid-cols-[32px_minmax(0,1fr)_140px_116px_132px_20px] md:px-5 ${
+                      className={`grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-2 px-4 py-3.5 transition-colors ${COLS} md:px-5 ${
                         selected ? 'bg-primary-soft/50 shadow-[inset_3px_0_0_var(--primary)]' : 'hover:bg-muted/60'
                       }`}
                     >
                       <span className="hidden text-[13px] tabular-nums text-muted-foreground md:block">{i + 1}</span>
                       <span className="flex min-w-0 flex-col gap-1">
                         <span className="flex items-center gap-2">
-                          <span className="truncate text-[15px] font-semibold">{r.label}</span>
+                          <span className="line-clamp-2 text-[15px] font-semibold leading-snug">{r.label}</span>
                           {r.inMyVideos && (
                             <span className="shrink-0 rounded-md bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">Dans Mes vidéos</span>
                           )}
@@ -157,7 +163,7 @@ export default async function SujetsPage({ searchParams }: { searchParams: Promi
                       <span className="md:block"><PhaseBadge phase={r.phase} /></span>
                       <span className="col-span-2 flex items-center gap-4 md:contents">
                         <PotentialMeter value={r.potential} />
-                        <ReliabilityMark value={r.reliability} />
+                        {!panelOpen && <ReliabilityMark value={r.reliability} />}
                       </span>
                       <ChevronRight className="hidden h-4 w-4 text-muted-foreground md:block" aria-hidden="true" />
                     </Link>

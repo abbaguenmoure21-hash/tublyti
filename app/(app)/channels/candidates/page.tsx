@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { createServiceClient } from '@/lib/supabase/server';
-import { Users, ArrowLeft } from 'lucide-react';
+import { Users } from 'lucide-react';
 import { CandidateActions } from './_components/candidate-actions';
 
 export const metadata = { title: 'Chaînes candidates' };
@@ -64,20 +64,13 @@ export default async function CandidatesPage({
       <div className="absolute inset-0 pointer-events-none -z-10">
       </div>
 
-      <header className="sticky top-0 z-20 h-[56px] shrink-0 flex items-center gap-3 px-8 border-b border-[--glass-border] bg-background/80 backdrop-blur-xl text-[13px] text-muted-foreground">
-        <Link href="/channels" className="hover:text-foreground transition-colors p-1 -ml-1">
-          <ArrowLeft className="w-4 h-4" />
-        </Link>
-        <span>Chaînes</span>
-        <span className="text-border">/</span>
-        <span className="text-foreground font-medium">Candidates</span>
-      </header>
 
-      <div className="flex-1 p-6 md:px-12 md:py-10 flex flex-col gap-8 overflow-x-hidden w-full max-w-[1400px] mx-auto">
+
+      <div className="flex w-full flex-1 flex-col gap-6 overflow-x-hidden px-4 py-6 md:px-8">
         <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
           <div className="flex flex-col gap-2">
             <div className="flex items-center gap-3">
-              <h1 className="text-[32px] font-bold tracking-tight text-foreground leading-tight">
+              <h1 className="text-[28px] font-semibold leading-tight tracking-[-0.02em]">
                 Chaînes candidates
               </h1>
               <span className="bg-secondary text-secondary-foreground text-[12px] font-bold px-2.5 py-0.5 rounded-full">
@@ -85,7 +78,7 @@ export default async function CandidatesPage({
               </span>
             </div>
             <p className="text-[16px] font-medium text-muted-foreground/80">
-              Chaînes découvertes automatiquement dans les résultats YouTube. Suivez celles qui sont pertinentes pour enrichir vos niches.
+              Chaînes découvertes automatiquement pendant la collecte. Ajoute au catalogue celles qui correspondent vraiment à une niche.
             </p>
           </div>
 

@@ -82,7 +82,9 @@ TubLyTI est un produit pour des clients, pas un outil interne. Deux mondes sépa
 | Voit | Ses chaînes (`user_channels`) et les thématiques qu'il suit (`user_niches`) | Tout le catalogue |
 | Sujets | Liste, Carte, Questions du public, filtrées sur ses thématiques ; « Ignorer » ne touche que lui (`user_topic_state`) | Validation des sujets proposés (garder, fusionner, rejeter) : `/admin/sujets` |
 | Vidéos | Les siennes (`angles.user_id`) | — |
-| Réglages | Mes chaînes, Thématiques à explorer, Profil, Apparence | Niches et calcul, Budget IA, Accès API, Alertes : `/admin/reglages` |
+| Réglages | Mes chaînes, Thématiques à explorer, Alertes, Résumé du dimanche, Connexion à Claude (jetons), Profil, Apparence | Calcul du potentiel, Niches, Budget IA : `/admin/reglages` |
 | Autres | Veille : « À voir cette semaine » | Collecte, Couverture et quota, Chaînes analysées et candidates, Clients, Liste d'attente |
 
 Règles : une page client appelle `requireUser()` puis `resolveScope(db, user.id)` et ne lit jamais hors de `nicheIds`. Une page de la console est sous `/admin` (ou `/channels`) et protégée par un layout `requireAdmin()`. Une server action qui modifie des données communes appelle `assertAdmin()` ou `getAdminOrNull()`. Les angles proposés par TubLyTI ont `user_id` nul (communs) ; une vidéo de client a toujours son `user_id`.
+
+Favoris, alertes et jetons d'accès appartiennent à un compte (`user_id`, migration 00019). Un jeton client ne voit que les thématiques de son compte (MCP et extension) ; les outils qui touchent au catalogue ou coûtent de l'IA (`generate_angles`, `add_candidate_channel`, suivi de chaîne) sont réservés aux jetons administrateur. Le résumé du dimanche part à chaque compte ayant une chaîne.

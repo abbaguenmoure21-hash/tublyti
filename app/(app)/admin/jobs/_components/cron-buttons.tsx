@@ -14,9 +14,9 @@ import {
 import { relaunchCron, testAlert } from '@/lib/actions/crons';
 
 const cronButtons = [
-  { kind: 'collect', label: 'Relancer collect', icon: RefreshCw },
-  { kind: 'classify', label: 'Relancer classify', icon: Brain },
-  { kind: 'score', label: 'Relancer score', icon: Calculator },
+  { kind: 'collect', label: 'Relancer la collecte', icon: RefreshCw },
+  { kind: 'classify', label: 'Relancer le classement des commentaires', icon: Brain },
+  { kind: 'score', label: 'Relancer le calcul du potentiel', icon: Calculator },
 ] as const;
 
 export function CronButtons() {
@@ -79,7 +79,7 @@ export function CronButtons() {
           disabled={isPending}
         >
           <Bell />
-          {sendingTest ? 'Envoi\u2026' : 'Alerte test'}
+          {sendingTest ? 'Envoi\u2026' : 'Envoyer une alerte de test'}
         </Button>
       </div>
 

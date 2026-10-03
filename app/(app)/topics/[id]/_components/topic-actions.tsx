@@ -13,10 +13,13 @@ export function TopicActions({
   topicId,
   status,
   isFavorite = false,
+  canGenerate = false,
 }: {
   topicId: string;
   status: string;
   isFavorite?: boolean;
+  /** Génération d'angles (IA payante) : réservée à l'administration. */
+  canGenerate?: boolean;
 }) {
   const [isPending, startTransition] = useTransition();
   const [showPublishInput, setShowPublishInput] = useState(false);
@@ -119,6 +122,7 @@ export function TopicActions({
       )}
 
       {/* Generate angles */}
+      {canGenerate && (
       <button
         type="button"
         onClick={handleGenerate}
@@ -132,6 +136,7 @@ export function TopicActions({
           </>
         )}
       </button>
+      )}
     </div>
   );
 }

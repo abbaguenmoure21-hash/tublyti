@@ -13,8 +13,9 @@ import {
   XCircle,
   Clock,
 } from 'lucide-react';
-import { createClient } from '@/lib/supabase/server';
+import { createServiceClient } from '@/lib/supabase/server';
 import { CronButtons } from './_components/cron-buttons';
+import { jobLabel } from '@/lib/jobs/labels';
 
 interface Job {
   id: string;
@@ -70,7 +71,8 @@ function StatusBadge({ job }: { job: Job }) {
 }
 
 export default async function JobsPage() {
-  const db = await createClient();
+  // Page de la console (protégée par requireAdmin) : lecture avec la clé de service.
+  const db = createServiceClient();
   const { data: jobs, error } = await db
     .from('jobs')
     .select('*')
@@ -81,9 +83,9 @@ export default async function JobsPage() {
     <div className="p-6 md:p-8 max-w-5xl mx-auto space-y-6">
       {/* En-tête */}
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">La collecte de données fonctionne-t-elle ?</h1>
+        <h1 className="text-[28px] font-semibold tracking-[-0.02em]">Collecte</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Historique des jobs et relance manuelle des crons
+          Les tâches de nuit qui mettent à jour les données, et leur relance manuelle en cas de panne.
         </p>
       </div>
 
@@ -108,17 +110,17 @@ export default async function JobsPage() {
           <CardContent className="flex flex-col items-center justify-center py-16 text-center">
             <Settings className="size-10 text-muted-foreground/50 mb-3" />
             <p className="text-sm font-medium text-muted-foreground">
-              Aucun job exécuté pour le moment.
+              Aucune tâche enregistrée pour le moment.
             </p>
             <p className="text-xs text-muted-foreground/70 mt-1">
-              Lancez un cron ci-dessus pour commencer.
+              Lance une tâche ci-dessus pour commencer.
             </p>
           </CardContent>
         </Card>
       ) : jobs && jobs.length > 0 ? (
         <Card>
           <CardHeader>
-            <CardTitle>Historique des jobs</CardTitle>
+            <CardTitle>Historique des tâches</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="overflow-x-auto">
@@ -140,7 +142,7 @@ export default async function JobsPage() {
                       key={job.id}
                       className="border-b border-border/50 last:border-0 hover:bg-muted/30 transition-colors"
                     >
-                      <td className="px-3 py-2.5 font-medium">{job.kind}</td>
+                      <td className="px-3 py-2.5 font-medium">{jobLabel(job.kind)}</td>
                       <td className="px-3 py-2.5 font-mono text-xs">
                         {formatDate(job.started_at)}
                       </td>

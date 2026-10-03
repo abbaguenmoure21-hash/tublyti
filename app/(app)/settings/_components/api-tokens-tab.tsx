@@ -61,7 +61,7 @@ export function ApiTokensTab({ tokens }: { tokens: TokenData[] }) {
     <div className="space-y-4">
       <div className="bg-card border border-border rounded-[10px] shadow-[0_1px_2px_rgba(20,24,34,0.06)]">
         <div className="px-5 py-3.5 border-b border-border flex items-center justify-between">
-          <h2 className="text-[15px] font-semibold">Jetons API</h2>
+          <h2 className="text-[15px] font-semibold">Jetons d’accès</h2>
           <button
             type="button"
             onClick={() => {
@@ -115,7 +115,7 @@ export function ApiTokensTab({ tokens }: { tokens: TokenData[] }) {
                     type="text"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    placeholder="Mon script, CI/CD…"
+                    placeholder="Claude, extension Chrome…"
                     autoFocus
                     className="h-9 w-full px-3 border border-border rounded-lg bg-card text-[13px] text-foreground"
                   />
@@ -132,7 +132,7 @@ export function ApiTokensTab({ tokens }: { tokens: TokenData[] }) {
                           : 'bg-muted text-muted-foreground'
                       }`}
                     >
-                      Lecture
+                      Consulter seulement
                     </button>
                     <button
                       type="button"
@@ -143,7 +143,7 @@ export function ApiTokensTab({ tokens }: { tokens: TokenData[] }) {
                           : 'bg-muted text-muted-foreground'
                       }`}
                     >
-                      Lecture + écriture
+                      Consulter et agir (créer des vidéos, favoris)
                     </button>
                   </div>
                 </div>

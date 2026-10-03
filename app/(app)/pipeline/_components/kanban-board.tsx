@@ -107,7 +107,7 @@ export function KanbanBoard({
 
     // Can't skip to measured
     if (targetColumn === 'measured') {
-      toast.error('Le passage à « Mesurée » est automatique à J+30.');
+      toast.error('Une vidéo passe seule dans « Mesurée » 30 jours après sa publication.');
       return;
     }
 
@@ -205,7 +205,7 @@ export function KanbanBoard({
       </header>
 
       {/* Kanban */}
-      <div className="flex-1 p-6 overflow-x-auto">
+      <div className="flex-1 overflow-x-auto px-4 pb-8 pt-2 md:px-8">
         {isMounted ? (
           <DndContext
             id={dndId}
@@ -214,7 +214,7 @@ export function KanbanBoard({
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
         >
-          <div className="flex gap-4 min-h-[calc(100vh-160px)]">
+          <div className="flex min-h-[calc(100vh-200px)] gap-4">
             {COLUMNS.map((col) => (
               <KanbanColumn
                 key={col.id}
@@ -236,7 +236,7 @@ export function KanbanBoard({
           </DragOverlay>
         </DndContext>
         ) : (
-          <div className="flex gap-4 min-h-[calc(100vh-160px)]">
+          <div className="flex min-h-[calc(100vh-200px)] gap-4">
             {COLUMNS.map((col) => (
               <KanbanColumn
                 key={col.id}

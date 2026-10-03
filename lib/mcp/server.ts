@@ -60,7 +60,7 @@ async function guard(
     if (!canSeeNiche(token, data.niche_id as string)) return OUT_OF_SCOPE;
   }
   if (opts?.write && !canWrite(token)) {
-    return 'Acces refuse : ce jeton est en lecture seule. Cree un jeton lecture/ecriture dans Reglages > Acces API.';
+    return 'Acces refuse : ce jeton est en lecture seule. Cree un jeton lecture/ecriture dans Reglages > Connexion a Claude.';
   }
   const rl = await checkRateLimit(token.id, toolName);
   if (!rl.allowed) {

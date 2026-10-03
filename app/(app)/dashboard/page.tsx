@@ -1,235 +1,118 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
 import { requireUser } from '@/lib/auth/session';
 import { resolveScope } from '@/lib/scope';
 import { createServiceClient } from '@/lib/supabase/server';
-
-export const metadata = { title: 'Tableau de bord' };
 import { getLatestScoreDate } from '@/lib/scoring/latest-score-date';
-import {
-  Zap,
-  ArrowRight,
-  CheckCircle2,
-  Circle,
-} from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { isSensitiveTopic } from '@/lib/topics/sensitive';
-import { MatriceFilters } from './_components/matrice-filters';
-import { DashboardShell } from './_components/dashboard-shell';
-import { TitlePatternsView } from './_components/title-patterns-view';
 import { getFavoriteIds } from '@/lib/actions/collections';
+import { TitlePatternsView } from './_components/title-patterns-view';
+import { CarteView, type CarteTopic } from './_components/carte-view';
 
-interface TopicRow {
-  id: string;
-  label: string;
-  mgi: number;
-  demand: number;
-  frustration: number;
-  supplyQ: number;
-  monetization: number;
-  phase: number;
-  feasibilityGrade: string | null;
-  feasibilityReason: string | null;
-  sparkline: number[];
-  topQuote: string | null;
-  rank: number;
-  totalInNiche: number;
-  sensitive: boolean;
+export const metadata: Metadata = { title: 'Carte des sujets' };
+
+type Params = { moment?: string; peu?: string; fav?: string; sujet?: string };
+
+const MOMENTS = [
+  { key: 'tous', label: 'Tous' },
+  { key: '2', label: 'C’est le moment' },
+  { key: '1', label: 'Ça monte' },
+  { key: '0', label: 'À surveiller' },
+  { key: '3', label: 'Trop tard' },
+];
+
+/** Seuils « peu traité » : demande dans le tiers haut de la thématique, offre de qualité sous la moyenne. */
+const LOW_SUPPLY_DEMAND = 0.6;
+const LOW_SUPPLY_MAX = 1;
+
+function href(params: Params, patch: Partial<Params>): string {
+  const next = { ...params, ...patch };
+  const q = new URLSearchParams();
+  for (const [k, v] of Object.entries(next)) if (v) q.set(k, v);
+  const s = q.toString();
+  return s ? `/dashboard?${s}` : '/dashboard';
 }
 
-function parseChannelSize(chsize: string | null): { min: number; max: number } | null {
-  if (!chsize) return null;
-  const parts = chsize.split('-');
-  return {
-    min: parseInt(parts[0], 10) || 0,
-    max: parts[1] ? parseInt(parts[1], 10) || Infinity : Infinity,
-  };
-}
-
-async function fetchMatriceData(nicheId: string | null, blueOcean: boolean, phaseFilter: number | null, favFilter: boolean, channelSizeFilter: string | null, feasibleOnly: boolean, allowed: string[]) {
+export default async function CartePage({ searchParams }: { searchParams: Promise<Params> }) {
+  const params = await searchParams;
+  const user = await requireUser();
   const db = createServiceClient();
-  // Uniquement les thématiques du client (ses chaînes et les thématiques qu'il suit).
-  const ids = allowed.length ? allowed : ['00000000-0000-0000-0000-000000000000'];
-
-  // Channels with niches for tabs
-  const { data: channels } = await db
-    .from('channels')
-    .select('id, title, niche_id, niches!inner(id, name)')
-    .eq('status', 'active')
-    .order('title');
-
-  const { data: niches } = await db
-    .from('niches')
-    .select('id, name')
-    .eq('status', 'active')
-    .in('id', ids)
-    .order('name');
+  const { scope, nicheIds, niches } = await resolveScope(db, user.id);
+  const ids = nicheIds.length ? nicheIds : ['00000000-0000-0000-0000-000000000000'];
+  const scopeLabel = scope ? niches.find((n) => n.id === scope)?.label : null;
 
   const scoredAt = await getLatestScoreDate(db);
-
-  let query = db
+  const { data: scores } = await db
     .from('topic_scores')
-    .select(
-      `mgi, demand, frustration, supply_q, monetization, phase, feasibility_grade, feasibility_reason,
-       topics!inner(id, label, status, niche_id, niches!inner(id, name, rpm_coefficient))`,
-    )
+    .select('mgi, demand, frustration, supply_q, phase, confidence, feasibility_grade, feasibility_reason, topics!inner(id, label, status, niche_id)')
     .eq('scored_at', scoredAt)
+    .in('topics.status', ['active', 'in_production'])
     .in('topics.niche_id', ids)
-    .order('mgi', { ascending: false });
+    .order('mgi', { ascending: false })
+    .limit(600);
 
-  if (nicheId) {
-    query = query.eq('topics.niche_id', nicheId);
+  const rows = (scores ?? []) as unknown as {
+    mgi: number | null; demand: number | null; frustration: number | null; supply_q: number | null; phase: number | null;
+    confidence: string | null; feasibility_grade: string | null; feasibility_reason: string | null;
+    topics: { id: string; label: string; niche_id: string };
+  }[];
+
+  // Nombre de vidéos repérées par sujet (pour les sujets encore sans mesure).
+  const topicIds = rows.map((r) => r.topics.id);
+  const videoCount = new Map<string, number>();
+  if (topicIds.length) {
+    const { data: vids } = await db.from('videos').select('topic_id').in('topic_id', topicIds).limit(20000);
+    for (const v of (vids ?? []) as { topic_id: string }[]) videoCount.set(v.topic_id, (videoCount.get(v.topic_id) ?? 0) + 1);
   }
 
-  const { data: scores } = await query;
-
-  // Sparklines (30 days)
-  const thirtyDaysAgo = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
-  const topicIds = (scores ?? []).map((s: Record<string, unknown>) => {
-    const t = s.topics as unknown as { id: string };
-    return t.id;
-  });
-
-  let sparklines: Record<string, number[]> = {};
-  if (topicIds.length > 0) {
-    const { data: trendPoints } = await db
-      .from('trend_points')
-      .select('topic_id, captured_at, value')
-      .in('topic_id', topicIds)
-      .eq('source', 'trends')
-      .gte('captured_at', thirtyDaysAgo)
-      .order('captured_at', { ascending: true });
-
-    const byTopic = new Map<string, number[]>();
-    for (const p of trendPoints ?? []) {
-      if (!byTopic.has(p.topic_id)) byTopic.set(p.topic_id, []);
-      byTopic.get(p.topic_id)!.push(Number(p.value));
-    }
-    sparklines = Object.fromEntries(byTopic);
-  }
-
-  // Top frustration quote per topic
-  let topQuotes: Record<string, string> = {};
-  if (topicIds.length > 0) {
-    const { data: videos } = await db
-      .from('videos')
-      .select('id, topic_id')
-      .in('topic_id', topicIds);
-
-    if (videos && videos.length > 0) {
-      const videoToTopic: Record<string, string> = {};
-      for (const v of videos) videoToTopic[v.id] = v.topic_id;
-
-      const { data: labels } = await db
-        .from('comment_labels')
-        .select('comments!inner(text, like_count, video_id)')
-        .neq('label', 'none')
-        .gte('confidence', 0.7)
-        .in('comments.video_id', videos.map((v: Record<string, unknown>) => v.id))
-        .order('comments(like_count)', { ascending: false })
-        .limit(200);
-
-      const seen = new Set<string>();
-      for (const l of labels ?? []) {
-        const comment = l.comments as unknown as { text: string; like_count: number; video_id: string };
-        const tId = videoToTopic[comment.video_id];
-        if (tId && !seen.has(tId)) {
-          seen.add(tId);
-          topQuotes[tId] = comment.text.length > 120
-            ? comment.text.slice(0, 120) + '…'
-            : comment.text;
-        }
-      }
-    }
-  }
-
-  let topics: TopicRow[] = (scores ?? []).map((s: Record<string, unknown>, idx: number) => {
-    const topic = s.topics as unknown as {
-      id: string;
-      label: string;
-      status: string;
-      niche_id: string;
-      niches: { id: string; name: string; rpm_coefficient: number };
-    };
+  const labelByNiche = new Map(niches.map((n) => [n.id, n.label]));
+  let all: CarteTopic[] = rows.map((r) => {
+    const demand = Number(r.demand ?? 0);
+    const supply = Number(r.supply_q ?? 0);
+    const mgi = Number(r.mgi ?? 0);
+    const measured = mgi > 0 || demand > 0 || supply > 0;
     return {
-      id: topic.id,
-      label: topic.label,
-      mgi: Number(s.mgi),
-      demand: Number(s.demand),
-      frustration: Number(s.frustration),
-      supplyQ: Number(s.supply_q),
-      monetization: Number(s.monetization),
-      phase: s.phase as number,
-      feasibilityGrade: (s.feasibility_grade as string) ?? null,
-      feasibilityReason: (s.feasibility_reason as string) ?? null,
-      sparkline: sparklines[topic.id] ?? [],
-      topQuote: topQuotes[topic.id] ?? null,
-      rank: idx + 1,
-      totalInNiche: 0,
-      sensitive: isSensitiveTopic(topic.label),
+      id: r.topics.id,
+      label: r.topics.label,
+      channel: labelByNiche.get(r.topics.niche_id) ?? '',
+      phase: Number(r.phase ?? 0),
+      potential: Math.round(mgi),
+      demand: Math.round(demand * 100),
+      supply: Math.round(supply * 10) / 10,
+      frustration: Math.round(Number(r.frustration ?? 0) * 100),
+      // Sans chaîne de référence, la note de faisabilité n'a pas de sens : on ne l'affiche pas.
+      feasibility: r.feasibility_reason?.startsWith('Aucune chaîne') ? null : r.feasibility_grade,
+      feasibilityReason: r.feasibility_reason,
+      reliable: r.confidence === 'high' || r.confidence === 'medium',
+      measured,
+      videos: videoCount.get(r.topics.id) ?? 0,
+      sensitive: isSensitiveTopic(r.topics.label),
     };
   });
 
-  // Apply filters
-  if (blueOcean) {
-    topics = topics.filter((t) => t.demand >= 60 && t.supplyQ <= 3);
-  }
-  if (phaseFilter !== null && phaseFilter >= 0) {
-    topics = topics.filter((t) => t.phase === phaseFilter);
-  }
-  if (favFilter) {
+  const counts: Record<string, number> = { tous: all.length };
+  for (const t of all) counts[String(t.phase)] = (counts[String(t.phase)] ?? 0) + 1;
+
+  const moment = MOMENTS.some((m) => m.key === params.moment) ? params.moment! : 'tous';
+  const lowSupplyOnly = params.peu === '1';
+  const favOnly = params.fav === '1';
+
+  if (moment !== 'tous') all = all.filter((t) => String(t.phase) === moment);
+  if (lowSupplyOnly) all = all.filter((t) => t.measured && t.demand >= LOW_SUPPLY_DEMAND * 100 && t.supply <= LOW_SUPPLY_MAX);
+  if (favOnly) {
     const { data: favIds } = await getFavoriteIds('topic');
-    const favSet = new Set(favIds);
-    topics = topics.filter((t) => favSet.has(t.id));
+    const fav = new Set(favIds);
+    all = all.filter((t) => fav.has(t.id));
   }
-  if (feasibleOnly) {
-    topics = topics.filter((t) => t.feasibilityGrade === 'A' || t.feasibilityGrade === 'B');
-  }
+  // Sujets mesurés d'abord (potentiel décroissant), puis les autres par nombre de vidéos repérées.
+  all.sort((a, b) => Number(b.measured) - Number(a.measured) || b.potential - a.potential || b.videos - a.videos);
 
-  // Channel size filter: keep topics where at least one video comes from a channel of the right size
-  const sizeRange = parseChannelSize(channelSizeFilter);
-  if (sizeRange && topicIds.length > 0) {
-    const { data: videosWithChannels } = await db
-      .from('videos')
-      .select('topic_id, channels!inner(subscriber_count)')
-      .in('topic_id', topicIds);
-
-    const topicsWithMatchingChannel = new Set<string>();
-    for (const v of videosWithChannels ?? []) {
-      const ch = v.channels as unknown as { subscriber_count: number | null };
-      const subs = ch?.subscriber_count ?? 0;
-      if (subs >= sizeRange.min && subs < sizeRange.max) {
-        topicsWithMatchingChannel.add(v.topic_id as string);
-      }
-    }
-    topics = topics.filter((t) => topicsWithMatchingChannel.has(t.id));
-  }
-
-  // Set totalInNiche
-  topics.forEach((t, i) => {
-    t.rank = i + 1;
-    t.totalInNiche = topics.length;
-  });
-
-  // Niche tabs for filtering
-  const channelTabs = (niches ?? []).map((n: Record<string, unknown>) => ({
-    id: n.id as string,
-    title: n.name as string,
-    nicheId: n.id as string,
-  }));
-
-  // Title patterns
-  let patternsQuery = db
+  // Formules de titres des thématiques affichées
+  const { data: patternsRaw } = await db
     .from('title_patterns')
     .select('id, niche_id, formula, description, examples, frequency, emotional_triggers, avg_length, niches!inner(name)')
     .in('niche_id', ids)
     .order('frequency', { ascending: false });
-
-  if (nicheId) {
-    patternsQuery = patternsQuery.eq('niche_id', nicheId);
-  }
-
-  const { data: patternsRaw } = await patternsQuery;
-
   const titlePatterns = (patternsRaw ?? []).map((p: Record<string, unknown>) => ({
     id: p.id as string,
     formula: p.formula as string,
@@ -238,203 +121,71 @@ async function fetchMatriceData(nicheId: string | null, blueOcean: boolean, phas
     frequency: Number(p.frequency),
     emotionalTriggers: (p.emotional_triggers as string[]) ?? [],
     avgLength: p.avg_length != null ? Number(p.avg_length) : null,
-    nicheName: (p.niches as unknown as { name: string }).name,
+    nicheName: labelByNiche.get(p.niche_id as string) ?? (p.niches as unknown as { name: string }).name,
   }));
 
-  return { topics, channelTabs, scoredAt, titlePatterns };
-}
-
-function ChecklistItem({ done, label, href }: { done: boolean; label: string; href?: string }) {
-  const content = (
-    <div
-      className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors ${
-        href ? 'hover:bg-muted/50 cursor-pointer' : ''
-      }`}
-    >
-      {done ? (
-        <CheckCircle2 className="w-4 h-4 text-success shrink-0" />
-      ) : (
-        <Circle className="w-4 h-4 text-muted-foreground/40 shrink-0" />
-      )}
-      <span className={done ? 'text-muted-foreground line-through' : 'text-foreground'}>
-        {label}
-      </span>
-      {href && <ArrowRight className="w-3.5 h-3.5 text-muted-foreground ml-auto shrink-0" />}
-    </div>
-  );
-  if (href) return <Link href={href}>{content}</Link>;
-  return content;
-}
-
-export default async function MatricePage({
-  searchParams,
-}: {
-  searchParams: Promise<{ niche?: string; ocean?: string; phase?: string; fav?: string; chsize?: string; feasible?: string }>;
-}) {
-  const params = await searchParams;
-  const user = await requireUser();
-  const { nicheIds: allowed } = await resolveScope(createServiceClient(), user.id);
-  const nicheId = params.niche && allowed.includes(params.niche) ? params.niche : null;
-  const blueOcean = params.ocean === '1' || params.ocean === 'true';
-  const phaseFilter = params.phase ? parseInt(params.phase, 10) : null;
-  const favFilter = params.fav === '1' || params.fav === 'true';
-  const channelSizeFilter = params.chsize || null;
-  const feasibleOnly = params.feasible === '1' || params.feasible === 'true';
-
-  const { topics, channelTabs, scoredAt, titlePatterns } = await fetchMatriceData(nicheId, blueOcean, phaseFilter, favFilter, channelSizeFilter, feasibleOnly, allowed);
-
-  const scoredDate = new Date(scoredAt + 'T00:00:00');
-  const formattedDate = scoredDate.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
-  const formattedTime = scoredDate.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-
-  // Find selected channel name for breadcrumb
-  const selectedChannel = nicheId
-    ? channelTabs.find((ch: { nicheId: string }) => ch.nicheId === nicheId)
-    : null;
-
-  // Find top Phase 2 opportunity for Hero card
-  const heroTopic = topics.find((t) => t.phase === 2) ?? topics[0] ?? null;
-
-  if (topics.length === 0 && !nicheId && !blueOcean && phaseFilter === null) {
-    // Aucun sujet calculé pour l'instant sur les thématiques du client.
-    return (
-      <div className="mx-auto flex max-w-lg flex-col items-center gap-3 px-6 py-24 text-center">
-        <h1 className="text-[28px] font-semibold tracking-[-0.02em]">La carte se remplit cette nuit</h1>
-        <p className="text-[15px] leading-relaxed text-muted-foreground">
-          Les sujets de tes thématiques apparaîtront ici après la prochaine mise à jour des données. En attendant, la liste des sujets est disponible.
-        </p>
-        <Link href="/sujets" className="mt-2 inline-flex h-11 items-center rounded-[10px] bg-primary px-5 text-[15px] font-medium text-primary-foreground">
-          Ouvrir Sujets
-        </Link>
-      </div>
-    );
-  }
+  const date = new Date(`${scoredAt}T00:00:00`).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' });
+  const pill = (on: boolean) =>
+    `flex h-8 items-center rounded-full px-3.5 text-[13px] font-medium transition-colors ${
+      on ? 'bg-foreground text-background' : 'bg-card text-foreground ring-1 ring-inset ring-border hover:bg-muted'
+    }`;
 
   return (
-    <div className="flex-1 flex flex-col min-w-0 relative">
-      {/* Background gradients multi-niveaux */}
-      <div className="absolute inset-0 pointer-events-none -z-10 overflow-x-clip">
-      </div>
-
-      {/* Translucent breadcrumb header */}
-      <header className="sticky top-0 z-20 h-[56px] shrink-0 flex items-center gap-3 px-8 border-b border-[--glass-border] bg-background/80 backdrop-blur-xl text-[13px] text-muted-foreground">
-        <span className="font-medium">Matrice</span>
-        {selectedChannel && (
-          <>
-            <span className="text-[--glass-border]">/</span>
-            <span className="text-foreground font-semibold">{selectedChannel.title}</span>
-          </>
-        )}
-        <div className="flex-1" />
-        <span className="text-mono-metric tabular-nums text-[12px]">
-          Scores du {formattedDate}, {formattedTime}
-        </span>
+    <div className="flex flex-col gap-6 px-4 pb-12 pt-5 md:px-8">
+      <header className="flex flex-col gap-1.5">
+        <h1 className="text-[28px] font-semibold leading-tight tracking-[-0.02em] md:text-[32px]">
+          {scopeLabel ? `Carte des sujets · ${scopeLabel}` : 'Carte des sujets'}
+        </h1>
+        <p className="max-w-[760px] text-[15px] leading-relaxed text-muted-foreground">
+          Chaque point est un sujet. Plus il est haut, plus le public le demande. Plus il est à gauche, moins il existe de bonnes vidéos dessus.
+          Les meilleures occasions sont en haut à gauche. Mis à jour le {date}.
+        </p>
       </header>
 
-      <div className="flex-1 p-6 md:px-12 md:py-10 flex flex-col gap-10 w-full max-w-[1400px] mx-auto">
-        <MatriceFilters channels={channelTabs} />
-
-        {/* Hero Card — Apple Today Tab style for top opportunity */}
-        {heroTopic && (
-          <Link
-            href={`/topics/${heroTopic.id}`}
-            className="group relative block overflow-hidden rounded-[28px] border border-[--glass-border] hover:border-[--glass-border-highlight] transition-all duration-300 shrink-0"
-            style={{ minHeight: 200 }}
-          >
-            {/* Background gradient based on phase */}
-            <div className="absolute inset-0 bg-gradient-to-br from-[--bg-surface-1] via-background to-background" />
-            <div
-              className="absolute top-0 right-0 w-1/2 h-full opacity-30"
-              style={{
-                background: heroTopic.phase === 2
-                  ? 'radial-gradient(ellipse at top right, #30D158, transparent 70%)'
-                  : heroTopic.phase === 0
-                  ? 'radial-gradient(ellipse at top right, #5E5CE6, transparent 70%)'
-                  : heroTopic.phase === 1
-                  ? 'radial-gradient(ellipse at top right, #FF9F0A, transparent 70%)'
-                  : 'radial-gradient(ellipse at top right, #FF453A, transparent 70%)',
-              }}
-            />
-
-            <div className="relative p-8 flex flex-col gap-4">
-              {/* Phase badge */}
-              <div className="flex items-center gap-3">
-                <span className={`
-                  inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold uppercase tracking-wide
-                  border backdrop-blur-md bg-white/[0.04]
-                  ${heroTopic.phase === 2 ? 'border-[#30D158]/30 text-[#5EE07E]' :
-                    heroTopic.phase === 0 ? 'border-[#5E5CE6]/30 text-[#8886F0]' :
-                    heroTopic.phase === 1 ? 'border-[#FF9F0A]/30 text-[#FFB940]' :
-                    'border-[#FF453A]/30 text-[#FF7B73]'}
-                `}>
-                  <span className="relative flex h-2 w-2">
-                    {heroTopic.phase === 2 && (
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#30D158] opacity-75" />
-                    )}
-                    <span className={`relative inline-flex rounded-full h-2 w-2 ${
-                      heroTopic.phase === 2 ? 'bg-[#30D158]' :
-                      heroTopic.phase === 0 ? 'bg-[#5E5CE6]' :
-                      heroTopic.phase === 1 ? 'bg-[#FF9F0A]' : 'bg-[#FF453A]'
-                    }`} />
-                  </span>
-                  {heroTopic.phase === 2 ? 'C’est le moment' : heroTopic.phase === 0 ? 'À surveiller' : heroTopic.phase === 1 ? 'Ça monte' : 'Trop tard'}
-                </span>
-                <span className="text-[12px] text-muted-foreground">Meilleur sujet</span>
-              </div>
-
-              {/* Title */}
-              <h2 className="text-title-1 max-w-2xl leading-tight group-hover:text-primary transition-colors">
-                {heroTopic.label}
-              </h2>
-
-              {/* Metrics row */}
-              <div className="flex items-center gap-6 flex-wrap">
-                <div className="flex items-center gap-2">
-                  <span className="text-display-giant text-mono-metric tabular-nums" style={{
-                    fontSize: 36,
-                    color: heroTopic.mgi >= 80 ? '#30D158' : heroTopic.mgi >= 60 ? '#0A84FF' : '#FF9F0A',
-                  }}>
-                    {Math.round(heroTopic.mgi)}
-                  </span>
-                  <span className="text-[12px] text-muted-foreground font-medium">Potentiel / 100</span>
-                </div>
-                <div className="flex items-center gap-4 text-[13px]">
-                  <span className="px-2.5 py-1 rounded-lg bg-[--bg-surface-1] border border-[--glass-border]">
-                    <span className="text-muted-foreground">Demande: </span>
-                    <span className="font-semibold tabular-nums">{Math.round(heroTopic.demand)}e percentile</span>
-                  </span>
-                  <span className="px-2.5 py-1 rounded-lg bg-[--bg-surface-1] border border-[--glass-border]">
-                    <span className="text-muted-foreground">Frustration: </span>
-                    <span className="font-semibold tabular-nums">{Math.round(heroTopic.frustration * 100)}%</span>
-                  </span>
-                  <span className="px-2.5 py-1 rounded-lg bg-[--bg-surface-1] border border-[--glass-border]">
-                    <span className="text-muted-foreground">Offre: </span>
-                    <span className="font-semibold tabular-nums">{heroTopic.supplyQ} vidéos</span>
-                  </span>
-                </div>
-              </div>
-
-              {/* Quote if available */}
-              {heroTopic.topQuote && (
-                <p className="text-[13px] text-muted-foreground max-w-xl italic">
-                  « {heroTopic.topQuote} »
-                </p>
-              )}
-
-              {/* Action hint */}
-              <div className="flex items-center gap-1.5 text-primary text-sm font-medium">
-                Ouvrir la fiche sujet
-                <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
-              </div>
-            </div>
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+        <nav aria-label="Filtrer par moment" className="well inline-flex max-w-full gap-0.5 self-start overflow-x-auto rounded-[12px] bg-muted p-[3px]">
+          {MOMENTS.map((m) => {
+            const on = m.key === moment;
+            return (
+              <Link
+                key={m.key}
+                href={href(params, { moment: m.key === 'tous' ? undefined : m.key, sujet: undefined })}
+                scroll={false}
+                aria-current={on ? 'true' : undefined}
+                className={`flex h-8 shrink-0 items-center gap-1.5 rounded-[9px] px-3 text-[13px] transition-all ${
+                  on ? 'elev-1 bg-card font-semibold text-foreground' : 'font-medium text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {m.label}
+                <span className="tabular-nums text-[12px] font-normal text-muted-foreground">{counts[m.key] ?? 0}</span>
+              </Link>
+            );
+          })}
+        </nav>
+        <div className="flex gap-2">
+          <Link href={href(params, { peu: lowSupplyOnly ? undefined : '1', sujet: undefined })} scroll={false} aria-pressed={lowSupplyOnly} className={pill(lowSupplyOnly)}>
+            Très demandés, peu traités
           </Link>
-        )}
-
-        <DashboardShell topics={topics}>
-          {titlePatterns.length > 0 && <TitlePatternsView patterns={titlePatterns} />}
-        </DashboardShell>
+          <Link href={href(params, { fav: favOnly ? undefined : '1', sujet: undefined })} scroll={false} aria-pressed={favOnly} className={pill(favOnly)}>
+            Favoris
+          </Link>
+        </div>
       </div>
+
+      <CarteView
+        topics={all}
+        selectedId={params.sujet ?? null}
+        lowSupply={{ demand: LOW_SUPPLY_DEMAND * 100, supply: LOW_SUPPLY_MAX }}
+        emptyHint={
+          lowSupplyOnly
+            ? 'Aucun sujet n’est à la fois très demandé et peu traité en ce moment. Regarde ceux qui montent.'
+            : favOnly
+              ? 'Aucun favori ici. Clique sur l’étoile d’un sujet pour l’ajouter.'
+              : 'Aucun sujet pour ce filtre.'
+        }
+      />
+
+      {titlePatterns.length > 0 && <TitlePatternsView patterns={titlePatterns} />}
     </div>
   );
 }
-

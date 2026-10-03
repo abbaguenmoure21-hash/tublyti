@@ -175,7 +175,7 @@ export default function LoginPage() {
 
             <p className="text-sm text-muted-foreground">
               Pas encore d’accès ?{' '}
-              <Link href="/#liste" className="font-medium text-primary hover:text-primary-ink">
+              <Link href="/liste-attente?source=connexion" className="font-medium text-primary hover:text-primary-ink">
                 Rejoindre la liste d’attente
               </Link>
             </p>

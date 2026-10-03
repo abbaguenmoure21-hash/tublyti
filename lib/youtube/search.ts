@@ -260,6 +260,53 @@ export async function runYouTubeSearch(
   return stats;
 }
 
+/**
+ * Perform a single YouTube search.list call and return raw results.
+ * This is the ONLY file allowed to call search.list.
+ * Cost: 100 quota units per call.
+ */
+export async function searchSingle(
+  query: string,
+  options: {
+    publishedAfter: string;
+    videoDuration: 'medium' | 'long';
+    maxResults?: number;
+  },
+): Promise<{ results: SearchResult[]; quotaUsed: number }> {
+  const apiKey = process.env.YOUTUBE_API_KEY;
+  if (!apiKey) return { results: [], quotaUsed: 0 };
+
+  const url = new URL(`${YT_BASE}/search`);
+  url.searchParams.set('key', apiKey);
+  url.searchParams.set('part', 'snippet');
+  url.searchParams.set('q', query);
+  url.searchParams.set('type', 'video');
+  url.searchParams.set('order', 'relevance');
+  url.searchParams.set('publishedAfter', options.publishedAfter);
+  url.searchParams.set('maxResults', String(options.maxResults ?? 50));
+  url.searchParams.set('videoDuration', options.videoDuration);
+  url.searchParams.set('regionCode', 'US');
+  url.searchParams.set('relevanceLanguage', 'en');
+
+  const res = await fetch(url.toString(), { signal: AbortSignal.timeout(10_000) });
+  if (!res.ok) throw new Error(`YouTube search ${res.status} for "${query}"`);
+
+  const data = await res.json();
+  const results: SearchResult[] = [];
+  for (const item of data.items ?? []) {
+    const videoId = item.id?.videoId;
+    if (!videoId) continue;
+    results.push({
+      videoId,
+      title: item.snippet?.title ?? '',
+      channelId: item.snippet?.channelId ?? '',
+      publishedAt: item.snippet?.publishedAt ?? new Date().toISOString(),
+    });
+  }
+
+  return { results, quotaUsed: SEARCH_QUOTA_COST };
+}
+
 /** Parse ISO 8601 duration (PT#H#M#S) to seconds */
 function parseDuration(iso: string): number {
   const match = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);

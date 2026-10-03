@@ -103,10 +103,13 @@ export function AngleSection({
   topicId,
   angles,
   briefData,
+  canGenerate = false,
 }: {
   topicId: string;
   angles: Angle[];
   briefData: BriefData;
+  /** Génération d'angles (IA payante) : réservée à l'administration. */
+  canGenerate?: boolean;
 }) {
   const [isPending, startTransition] = useTransition();
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -369,6 +372,7 @@ export function AngleSection({
       <section className="bento-card !p-0 flex flex-col">
         <div className="flex items-center justify-between px-5 py-4 border-b border-[--glass-border] bg-[--bg-surface-1]/50">
           <h2 className="text-headline">Angles proposés</h2>
+          {canGenerate && (
           <button
             type="button"
             onClick={handleGenerateClick}
@@ -377,11 +381,12 @@ export function AngleSection({
           >
             {isPending ? 'Génération…' : angles.length > 0 ? 'Régénérer' : `Générer 5 angles (~$${estimatedCost.toFixed(3)})`}
           </button>
+          )}
         </div>
 
         {angles.length === 0 ? (
           <div className="px-5 py-8 text-center text-[13px] font-medium text-muted-foreground">
-            Aucun angle généré. Clique sur « Générer » pour en créer.
+            {canGenerate ? 'Aucun angle généré. Clique sur « Générer » pour en créer.' : 'Pas encore d’angle proposé pour ce sujet. Les angles sont ajoutés par l’équipe TubLyTI.'}
           </div>
         ) : (
           <>

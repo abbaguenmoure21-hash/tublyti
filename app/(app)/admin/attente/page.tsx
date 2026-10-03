@@ -3,7 +3,23 @@ import { requireAdmin } from '@/lib/auth/session';
 
 export const metadata = { title: 'Liste d’attente · Console' };
 
-const SOURCE: Record<string, string> = { hero: 'Haut de page', final: 'Bas de page' };
+/** Provenance lisible d'une inscription. */
+function sourceLabel(source: string | null): string {
+  if (!source) return '—';
+  const fixed: Record<string, string> = {
+    hero: 'Accueil · haut de page',
+    footer: 'Accueil · bas de page',
+    final: 'Accueil · bas de page',
+    'page-menu': 'Page liste d’attente · menu de l’accueil',
+    'page-connexion': 'Page liste d’attente · depuis la connexion',
+    'page-direct': 'Page liste d’attente · lien direct',
+  };
+  if (fixed[source]) return fixed[source];
+  const offer = source.match(/^page-offre-(\w+)$/);
+  if (offer) return `Page liste d’attente · offre ${offer[1].charAt(0).toUpperCase()}${offer[1].slice(1)}`;
+  if (source.startsWith('page-')) return `Page liste d’attente · ${source.slice(5)}`;
+  return source;
+}
 
 export default async function AttentePage() {
   await requireAdmin();
@@ -31,7 +47,7 @@ export default async function AttentePage() {
             <thead className="bg-background text-left text-xs text-muted-foreground">
               <tr>
                 <th className="px-4 py-2.5 font-medium">Adresse</th>
-                <th className="px-4 py-2.5 font-medium">Formulaire</th>
+                <th className="px-4 py-2.5 font-medium">Provenance</th>
                 <th className="px-4 py-2.5 font-medium">Date</th>
               </tr>
             </thead>
@@ -39,7 +55,7 @@ export default async function AttentePage() {
               {rows.map((r) => (
                 <tr key={r.id} className="border-t border-muted">
                   <td className="px-4 py-2.5 font-medium">{r.email}</td>
-                  <td className="px-4 py-2.5 text-muted-foreground">{SOURCE[r.source ?? ''] ?? r.source ?? '—'}</td>
+                  <td className="px-4 py-2.5 text-muted-foreground">{sourceLabel(r.source)}</td>
                   <td className="px-4 py-2.5 tabular-nums text-muted-foreground">{new Date(r.created_at).toLocaleDateString('fr-FR')}</td>
                 </tr>
               ))}

@@ -79,6 +79,9 @@ const TERMS = [
   { term: 'Questions du public', def: 'Les commentaires qui réclament une vidéo, signalent une explication manquante ou une vidéo trop courte.' },
   { term: 'Vidéo qui surperforme', def: 'Une vidéo qui fait au moins 3 fois plus de vues que la moyenne habituelle de sa chaîne. Signe qu’un sujet plaît.' },
   { term: 'Sujet sensible', def: 'Un sujet délicat (santé mentale grave, par exemple). Il reste visible mais n’apparaît jamais dans tes recommandations.' },
+  { term: 'Favoris', def: 'Clique sur l’étoile d’un sujet pour le garder sous la main. Tes favoris ne sont visibles que par toi.' },
+  { term: 'Alertes', def: 'Dans Réglages, choisis quand recevoir un e-mail : un sujet qui devient le bon moment, un favori qui change, un sujet qui se remplit vite.' },
+  { term: 'Connexion à Claude', def: 'Un jeton d’accès (Réglages) permet de poser tes questions à Claude sur tes sujets. Il ne donne accès qu’à tes chaînes.' },
   { term: 'Afficher (barre latérale)', def: 'Choisis une de tes chaînes pour ne voir que ses sujets, partout dans l’app. « Toutes mes chaînes » pour tout voir.' },
 ];
 

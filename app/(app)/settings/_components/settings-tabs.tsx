@@ -2,13 +2,10 @@
 
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { SlidersHorizontal, Globe, Key, Palette, Cpu, Bell } from 'lucide-react';
+import { SlidersHorizontal, Globe, Cpu } from 'lucide-react';
 import { ScoringTab } from './scoring-tab';
 import { NichesTab } from './niches-tab';
-import { ApiTokensTab } from './api-tokens-tab';
-import { AppearanceTab } from './appearance-tab';
 import { AiSpendTab } from './ai-spend-tab';
-import { AlertsTab } from './alerts-tab';
 import type { ScoringSettings } from '@/lib/scoring/scoring-config';
 import type { AlertRuleType } from '@/lib/alerts/evaluate';
 
@@ -16,10 +13,8 @@ const TABS = [
   { id: 'scoring', label: 'Scoring', icon: SlidersHorizontal },
   { id: 'niches', label: 'Niches', icon: Globe },
   { id: 'ai', label: 'Budget IA', icon: Cpu },
-  { id: 'api', label: 'Accès API', icon: Key },
-  { id: 'alerts', label: 'Alertes', icon: Bell },
-  { id: 'appearance', label: 'Apparence', icon: Palette },
 ] as const;
+// Accès API, alertes et apparence sont dans Réglages (propres à chaque compte, administrateur compris).
 
 type TabId = (typeof TABS)[number]['id'];
 
@@ -133,15 +128,7 @@ export function SettingsTabs({
       )}
       {activeTab === 'niches' && <NichesTab niches={niches} />}
       {activeTab === 'ai' && <AiSpendTab />}
-      {activeTab === 'api' && <ApiTokensTab tokens={tokens} />}
-      {activeTab === 'alerts' && (
-        <AlertsTab
-          rules={alertRules}
-          niches={niches.map((n) => ({ id: n.id, name: n.name }))}
-          collections={collections.map((c) => ({ id: c.id, name: c.name }))}
-        />
-      )}
-      {activeTab === 'appearance' && <AppearanceTab collections={collections} />}
+
     </div>
   );
 }

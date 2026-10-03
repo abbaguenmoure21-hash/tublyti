@@ -1,7 +1,7 @@
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Card, CardContent } from '@/components/ui/card';
 
-export const metadata = { title: 'Frustrations' };
+export const metadata = { title: 'Questions du public' };
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { MessageSquareWarning, AlertTriangle, ThumbsUp, TrendingUp, Lightbulb, Target, Clock, Search, PlaySquare } from 'lucide-react';
@@ -9,7 +9,6 @@ import { createServiceClient } from '@/lib/supabase/server';
 import { requireUser } from '@/lib/auth/session';
 import { resolveScope } from '@/lib/scope';
 import { LabelCorrector } from './_components/label-corrector';
-import { NicheFilter } from './_components/niche-filter';
 import { OutlierBadge } from '@/components/tublyti/outlier-badge';
 
 /* ------------------------------------------------------------------ */
@@ -179,8 +178,25 @@ async function getSmallChannelOutliers(filterNiche: string, ids: string[]): Prom
 
   if (error) return [];
 
+  // Vues les plus récentes : une seule requête pour les 30 vidéos retenues (au lieu d'une par vidéo).
+  const kept = ((data ?? []) as Record<string, unknown>[])
+    .filter((row) => ((row.videos as unknown as { channels: { subscriber_count: number | null } }).channels?.subscriber_count ?? 0) <= 50_000)
+    .slice(0, 30);
+  const latestViews = new Map<string, number>();
+  if (kept.length) {
+    const { data: snapRows } = await db
+      .from('video_snapshots')
+      .select('video_id, views, captured_at')
+      .in('video_id', kept.map((r: Record<string, unknown>) => r.video_id as string))
+      .order('captured_at', { ascending: false })
+      .limit(2000);
+    for (const sn of (snapRows ?? []) as { video_id: string; views: number | null }[]) {
+      if (!latestViews.has(sn.video_id)) latestViews.set(sn.video_id, Number(sn.views ?? 0));
+    }
+  }
+
   const items: OutlierVideo[] = [];
-  for (const row of data ?? []) {
+  for (const row of kept) {
     const video = row.videos as unknown as {
       id: string; title: string; thumbnail_url: string | null;
       channels: { 
@@ -191,13 +207,6 @@ async function getSmallChannelOutliers(filterNiche: string, ids: string[]): Prom
     const subs = video.channels?.subscriber_count ?? 0;
     if (subs > 50_000) continue; // safety check
 
-    // Get latest views for this video
-    const { data: snaps } = await db
-      .from('video_snapshots')
-      .select('views')
-      .eq('video_id', row.video_id)
-      .order('captured_at', { ascending: false })
-      .limit(1);
 
     items.push({
       videoId: row.video_id as string,
@@ -209,7 +218,7 @@ async function getSmallChannelOutliers(filterNiche: string, ids: string[]): Prom
       baseline: Number(row.baseline),
       ageDays: row.age_days as number,
       method: row.method as 'same_age' | 'approximate',
-      views: snaps?.[0]?.views ?? 0,
+      views: latestViews.get(row.video_id as string) ?? 0,
       thumbnailUrl: video.thumbnail_url,
       nicheName: video.channels.niches.name,
     });
@@ -284,7 +293,7 @@ export default async function FrustrationsPage({
         <div className="absolute inset-0 pointer-events-none -z-10">
         </div>
         <div className="flex-1 p-6 md:px-12 md:py-10 flex flex-col gap-8 w-full max-w-[1400px] mx-auto">
-          <h1 className="text-title-1 leading-tight">Que réclament les spectateurs ?</h1>
+          <h1 className="text-title-1 leading-tight">Que réclame ton public ?</h1>
           <div className="bento-card !py-16 flex flex-col items-center justify-center text-center">
             <AlertTriangle className="size-10 text-destructive mb-4" />
             <p className="text-[15px] font-semibold text-destructive">
@@ -308,7 +317,7 @@ export default async function FrustrationsPage({
         <div className="absolute inset-0 pointer-events-none -z-10">
         </div>
         <div className="flex-1 p-6 md:px-12 md:py-10 flex flex-col gap-8 w-full max-w-[1400px] mx-auto">
-          <h1 className="text-title-1 leading-tight">Que réclament les spectateurs ?</h1>
+          <h1 className="text-title-1 leading-tight">Que réclame ton public ?</h1>
           <div className="bento-card !py-16 flex flex-col items-center justify-center text-center">
             <div className="flex items-center justify-center w-14 h-14 rounded-2xl bg-primary/10 text-primary mb-5 shadow-[0_2px_8px_rgba(10,132,255,0.15)]">
               <MessageSquareWarning className="size-7" />
@@ -347,29 +356,29 @@ export default async function FrustrationsPage({
   const LABEL_GROUPS = [
     {
       id: 'wish_video_on',
-      title: 'Idées réclamées (Souhaits)',
-      description: 'Les spectateurs demandent explicitement une vidéo sur ce sujet. Créez-la pour répondre à une demande directe.',
+      title: 'Vidéos réclamées',
+      description: 'Le public demande explicitement une vidéo sur ce sujet. Crée-la pour répondre à une demande directe.',
       icon: Lightbulb,
       colorClass: 'text-primary'
     },
     {
       id: 'no_one_explains',
-      title: 'Trous dans le marché',
-      description: 'Personne n\'explique ce concept clairement. C\'est une excellente opportunité pour vous positionner en expert.',
+      title: 'Explications manquantes',
+      description: 'Personne n\'explique ce point clairement. Une vidéo claire te place comme la référence.',
       icon: Target,
       colorClass: 'text-purple-500 dark:text-purple-400'
     },
     {
       id: 'stopped_too_early',
-      title: 'Sujets survolés (Trop court)',
-      description: 'Le créateur est passé trop vite sur un point. Faites une vidéo dédiée pour approfondir ce que l\'audience veut vraiment savoir.',
+      title: 'Sujets survolés',
+      description: 'Le créateur est passé trop vite sur un point. Fais une vidéo entière dessus pour approfondir.',
       icon: Clock,
       colorClass: 'text-orange-500 dark:text-orange-400'
     },
     {
       id: 'searched_long',
-      title: 'Longues recherches (SEO)',
-      description: 'Les spectateurs ont cherché longtemps avant de trouver. Utilisez ces termes exacts dans vos titres pour capter le trafic de recherche.',
+      title: 'Recherches difficiles',
+      description: 'Le public a cherché longtemps avant de trouver. Reprends ces mots exacts dans tes titres pour être trouvé.',
       icon: Search,
       colorClass: 'text-emerald-500 dark:text-emerald-400'
     }
@@ -384,23 +393,15 @@ export default async function FrustrationsPage({
       <div className="absolute inset-0 pointer-events-none -z-10">
       </div>
 
-      <div className="flex-1 p-6 md:px-12 md:py-10 flex flex-col gap-8 overflow-x-hidden w-full max-w-[1400px] mx-auto">
-        {/* Page header */}
-        <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex flex-col gap-2">
-            <h1 className="text-[32px] font-bold tracking-tight text-foreground leading-tight">Que réclament les spectateurs ?</h1>
-            <p className="text-[16px] font-medium text-muted-foreground/80">
-              Commentaires qui expriment un besoin non satisfait
-            </p>
-          </div>
-
-          <div className="flex items-center gap-3 mt-2 sm:mt-0">
-            <Badge variant="secondary">
-              {filtered.length} commentaire{filtered.length > 1 ? 's' : ''}
-            </Badge>
-            <NicheFilter niches={allNicheNames} />
-          </div>
-        </div>
+      <div className="flex w-full flex-1 flex-col gap-6 overflow-x-hidden px-4 pb-12 pt-5 md:px-8">
+        {/* En-tête : même grand titre que Sujets et Carte. La chaîne se choisit dans « Afficher ». */}
+        <header className="flex flex-col gap-1.5">
+          <h1 className="text-[28px] font-semibold leading-tight tracking-[-0.02em] md:text-[32px]">Que réclame ton public ?</h1>
+          <p className="max-w-[760px] text-[15px] leading-relaxed text-muted-foreground">
+            {filtered.length} commentaire{filtered.length > 1 ? 's' : ''} récent{filtered.length > 1 ? 's' : ''} qui demandent une vidéo, signalent une explication manquante ou trop rapide.
+            Chacun est une idée de vidéo.
+          </p>
+        </header>
 
       {/* Tab bar */}
       <div className="flex gap-1 p-1 bg-black/5 dark:bg-white/5 rounded-2xl border border-black/5 dark:border-white/5 shadow-inner w-fit">
@@ -413,7 +414,7 @@ export default async function FrustrationsPage({
           }`}
         >
           <MessageSquareWarning className="w-[15px] h-[15px]" />
-          Frustrations
+          Ce que le public réclame
         </a>
         <a
           href="/frustrations?tab=outliers"

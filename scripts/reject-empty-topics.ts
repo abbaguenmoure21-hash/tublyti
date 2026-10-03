@@ -1,6 +1,6 @@
 /**
- * Reject proposed topics with 0 attached videos.
- * Keeps their topic_queries as search seeds.
+ * Reject stale topics: active/proposed topics with < 5 videos AND > 21 days old.
+ * Never closes topics that have a user-claimed angle (angles.user_id IS NOT NULL).
  *
  * Usage:
  *   npx tsx scripts/reject-empty-topics.ts --dry-run   # list topics (default)
@@ -23,6 +23,8 @@ if (existsSync(envPath)) {
   }
 }
 
+import { rejectStaleTopics } from '../lib/topics/reject-stale';
+
 const DRY_RUN = !process.argv.includes('--apply');
 
 async function main() {
@@ -31,72 +33,17 @@ async function main() {
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
   );
 
-  console.log(`\n=== Sujets sans vidéo ${DRY_RUN ? '(DRY RUN)' : '(APPLY)'} ===\n`);
+  console.log(`\n=== Sujets insuffisants > 21 jours ${DRY_RUN ? '(DRY RUN)' : '(APPLY)'} ===\n`);
 
-  const { data: niches } = await db.from('niches').select('id, name');
-  const nicheNames = new Map((niches ?? []).map((n) => [n.id, n.name]));
+  const result = await rejectStaleTopics(db, DRY_RUN);
 
-  const { data: proposedTopics } = await db
-    .from('topics')
-    .select('id, label, niche_id')
-    .eq('status', 'proposed');
-
-  const toReject: { id: string; label: string; niche: string }[] = [];
-
-  for (const topic of proposedTopics ?? []) {
-    const { count } = await db
-      .from('videos')
-      .select('id', { count: 'exact', head: true })
-      .eq('topic_id', topic.id);
-
-    if (!count || count === 0) {
-      toReject.push({
-        id: topic.id,
-        label: topic.label,
-        niche: nicheNames.get(topic.niche_id) ?? 'Unknown',
-      });
-    }
+  for (const detail of result.details) {
+    console.log(`  ${detail}`);
   }
 
-  // Group by niche
-  const byNiche = new Map<string, typeof toReject>();
-  for (const t of toReject) {
-    if (!byNiche.has(t.niche)) byNiche.set(t.niche, []);
-    byNiche.get(t.niche)!.push(t);
-  }
+  console.log(`\nTotal: ${result.rejected} ${DRY_RUN ? 'seraient rejetés' : 'rejetés'}, ${result.protected} protégés`);
 
-  for (const [niche, topics] of byNiche) {
-    console.log(`--- ${niche} (${topics.length}) ---`);
-    for (const t of topics) {
-      console.log(`  - ${t.label}`);
-    }
-  }
-
-  console.log(`\nTotal: ${toReject.length} sujets proposed sans vidéo`);
-
-  // Count queries that will be preserved
-  const topicIds = toReject.map((t) => t.id);
-  if (topicIds.length > 0) {
-    const { count: queryCount } = await db
-      .from('topic_queries')
-      .select('id', { count: 'exact', head: true })
-      .in('topic_id', topicIds);
-    console.log(`Requêtes de recherche préservées: ${queryCount ?? 0}`);
-  }
-
-  if (!DRY_RUN && toReject.length > 0) {
-    const { error } = await db
-      .from('topics')
-      .update({ status: 'rejected' })
-      .in('id', topicIds);
-
-    if (error) {
-      console.error(`Erreur: ${error.message}`);
-    } else {
-      console.log(`\n${toReject.length} sujets passés en rejected.`);
-      console.log('Les topic_queries restent intactes comme graines de recherche.');
-    }
-  } else if (DRY_RUN) {
+  if (DRY_RUN) {
     console.log('\n(DRY RUN — relancer avec --apply pour rejeter)');
   }
 }

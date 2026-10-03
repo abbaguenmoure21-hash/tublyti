@@ -1,6 +1,8 @@
 /**
  * Local nightly pipeline.
- * Order: collect → embed → attach → discover-topics → quality-gates → search → embed+attach (pass 2) → classify → score.
+ * Order: collect → embed → attach → enrich-insufficient → discover-topics → quality-gates
+ *        → search → search-emerging → discover-sources/channels → auto-triage
+ *        → embed+attach (pass 2) → classify → score → reject-stale → aggregate.
  * Each step sees data from the previous step.
  *
  * Usage: pnpm nightly
@@ -40,6 +42,8 @@ import { runQualityGates } from '../lib/topics/quality-gates';
 import { discoverChannels, retrieveDiscoveryBatches } from '../lib/youtube/discover-channels';
 import { runDiscoverySources } from '../lib/youtube/discover-sources';
 import { autoTriageCandidates } from '../lib/youtube/auto-triage';
+import { runAttachInsufficient, searchForEmergingTopics } from '../lib/topics/enrich-insufficient';
+import { rejectStaleTopics } from '../lib/topics/reject-stale';
 import { ResendAlertSender, ConsoleAlertSender } from '../lib/email/resend-alerts';
 import { SupabaseJobRunner } from '../lib/jobs/supabase-runner';
 
@@ -149,7 +153,22 @@ async function main() {
     return { quota: 0, items: attached };
   });
 
-  // ── Step 4: DISCOVER-TOPICS (cluster orphans into new topics) ──
+  // ── Step 4: ENRICH-INSUFFICIENT (targeted attachment for insufficient topics) ──
+  console.log('\n========== ENRICH-INSUFFICIENT ==========');
+
+  let enrichInsuffResult: { topicsProcessed: number; videosAttached: number; details: Record<string, number> } = { topicsProcessed: 0, videosAttached: 0, details: {} };
+  await runStep(runner, embedAttachEnd, 'enrich-insufficient', async () => {
+    enrichInsuffResult = await runAttachInsufficient(db, embedAttachEnd);
+    console.log(`  Topics enriched: ${enrichInsuffResult.topicsProcessed}, Videos attached: ${enrichInsuffResult.videosAttached}`);
+    if (enrichInsuffResult.topicsProcessed > 0) {
+      for (const [label, count] of Object.entries(enrichInsuffResult.details)) {
+        console.log(`    ${label}: +${count}`);
+      }
+    }
+    return { quota: 0, items: enrichInsuffResult.videosAttached };
+  });
+
+  // ── Step 5: DISCOVER-TOPICS (cluster orphans into new topics) ──
   console.log('\n========== DISCOVER-TOPICS ==========');
 
   await runStep(runner, discoverEnd, 'discover-topics', async () => {
@@ -158,7 +177,7 @@ async function main() {
     return { quota: 0, items: clustering.topicsProposed };
   });
 
-  // ── Step 5: QUALITY-GATES (reject single-channel-dominated topics) ──
+  // ── Step 6: QUALITY-GATES (reject single-channel-dominated topics) ──
   console.log('\n========== QUALITY-GATES ==========');
 
   await runStep(runner, discoverEnd, 'quality-gates', async () => {
@@ -169,7 +188,7 @@ async function main() {
     return { quota: 0, items: gates.rejectedMonoChannel + gates.rejectedChannelName };
   });
 
-  // ── Step 6: SEARCH ──────────────────────────────────────────────
+  // ── Step 7: SEARCH ──────────────────────────────────────────────
   console.log('\n========== SEARCH ==========');
 
   await runStep(runner, discoverEnd, 'search', async () => {
@@ -178,7 +197,18 @@ async function main() {
     return { quota: 0, items: search.videosDiscovered };
   });
 
-  // ── Step 7: DISCOVER-SOURCES (channelSections + search results) ─
+  // ── Step 8: SEARCH-EMERGING (YouTube search for starved insufficient topics) ──
+  console.log('\n========== SEARCH-EMERGING ==========');
+
+  let emergingResult = { searchesPerformed: 0, videosFound: 0, videosAttached: 0, quotaUsed: 0 };
+  await runStep(runner, discoverEnd, 'search-emerging', async () => {
+    emergingResult = await searchForEmergingTopics(db, embedder, discoverEnd, yt.getQuotaUsed());
+    console.log(`  Searches: ${emergingResult.searchesPerformed}, Found: ${emergingResult.videosFound}, Attached: ${emergingResult.videosAttached}`);
+    console.log(`  Quota: ${emergingResult.quotaUsed}`);
+    return { quota: emergingResult.quotaUsed, items: emergingResult.videosAttached };
+  });
+
+  // ── Step 9: DISCOVER-SOURCES (channelSections + search results) ─
   console.log('\n========== DISCOVER-SOURCES ==========');
 
   await runStep(runner, discoverEnd, 'discover-sources', async () => {
@@ -190,7 +220,7 @@ async function main() {
     return { quota: totalQuota, items: totalChannels };
   });
 
-  // ── Step 8: DISCOVER-CHANNELS (search for new channels in phase 1/2 topics) ─
+  // ── Step 10: DISCOVER-CHANNELS (search for new channels in phase 1/2 topics) ─
   console.log('\n========== DISCOVER-CHANNELS ==========');
 
   await runStep(runner, discoverEnd, 'discover-channels', async () => {
@@ -207,7 +237,7 @@ async function main() {
     return { quota: 0, items: disc.channelsDiscovered };
   });
 
-  // ── Step 9: AUTO-TRIAGE (enrich + classify pending candidates) ─
+  // ── Step 11: AUTO-TRIAGE (enrich + classify pending candidates) ─
   console.log('\n========== AUTO-TRIAGE ==========');
 
   await runStep(runner, discoverEnd, 'auto-triage', async () => {
@@ -217,7 +247,7 @@ async function main() {
     return { quota: triage.quotaUsed, items: triage.processed };
   });
 
-  // ── Step 10: EMBED-2 + ATTACH-2 (new videos from search) ──────
+  // ── Step 12: EMBED-2 + ATTACH-2 (new videos from search) ──────
   console.log('\n========== EMBED+ATTACH (pass 2) ==========');
 
   await runStep(runner, discoverEnd, 'embed-pass2', async () => {
@@ -227,7 +257,7 @@ async function main() {
     return { quota: 0, items: embedded + attached };
   });
 
-  // ── Step 11: CLASSIFY (retrieve pending batches + submit new) ───
+  // ── Step 13: CLASSIFY (retrieve pending batches + submit new) ───
   console.log('\n========== CLASSIFY ==========');
 
   if (process.env.ANTHROPIC_API_KEY) {
@@ -241,7 +271,7 @@ async function main() {
     console.log('  ANTHROPIC_API_KEY not set — skipped');
   }
 
-  // ── Step 12: SCORE (MGI + phase + outliers) ────────────────────
+  // ── Step 14: SCORE (MGI + phase + outliers) ────────────────────
   console.log('\n========== SCORE ==========');
 
   await runStep(runner, deadline, 'score', async () => {
@@ -262,7 +292,21 @@ async function main() {
     return { quota: 0, items: score.topicsScored + outlierCount };
   });
 
-  // ── Step 13: AGGREGATE (compress old snapshots into weekly) ────
+  // ── Step 15: REJECT-STALE (close topics < 5 videos after 21 days) ──
+  console.log('\n========== REJECT-STALE ==========');
+
+  let rejectResult = { rejected: 0, protected: 0 };
+  await runStep(runner, deadline, 'reject-stale', async () => {
+    const r = await rejectStaleTopics(db);
+    rejectResult = r;
+    console.log(`  Rejected: ${r.rejected}, Protected: ${r.protected}`);
+    for (const detail of r.details) {
+      console.log(`    ${detail}`);
+    }
+    return { quota: 0, items: r.rejected };
+  });
+
+  // ── Step 16: AGGREGATE (compress old snapshots into weekly) ────
   console.log('\n========== AGGREGATE ==========');
 
   await runStep(runner, deadline, 'aggregate', async () => {
@@ -327,6 +371,9 @@ async function main() {
   const elapsed = ((Date.now() - start) / 1000).toFixed(0);
   console.log(`\n========== DONE in ${elapsed}s ==========`);
   console.log(`  YouTube quota: ${yt.getQuotaUsed()}`);
+  console.log(`  Enrichment: topics enriched ${enrichInsuffResult.topicsProcessed}, videos attached ${enrichInsuffResult.videosAttached}`);
+  console.log(`  Emerging: searches ${emergingResult.searchesPerformed} (quota ${emergingResult.quotaUsed}), attached ${emergingResult.videosAttached}`);
+  console.log(`  Stale: rejected ${rejectResult.rejected}, protected ${rejectResult.protected}`);
 }
 
 main().catch((err) => {

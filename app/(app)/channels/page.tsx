@@ -59,30 +59,14 @@ export default async function ChannelsPage() {
       <div className="absolute inset-0 pointer-events-none -z-10">
       </div>
 
-      <div className="flex-1 p-6 md:px-12 md:py-10 flex flex-col gap-8 w-full max-w-5xl mx-auto">
-        {/* Page header */}
-        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
-          <div className="flex flex-col gap-2">
-            <h1 className="text-[32px] font-bold tracking-tight text-foreground leading-tight">
-              Quelles chaînes surveiller ?
-            </h1>
-            <p className="text-[16px] font-medium text-muted-foreground/80 max-w-2xl">
-              Ajoutez les chaînes YouTube de votre niche. TubLyTI analysera leurs vidéos
-              et les commentaires de leur audience pour détecter les opportunités.
-            </p>
-          </div>
-          <Link
-            href="/channels/candidates"
-            className="haptic-btn whitespace-nowrap h-[40px] pl-5 pr-3 rounded-full text-[14px] font-bold transition-all shadow-sm border bg-white dark:bg-white/10 border-black/5 dark:border-white/10 text-foreground hover:bg-black/5 dark:hover:bg-white/20 flex items-center gap-2 shrink-0"
-          >
-            Chaînes candidates
-            {candidatesCount > 0 && (
-              <span className="bg-secondary text-secondary-foreground text-[12px] font-bold px-2 py-0.5 rounded-full ml-1">
-                {candidatesCount}
-              </span>
-            )}
-          </Link>
-        </div>
+      <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-6 px-4 py-6 md:px-8">
+        {/* En-tête (les chaînes candidates ont leur propre onglet dans la console) */}
+        <header className="flex flex-col gap-1.5">
+          <h1 className="text-[28px] font-semibold leading-tight tracking-[-0.02em]">Chaînes analysées</h1>
+          <p className="max-w-2xl text-[15px] leading-relaxed text-muted-foreground">
+            Les chaînes dont TubLyTI collecte les vidéos et les commentaires chaque nuit. Ce catalogue est commun à tous les clients.
+          </p>
+        </header>
 
       {/* Add channel form (client island) */}
       <AddChannelForm niches={niches} />
@@ -133,7 +117,7 @@ export default async function ChannelsPage() {
           <div className="overflow-x-auto">
             <table className="w-full text-[14px]">
               <thead>
-                <tr className="bg-black/5 dark:bg-black/20 text-muted-foreground text-left text-[12px] font-bold uppercase tracking-wider">
+                <tr className="bg-black/5 dark:bg-black/20 text-muted-foreground text-left text-[13px] font-medium">
                   <th className="px-6 py-4">Chaîne</th>
                   <th className="px-6 py-4">Niche</th>
                   <th className="px-6 py-4">Abonnés</th>
@@ -173,7 +157,7 @@ export default async function ChannelsPage() {
                     </td>
                     <td className="px-6 py-4">
                       {ch.niches?.name ? (
-                        <div className="inline-flex items-center bg-black/5 dark:bg-white/10 border border-black/5 dark:border-white/5 text-[11px] font-bold uppercase tracking-wide px-3 py-1.5 rounded-full text-foreground/70 shadow-sm max-w-[180px]">
+                        <div className="inline-flex items-center bg-black/5 dark:bg-white/10 border border-black/5 dark:border-white/5 text-[12px] font-medium px-2.5 py-1 rounded-full text-foreground/70 max-w-[200px] truncate">
                           <span className="truncate">{ch.niches.name}</span>
                         </div>
                       ) : (
