@@ -55,7 +55,7 @@ export function computeFeasibility(
 
   // No qualified competition → very feasible
   if (qualifiedCount === 0 || competitorSubs.length === 0) {
-    return { grade: 'A', reason: 'Aucune vidéo qualifiée concurrente : le terrain est libre.', weight: 1.0 };
+    return { grade: 'A', reason: 'Aucune bonne vidéo concurrente : le terrain est libre.', weight: 1.0 };
   }
 
   // Count how many qualified videos come from channels ≤ owner's size
@@ -73,7 +73,7 @@ export function computeFeasibility(
 
   if (ratio >= 0.6 || (subsRatio >= 1.5 && ratio >= 0.3)) {
     grade = 'A';
-    reason = `${smallerOrEqual} des ${competitorSubs.length} vidéos qualifiées viennent de chaînes plus petites ou de ta taille.`;
+    reason = `${smallerOrEqual} des ${competitorSubs.length} bonnes vidéos viennent de chaînes plus petites ou de ta taille.`;
   } else if (ratio >= 0.4 || subsRatio >= 1.0) {
     grade = 'B';
     reason = `${smallerOrEqual} des ${competitorSubs.length} vidéos qui marchent viennent de chaînes plus petites que la tienne.`;
@@ -82,7 +82,7 @@ export function computeFeasibility(
     reason = `Compétition mixte : ${smallerOrEqual} des ${competitorSubs.length} vidéos viennent de chaînes de ta taille ou plus petites.`;
   } else if (ratio >= 0.1 || subsRatio >= 0.2) {
     grade = 'D';
-    reason = `La plupart des vidéos qualifiées viennent de chaînes plus grosses (médiane : ${formatSubs(medianCompSubs)} abonnés vs tes ${formatSubs(ownerSubs)}).`;
+    reason = `La plupart des bonnes vidéos viennent de chaînes plus grosses (médiane : ${formatSubs(medianCompSubs)} abonnés vs tes ${formatSubs(ownerSubs)}).`;
   } else if (subsRatio >= 0.05) {
     grade = 'E';
     reason = `Quasi toutes les vidéos viennent de grosses chaînes (médiane : ${formatSubs(medianCompSubs)} abonnés vs tes ${formatSubs(ownerSubs)}).`;

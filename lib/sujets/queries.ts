@@ -106,6 +106,7 @@ export interface TopicDetail {
   quotes: { text: string; likes: number }[];
   angles: { id: string; title: string; hook: string | null }[];
   sensitive: boolean;
+  competitorSubs: number[] | null;
 }
 
 /** Détail d'un sujet pour le panneau latéral. */
@@ -117,7 +118,7 @@ export async function getTopicDetail(db: SupabaseClient, topicId: string, userId
   if (ready) proposedAngles = proposedAngles.is('user_id', null);
   const [topicRes, scoreRes, videosRes, anglesRes, mineRes, stateRes] = await Promise.all([
     db.from('topics').select('id, label, status, niche_id, niches(name)').eq('id', topicId).single(),
-    db.from('topic_scores').select('mgi, phase, confidence').eq('topic_id', topicId).eq('scored_at', scoredAt).maybeSingle(),
+    db.from('topic_scores').select('mgi, phase, confidence, competitor_subs').eq('topic_id', topicId).eq('scored_at', scoredAt).maybeSingle(),
     db.from('videos').select('id, channel_id, published_at').eq('topic_id', topicId).limit(1000),
     // Angles proposés par TubLyTI (communs à tous) : ceux qui n'appartiennent à personne.
     proposedAngles.order('created_at', { ascending: false }).limit(5),
@@ -155,7 +156,7 @@ export async function getTopicDetail(db: SupabaseClient, topicId: string, userId
     }
   }
 
-  const s = scoreRes.data as { mgi: number | null; phase: number | null; confidence: string | null } | null;
+  const s = scoreRes.data as { mgi: number | null; phase: number | null; confidence: string | null; competitor_subs: number[] | null } | null;
   const conf = s?.confidence ?? null;
   return {
     id: topic.id,
@@ -173,5 +174,6 @@ export async function getTopicDetail(db: SupabaseClient, topicId: string, userId
     quotes,
     angles: (anglesRes.data ?? []).map((a) => ({ id: a.id as string, title: String(a.title ?? ''), hook: (a.hook as string | null) ?? null })),
     sensitive: isSensitiveTopic(topic.label),
+    competitorSubs: s?.competitor_subs ?? null,
   };
 }

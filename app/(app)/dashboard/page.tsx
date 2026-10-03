@@ -6,6 +6,8 @@ import { createServiceClient } from '@/lib/supabase/server';
 import { getLatestScoreDate } from '@/lib/scoring/latest-score-date';
 import { isSensitiveTopic } from '@/lib/topics/sensitive';
 import { getFavoriteIds } from '@/lib/actions/collections';
+import { computeFeasibilityForUser, isNoChannelResult } from '@/lib/scoring/feasibility-for-user';
+import { getUserSubsByNiche } from '@/lib/scoring/user-subs';
 import { TitlePatternsView } from './_components/title-patterns-view';
 import { CarteView, type CarteTopic } from './_components/carte-view';
 
@@ -44,7 +46,7 @@ export default async function CartePage({ searchParams }: { searchParams: Promis
   const scoredAt = await getLatestScoreDate(db);
   const { data: scores } = await db
     .from('topic_scores')
-    .select('mgi, demand, frustration, supply_q, phase, confidence, feasibility_grade, feasibility_reason, topics!inner(id, label, status, niche_id)')
+    .select('mgi, demand, frustration, supply_q, phase, confidence, feasibility_grade, feasibility_reason, competitor_subs, topics!inner(id, label, status, niche_id)')
     .eq('scored_at', scoredAt)
     .in('topics.status', ['active', 'in_production'])
     .in('topics.niche_id', ids)
@@ -54,8 +56,12 @@ export default async function CartePage({ searchParams }: { searchParams: Promis
   const rows = (scores ?? []) as unknown as {
     mgi: number | null; demand: number | null; frustration: number | null; supply_q: number | null; phase: number | null;
     confidence: string | null; feasibility_grade: string | null; feasibility_reason: string | null;
+    competitor_subs: number[] | null;
     topics: { id: string; label: string; niche_id: string };
   }[];
+
+  // Per-user feasibility: load subscriber counts for this user's channels.
+  const userSubsByNiche = await getUserSubsByNiche(db, user.id);
 
   // Nombre de vidéos repérées par sujet (pour les sujets encore sans mesure).
   const topicIds = rows.map((r) => r.topics.id);
@@ -80,9 +86,14 @@ export default async function CartePage({ searchParams }: { searchParams: Promis
       demand: Math.round(demand * 100),
       supply: Math.round(supply * 10) / 10,
       frustration: Math.round(Number(r.frustration ?? 0) * 100),
-      // Sans chaîne de référence, la note de faisabilité n'a pas de sens : on ne l'affiche pas.
-      feasibility: r.feasibility_reason?.startsWith('Aucune chaîne') ? null : r.feasibility_grade,
-      feasibilityReason: r.feasibility_reason,
+      // Faisabilité calculée par client : ses abonnés vs les concurrents du sujet.
+      ...(() => {
+        const userSubs = userSubsByNiche.get(r.topics.niche_id) ?? null;
+        if (userSubs == null) return { feasibility: null, feasibilityReason: null };
+        const f = computeFeasibilityForUser(userSubs, r.competitor_subs);
+        if (isNoChannelResult(f)) return { feasibility: null, feasibilityReason: null };
+        return { feasibility: f.grade, feasibilityReason: f.reason };
+      })(),
       reliable: r.confidence === 'high' || r.confidence === 'medium',
       measured,
       videos: videoCount.get(r.topics.id) ?? 0,

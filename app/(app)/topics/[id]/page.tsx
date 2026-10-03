@@ -12,6 +12,8 @@ import { TopicShortcuts } from './_components/topic-shortcuts';
 import { AngleSection } from './_components/angle-section';
 import { DossierExport } from './_components/dossier-export';
 import { getFavoriteIds } from '@/lib/actions/collections';
+import { computeFeasibilityForUser, isNoChannelResult } from '@/lib/scoring/feasibility-for-user';
+import { getUserSubsByNiche } from '@/lib/scoring/user-subs';
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params;
@@ -129,7 +131,7 @@ export default async function TopicPage({
   // Latest score
   const { data: score } = await db
     .from('topic_scores')
-    .select('mgi, demand, frustration, supply_q, monetization, phase, scored_at, confidence, confidence_reason, feasibility_grade, feasibility_reason')
+    .select('mgi, demand, frustration, supply_q, monetization, phase, scored_at, confidence, confidence_reason, feasibility_grade, feasibility_reason, competitor_subs')
     .eq('topic_id', id)
     .order('scored_at', { ascending: false })
     .limit(1)
@@ -273,6 +275,17 @@ export default async function TopicPage({
   const { data: favoriteTopicIds } = await getFavoriteIds('topic');
   const isFavorite = favoriteTopicIds.includes(id);
 
+  // Per-user feasibility
+  const userSubsByNiche = await getUserSubsByNiche(db, user.id);
+  const topicNicheId = (topic.niches as unknown as { id: string } | null)?.id;
+  const userSubs = topicNicheId ? (userSubsByNiche.get(topicNicheId) ?? null) : null;
+  const competitorSubs = (score as Record<string, unknown> | null)?.competitor_subs as number[] | null ?? null;
+  const userFeasibility = userSubs != null
+    ? computeFeasibilityForUser(userSubs, competitorSubs)
+    : null;
+  const showFeasibility = userFeasibility && !isNoChannelResult(userFeasibility);
+  const showNoChannelHint = userSubs == null;
+
   const phase = score?.phase ?? topic.phase;
   const niche = topic.niches as unknown as {
     id: string; name: string; rpm_coefficient: number;
@@ -380,21 +393,32 @@ export default async function TopicPage({
         })()}
 
         {/* Feasibility card */}
-        {score?.feasibility_grade && !score.feasibility_reason?.startsWith('Aucune chaîne') && (
+        {showFeasibility && (
           <div className="bento-card !px-[18px] !py-3.5 flex items-center gap-3">
             <span className={`inline-flex items-center justify-center h-8 w-8 rounded-[8px] text-[16px] font-bold ${
-              score.feasibility_grade === 'A' ? 'bg-[#30D158]/15 text-[#30D158]'
-              : score.feasibility_grade === 'B' ? 'bg-[#0A84FF]/15 text-[#0A84FF]'
-              : score.feasibility_grade === 'C' ? 'bg-[--bg-surface-2] text-muted-foreground'
-              : score.feasibility_grade === 'D' ? 'bg-[#FF9F0A]/15 text-[#FF9F0A]'
+              userFeasibility.grade === 'A' ? 'bg-[#30D158]/15 text-[#30D158]'
+              : userFeasibility.grade === 'B' ? 'bg-[#0A84FF]/15 text-[#0A84FF]'
+              : userFeasibility.grade === 'C' ? 'bg-[--bg-surface-2] text-muted-foreground'
+              : userFeasibility.grade === 'D' ? 'bg-[#FF9F0A]/15 text-[#FF9F0A]'
               : 'bg-[#FF453A]/15 text-[#FF453A]'
             }`}>
-              {score.feasibility_grade}
+              {userFeasibility.grade}
             </span>
             <div className="flex flex-col gap-0.5">
               <span className="text-[13px] font-semibold">Faisabilité</span>
               <span className="text-[13px] text-muted-foreground">
-                {score.feasibility_reason ?? `Note ${score.feasibility_grade}`}
+                {userFeasibility.reason}
+              </span>
+            </div>
+          </div>
+        )}
+        {showNoChannelHint && (
+          <div className="bento-card !px-[18px] !py-3.5 flex items-center gap-3">
+            <span className="inline-flex items-center justify-center h-8 w-8 rounded-[8px] text-[16px] bg-muted text-muted-foreground">?</span>
+            <div className="flex flex-col gap-0.5">
+              <span className="text-[13px] font-semibold">Faisabilité</span>
+              <span className="text-[13px] text-muted-foreground">
+                <Link href="/settings#chaines" className="text-primary hover:underline">Ajoute l'adresse YouTube de ta chaîne dans Réglages</Link> pour voir tes chances.
               </span>
             </div>
           </div>

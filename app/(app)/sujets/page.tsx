@@ -8,6 +8,10 @@ import { requireUser } from '@/lib/auth/session';
 import { listTopics, getTopicDetail, parseMoments, DEFAULT_MOMENTS } from '@/lib/sujets/queries';
 import { PhaseBadge } from '@/components/tublyti/phase-badge';
 import { SensitiveBadge } from '@/components/tublyti/sensitive-badge';
+import { FeasibilityBadge } from '@/components/tublyti/feasibility-badge';
+import type { FeasibilityGrade } from '@/lib/scoring/feasibility';
+import { computeFeasibilityForUser, isNoChannelResult } from '@/lib/scoring/feasibility-for-user';
+import { getUserSubsByNiche } from '@/lib/scoring/user-subs';
 import { ReliabilityMark, PotentialMeter } from './_components/reliability';
 import { SearchField } from './_components/search-field';
 import { ListKeyboard } from './_components/list-keyboard';
@@ -49,8 +53,20 @@ export default async function SujetsPage({ searchParams }: { searchParams: Promi
   const nicheById = new Map(niches.map((n) => [n.id, n]));
   const scopeLabel = scope ? nicheById.get(scope)?.label : null;
 
+  const userSubsByNiche = await getUserSubsByNiche(db, user.id);
+
   const selectedIndex = params.sujet ? rows.findIndex((r) => r.id === params.sujet) : -1;
   const detail = params.sujet ? await getTopicDetail(db, params.sujet, user.id) : null;
+
+  // Per-user feasibility for the selected topic.
+  const detailFeasibility = (() => {
+    if (!detail) return null;
+    const userSubs = userSubsByNiche.get(detail.nicheId) ?? null;
+    if (userSubs == null) return { noChannel: true as const, grade: null, reason: null };
+    const f = computeFeasibilityForUser(userSubs, detail.competitorSubs);
+    if (isNoChannelResult(f)) return { noChannel: true as const, grade: null, reason: null };
+    return { noChannel: false as const, grade: f.grade as FeasibilityGrade, reason: f.reason };
+  })();
   const ids = rows.map((r) => r.id);
   const hrefAt = (i: number) => (i >= 0 && i < rows.length ? sujetsHref(params, { sujet: rows[i].id }) : null);
   // Panneau ouvert : la fiabilité est déjà dans le panneau, on libère la place pour le libellé.
@@ -222,6 +238,27 @@ export default async function SujetsPage({ searchParams }: { searchParams: Promi
               <strong>{detail.channelCount}</strong> chaîne{detail.channelCount > 1 ? 's' : ''}.
             </p>
           </div>
+
+          {detailFeasibility && (
+            <div className="flex items-center gap-3 rounded-xl border border-border bg-background px-4 py-3">
+              {detailFeasibility.noChannel ? (
+                <>
+                  <span className="inline-flex items-center justify-center h-7 w-7 rounded-[6px] text-[14px] bg-muted text-muted-foreground shrink-0">?</span>
+                  <span className="text-sm text-muted-foreground">
+                    <Link href="/settings#chaines" className="text-primary hover:underline">Ajoute ta chaîne dans Réglages</Link> pour voir tes chances.
+                  </span>
+                </>
+              ) : (
+                <>
+                  <FeasibilityBadge grade={detailFeasibility.grade!} />
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-[13px] font-semibold">Faisabilité</span>
+                    <span className="text-[12px] text-muted-foreground leading-snug">{detailFeasibility.reason}</span>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
 
           <div className="flex flex-col gap-2">
             <span className="text-[13px] font-semibold">Ce que réclame le public</span>

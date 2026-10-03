@@ -435,6 +435,7 @@ export async function runScore(
     phase: number;
     confidence: ReturnType<typeof computeConfidence>;
     feasibility: ReturnType<typeof computeFeasibility>;
+    competitorSubs: number[];
   }
 
   const scored: ScoredTopic[] = [];
@@ -501,6 +502,9 @@ export async function runScore(
     }
     const feasibility = computeFeasibility(ownerSubs, compSubs, c.longQualityCount);
 
+    // Sort and cap competitor subs for per-user feasibility at display time
+    const competitorSubs = compSubs.sort((a, b) => a - b).slice(0, 200);
+
     scored.push({
       topicIndex: c.topicIndex,
       demand,
@@ -510,6 +514,7 @@ export async function runScore(
       phase,
       confidence,
       feasibility,
+      competitorSubs,
     });
   }
 
@@ -543,6 +548,7 @@ export async function runScore(
         confidence_reason: s.confidence.reason,
         feasibility_grade: s.feasibility.grade,
         feasibility_reason: s.feasibility.reason,
+        competitor_subs: s.competitorSubs,
       },
       { onConflict: 'topic_id,scored_at' },
     );

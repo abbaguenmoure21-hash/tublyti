@@ -44,6 +44,7 @@ import { runDiscoverySources } from '../lib/youtube/discover-sources';
 import { autoTriageCandidates } from '../lib/youtube/auto-triage';
 import { runAttachInsufficient, searchForEmergingTopics } from '../lib/topics/enrich-insufficient';
 import { rejectStaleTopics } from '../lib/topics/reject-stale';
+import { updateUserChannelSubs } from '../lib/youtube/update-user-channels';
 import { ResendAlertSender, ConsoleAlertSender } from '../lib/email/resend-alerts';
 import { SupabaseJobRunner } from '../lib/jobs/supabase-runner';
 
@@ -135,7 +136,16 @@ async function main() {
     };
   });
 
-  // ── Step 2: EMBED (all unembedded video titles) ────────────────
+  // ── Step 2: USER-CHANNELS (update subscriber counts for client channels) ──
+  console.log('\n========== USER-CHANNELS ==========');
+
+  await runStep(runner, collectEnd, 'user-channels', async () => {
+    const uc = await updateUserChannelSubs(db);
+    console.log(`  Updated: ${uc.updated}, Handles resolved: ${uc.resolved}, Quota: ${uc.quotaUsed}`);
+    return { quota: uc.quotaUsed, items: uc.updated };
+  });
+
+  // ── Step 3: EMBED (all unembedded video titles) ────────────────
   console.log('\n========== EMBED ==========');
 
   await runStep(runner, embedAttachEnd, 'embed', async () => {
