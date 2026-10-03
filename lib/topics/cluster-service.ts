@@ -2,7 +2,6 @@ import Anthropic from '@anthropic-ai/sdk';
 import { SupabaseClient } from '@supabase/supabase-js';
 import type { EmbeddingProvider } from '../providers/embeddings';
 
-const ATTACH_SIMILARITY_THRESHOLD = 0.75;
 const CLUSTER_SIMILARITY_THRESHOLD = 0.80;
 const MIN_CLUSTER_SIZE = 3;
 
@@ -12,12 +11,6 @@ export interface ClusterResult {
   anglesEmbedded: number;
   videosAttached: number;
   topicsProposed: number;
-}
-
-interface EmbeddableItem {
-  id: string;
-  text: string;
-  type: 'video' | 'angle';
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -49,9 +42,15 @@ function formatVector(vec: number[]): string {
 }
 
 // ── Main service ─────────────────────────────────────────────────────
+
+/**
+ * Propose new topics by clustering unattached, embedded videos.
+ * Embedding and attachment are now handled by separate services
+ * (embed-service.ts, attach-service.ts).
+ */
 export async function runClustering(
   db: SupabaseClient,
-  embedder: EmbeddingProvider,
+  _embedder: EmbeddingProvider,
   deadlineMs: number,
 ): Promise<ClusterResult> {
   const result: ClusterResult = {
@@ -63,120 +62,36 @@ export async function runClustering(
 
   const isTimedOut = () => Date.now() >= deadlineMs;
 
-  // ── Step 1: Embed video titles without embeddings ────────────────
-  const { data: unembeddedVideos } = await db
-    .from('videos')
-    .select('id, title')
-    .is('title_embedding', null)
-    .not('title', 'is', null)
-    .limit(128);
+  // Load unattached videos with embeddings (these are orphans after attach step)
+  const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+  const allOrphans: { id: string; embedding: number[]; channel_id: string }[] = [];
+  let offset = 0;
+  const PAGE = 500;
 
-  if (unembeddedVideos && unembeddedVideos.length > 0 && !isTimedOut()) {
-    const texts = unembeddedVideos.map((v) => v.title as string);
-    try {
-      const embeddings = await embedder.embed(texts, 'document');
-      for (let i = 0; i < unembeddedVideos.length; i++) {
-        await db
-          .from('videos')
-          .update({ title_embedding: formatVector(embeddings[i]) })
-          .eq('id', unembeddedVideos[i].id);
-        result.videosEmbedded++;
-      }
-    } catch (err) {
-      console.error(`Embedding error: ${(err as Error).message}`);
+  while (!isTimedOut()) {
+    const { data: videos } = await db
+      .from('videos')
+      .select('id, title_embedding, channel_id')
+      .is('topic_id', null)
+      .not('title_embedding', 'is', null)
+      .gte('published_at', cutoff)
+      .range(offset, offset + PAGE - 1);
+
+    if (!videos?.length) break;
+
+    for (const v of videos) {
+      const emb = parseEmbedding(v.title_embedding);
+      if (emb.length > 0) allOrphans.push({ id: v.id, embedding: emb, channel_id: v.channel_id });
     }
+
+    if (videos.length < PAGE) break;
+    offset += videos.length;
   }
 
-  if (isTimedOut()) return result;
+  if (isTimedOut() || allOrphans.length < MIN_CLUSTER_SIZE) return result;
 
-  // ── Step 2: Embed requested_angles without embeddings ────────────
-  // We store angle embeddings in a lightweight way: embed and use for clustering
-  // but don't persist them (they're used transiently for topic matching)
-  const { data: unprocessedLabels } = await db
-    .from('comment_labels')
-    .select('comment_id, requested_angle')
-    .neq('label', 'none')
-    .not('requested_angle', 'is', null)
-    .limit(128);
-
-  // Filter to angles not yet associated with a topic via their video
-  const angleItems: EmbeddableItem[] = [];
-  if (unprocessedLabels && unprocessedLabels.length > 0) {
-    for (const label of unprocessedLabels) {
-      if (label.requested_angle) {
-        angleItems.push({
-          id: label.comment_id,
-          text: label.requested_angle,
-          type: 'angle',
-        });
-      }
-    }
-    result.anglesEmbedded = angleItems.length;
-  }
-
-  if (isTimedOut()) return result;
-
-  // ── Step 3: Attach videos to existing topics ─────────────────────
-  const { data: unattachedVideos } = await db
-    .from('videos')
-    .select('id, title, title_embedding')
-    .is('topic_id', null)
-    .not('title_embedding', 'is', null)
-    .limit(200);
-
-  if (!unattachedVideos || unattachedVideos.length === 0) return result;
-
-  // Load all active topic embeddings
-  const { data: topics } = await db
-    .from('topics')
-    .select('id, label, embedding, niche_id')
-    .in('status', ['active', 'proposed'])
-    .not('embedding', 'is', null);
-
-  const topicEmbeddings = (topics ?? []).map((t) => ({
-    id: t.id as string,
-    nicheId: t.niche_id as string,
-    embedding: parseEmbedding(t.embedding),
-  }));
-
-  // For each unattached video, find best matching topic
-  const orphans: { id: string; embedding: number[] }[] = [];
-
-  for (const video of unattachedVideos) {
-    if (isTimedOut()) break;
-
-    const videoEmb = parseEmbedding(video.title_embedding);
-    if (videoEmb.length === 0) continue;
-
-    let bestSim = 0;
-    let bestTopicId: string | null = null;
-
-    for (const topic of topicEmbeddings) {
-      if (topic.embedding.length === 0) continue;
-      const sim = cosineSimilarity(videoEmb, topic.embedding);
-      if (sim > bestSim) {
-        bestSim = sim;
-        bestTopicId = topic.id;
-      }
-    }
-
-    if (bestTopicId && bestSim >= ATTACH_SIMILARITY_THRESHOLD) {
-      await db
-        .from('videos')
-        .update({ topic_id: bestTopicId })
-        .eq('id', video.id);
-      result.videosAttached++;
-
-      // Recalculate topic embedding (average of members)
-      await recalculateTopicEmbedding(db, bestTopicId);
-    } else {
-      orphans.push({ id: video.id, embedding: videoEmb });
-    }
-  }
-
-  if (isTimedOut()) return result;
-
-  // ── Step 4: Cluster orphans into proposed topics ─────────────────
+  // Cluster orphans into proposed topics
+  const orphans = allOrphans.map((o) => ({ id: o.id, embedding: o.embedding }));
   if (orphans.length >= MIN_CLUSTER_SIZE) {
     const clusters = greedyCluster(orphans, CLUSTER_SIMILARITY_THRESHOLD);
 
@@ -346,8 +261,9 @@ The label should capture the shared theme. The queries should be YouTube search 
       }],
     });
 
-    const text = response.content[0].type === 'text' ? response.content[0].text : '';
-    const parsed = JSON.parse(text.trim());
+    let text = response.content[0].type === 'text' ? response.content[0].text : '';
+    text = text.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim();
+    const parsed = JSON.parse(text);
 
     if (parsed.reject) return null;
     if (!parsed.label || typeof parsed.label !== 'string') return null;
@@ -366,29 +282,3 @@ The label should capture the shared theme. The queries should be YouTube search 
   }
 }
 
-// ── Recalculate topic embedding from member videos ───────────────────
-async function recalculateTopicEmbedding(
-  db: SupabaseClient,
-  topicId: string,
-): Promise<void> {
-  const { data: members } = await db
-    .from('videos')
-    .select('title_embedding')
-    .eq('topic_id', topicId)
-    .not('title_embedding', 'is', null)
-    .limit(100);
-
-  if (!members || members.length === 0) return;
-
-  const embeddings = members
-    .map((m) => parseEmbedding(m.title_embedding))
-    .filter((e) => e.length > 0);
-
-  if (embeddings.length === 0) return;
-
-  const avg = averageEmbedding(embeddings);
-  await db
-    .from('topics')
-    .update({ embedding: formatVector(avg) })
-    .eq('id', topicId);
-}

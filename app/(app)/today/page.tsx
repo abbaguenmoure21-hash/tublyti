@@ -5,7 +5,8 @@ import { getLatestScoreDate } from '@/lib/scoring/latest-score-date';
 import { PhaseBadge, MgiScore, PHASE_LABELS } from '@/components/tublyti';
 import { FeasibilityBadge } from '@/components/tublyti/feasibility-badge';
 import { gradeWeight, type FeasibilityGrade } from '@/lib/scoring/feasibility';
-import { Search, ArrowRight, TrendingDown, Sparkles, Upload, Type, Image, TrendingUp } from 'lucide-react';
+import { Search, ArrowRight, TrendingDown, Sparkles, Upload, Type, Image, TrendingUp, ShieldAlert } from 'lucide-react';
+import { isSensitiveTopic } from '@/lib/topics/sensitive';
 import { MarkProductionButton } from './_components/mark-production-button';
 import { LastVisitTracker } from './_components/last-visit-tracker';
 
@@ -132,9 +133,11 @@ export default async function TodayPage() {
     .order('mgi', { ascending: false });
 
   // Group scores by niche, pick top 3 (phase 2 first, then MGI × feasibility)
+  // Exclude sensitive topics from tops (they stay visible elsewhere with a badge)
   const scoresByNiche = new Map<string, { topicId: string; label: string; mgi: number; phase: number; feasibilityGrade: FeasibilityGrade | null }[]>();
   for (const s of allScores ?? []) {
     const topic = s.topics as unknown as { id: string; label: string; status: string; niche_id: string };
+    if (isSensitiveTopic(topic.label)) continue;
     const nicheId = topic.niche_id;
     if (!scoresByNiche.has(nicheId)) scoresByNiche.set(nicheId, []);
     scoresByNiche.get(nicheId)!.push({

@@ -15,3 +15,4 @@ export { SegmentedControl } from './segmented-control';
 export { HapticButton } from './haptic-button';
 export { SparklineChart } from './sparkline-chart';
 export { QuotaDial } from './quota-dial';
+export { SensitiveBadge } from './sensitive-badge';

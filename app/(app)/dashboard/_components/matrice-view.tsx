@@ -3,7 +3,7 @@
 import { useState, useCallback } from 'react';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
-import { PhaseBadge, phaseColor, SparklineChart } from '@/components/tublyti';
+import { PhaseBadge, phaseColor, SparklineChart, SensitiveBadge } from '@/components/tublyti';
 import { FeasibilityBadge } from '@/components/tublyti/feasibility-badge';
 import type { FeasibilityGrade } from '@/lib/scoring/feasibility';
 import { TopicPreview } from './topic-preview';
@@ -24,6 +24,7 @@ interface TopicRow {
   topQuote: string | null;
   rank: number;
   totalInNiche: number;
+  sensitive?: boolean;
 }
 
 function mgiColor(v: number): string {
@@ -258,7 +259,10 @@ export function MatriceView({ topics, selectedId, onSelect }: { topics: TopicRow
                 `}
                 style={{ gridTemplateColumns: '2.4fr 1.2fr 1fr 0.5fr 0.8fr 0.9fr 0.9fr 1fr' }}
               >
-                <span className="font-medium truncate">{t.label}</span>
+                <span className="font-medium truncate flex items-center gap-1.5">
+                  {t.label}
+                  {t.sensitive && <SensitiveBadge />}
+                </span>
                 <span><PhaseBadge phase={t.phase} /></span>
                 <span className="flex items-center gap-2">
                   <span className="font-semibold tabular-nums text-mono-metric w-[22px]">{Math.round(t.mgi)}</span>

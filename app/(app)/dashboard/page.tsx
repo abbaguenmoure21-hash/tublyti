@@ -10,6 +10,7 @@ import {
   Circle,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { isSensitiveTopic } from '@/lib/topics/sensitive';
 import { MatriceFilters } from './_components/matrice-filters';
 import { DashboardShell } from './_components/dashboard-shell';
 import { TitlePatternsView } from './_components/title-patterns-view';
@@ -30,6 +31,7 @@ interface TopicRow {
   topQuote: string | null;
   rank: number;
   totalInNiche: number;
+  sensitive: boolean;
 }
 
 function parseChannelSize(chsize: string | null): { min: number; max: number } | null {
@@ -157,6 +159,7 @@ async function fetchMatriceData(nicheId: string | null, blueOcean: boolean, phas
       topQuote: topQuotes[topic.id] ?? null,
       rank: idx + 1,
       totalInNiche: 0,
+      sensitive: isSensitiveTopic(topic.label),
     };
   });
 

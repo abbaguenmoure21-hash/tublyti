@@ -6,7 +6,7 @@ import { FrustrationLabel } from './classifier';
 
 // ── Constants ────────────────────────────────────────────────────────
 const PROMPT_VERSION = 'classify_v1';
-const MODEL = 'claude-3-5-haiku-latest';
+const MODEL = 'claude-haiku-4-5-20251001';
 const MODEL_TAG = `haiku-4.5-${PROMPT_VERSION}`;
 const BATCH_SIZE = 500;
 
@@ -146,10 +146,20 @@ export async function runClassify(
   if (isTimedOut()) return result;
 
   // ── Step 2: Find unlabeled comments ─────────────────────────────
-  const { data: labeledRows } = await db
-    .from('comment_labels')
-    .select('comment_id');
-  const labeledSet = new Set((labeledRows ?? []).map((r) => r.comment_id));
+  // Fetch all labeled IDs (paginated to avoid Supabase default 1000-row limit)
+  const labeledSet = new Set<string>();
+  let labelOffset = 0;
+  const LABEL_PAGE = 1000;
+  while (true) {
+    const { data: labeledPage } = await db
+      .from('comment_labels')
+      .select('comment_id')
+      .range(labelOffset, labelOffset + LABEL_PAGE - 1);
+    if (!labeledPage || labeledPage.length === 0) break;
+    for (const r of labeledPage) labeledSet.add(r.comment_id);
+    if (labeledPage.length < LABEL_PAGE) break;
+    labelOffset += LABEL_PAGE;
+  }
 
   const { data: candidateComments } = await db
     .from('comments')

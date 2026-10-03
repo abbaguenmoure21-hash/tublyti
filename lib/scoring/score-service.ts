@@ -111,14 +111,22 @@ export async function runScore(
     is_qualified: boolean;
   }
 
+  const IN_BATCH_TOPIC = 200;
   const allVideos: TopicVideo[] = [];
-  for (let i = 0; i < topicIds.length; i += PAGE_SIZE) {
-    const batch = topicIds.slice(i, i + PAGE_SIZE);
-    const { data } = await db
-      .from('videos')
-      .select('id, topic_id, channel_id, published_at, duration_s, is_qualified')
-      .in('topic_id', batch);
-    if (data) allVideos.push(...(data as TopicVideo[]));
+  for (let i = 0; i < topicIds.length; i += IN_BATCH_TOPIC) {
+    const batch = topicIds.slice(i, i + IN_BATCH_TOPIC);
+    let offset = 0;
+    while (true) {
+      const { data } = await db
+        .from('videos')
+        .select('id, topic_id, channel_id, published_at, duration_s, is_qualified')
+        .in('topic_id', batch)
+        .range(offset, offset + PAGE_SIZE - 1);
+      if (!data || data.length === 0) break;
+      allVideos.push(...(data as TopicVideo[]));
+      if (data.length < PAGE_SIZE) break;
+      offset += PAGE_SIZE;
+    }
   }
 
   // Group videos by topic
@@ -132,8 +140,8 @@ export async function runScore(
   // ── Load channel subscriber counts ──────────────────────────────
   const channelIds = [...new Set(allVideos.map((v) => v.channel_id))];
   const channelSubs = new Map<string, number>();
-  for (let i = 0; i < channelIds.length; i += PAGE_SIZE) {
-    const batch = channelIds.slice(i, i + PAGE_SIZE);
+  for (let i = 0; i < channelIds.length; i += IN_BATCH_TOPIC) {
+    const batch = channelIds.slice(i, i + IN_BATCH_TOPIC);
     const { data: channels } = await db
       .from('channels')
       .select('id, subscriber_count')
@@ -149,31 +157,45 @@ export async function runScore(
     .map((v) => v.id);
 
   const viewsByVideo = new Map<string, number>();
-  for (let i = 0; i < recentVideoIds.length; i += PAGE_SIZE) {
-    const batch = recentVideoIds.slice(i, i + PAGE_SIZE);
-    const { data: snaps } = await db
-      .from('video_snapshots')
-      .select('video_id, views')
-      .in('video_id', batch)
-      .order('captured_at', { ascending: false });
-    for (const s of snaps ?? []) {
-      if (!viewsByVideo.has(s.video_id)) {
-        viewsByVideo.set(s.video_id, Number(s.views) || 0);
+  for (let i = 0; i < recentVideoIds.length; i += IN_BATCH_TOPIC) {
+    const batch = recentVideoIds.slice(i, i + IN_BATCH_TOPIC);
+    let offset = 0;
+    while (true) {
+      const { data: snaps } = await db
+        .from('video_snapshots')
+        .select('video_id, views')
+        .in('video_id', batch)
+        .order('captured_at', { ascending: false })
+        .range(offset, offset + PAGE_SIZE - 1);
+      if (!snaps || snaps.length === 0) break;
+      for (const s of snaps) {
+        if (!viewsByVideo.has(s.video_id)) {
+          viewsByVideo.set(s.video_id, Number(s.views) || 0);
+        }
       }
+      if (snaps.length < PAGE_SIZE) break;
+      offset += PAGE_SIZE;
     }
   }
 
   // ── Load outlier scores ─────────────────────────────────────────
   const allVideoIds = allVideos.map((v) => v.id);
   const outlierByVideo = new Map<string, { score: number; ageDays: number }>();
-  for (let i = 0; i < allVideoIds.length; i += PAGE_SIZE) {
-    const batch = allVideoIds.slice(i, i + PAGE_SIZE);
-    const { data: outliers } = await db
-      .from('video_outliers')
-      .select('video_id, score, age_days')
-      .in('video_id', batch);
-    for (const o of outliers ?? []) {
-      outlierByVideo.set(o.video_id, { score: Number(o.score), ageDays: Number(o.age_days) });
+  for (let i = 0; i < allVideoIds.length; i += IN_BATCH_TOPIC) {
+    const batch = allVideoIds.slice(i, i + IN_BATCH_TOPIC);
+    let offset = 0;
+    while (true) {
+      const { data: outliers } = await db
+        .from('video_outliers')
+        .select('video_id, score, age_days')
+        .in('video_id', batch)
+        .range(offset, offset + PAGE_SIZE - 1);
+      if (!outliers || outliers.length === 0) break;
+      for (const o of outliers) {
+        outlierByVideo.set(o.video_id, { score: Number(o.score), ageDays: Number(o.age_days) });
+      }
+      if (outliers.length < PAGE_SIZE) break;
+      offset += PAGE_SIZE;
     }
   }
 
