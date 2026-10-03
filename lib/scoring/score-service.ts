@@ -1,24 +1,24 @@
 import { SupabaseClient } from '@supabase/supabase-js';
 import {
   computeMGI,
-  computeDemand,
+  computeYTDemand,
   computeFrustration,
-  computeSupplyQualified,
+  computeSupplyQ,
   computeConfidence,
   computePercentile,
-  DEFAULT_MGI_WEIGHTS,
-  type MGIWeights,
-  type TopicSignals,
+  type TopicYTDemand,
 } from './mgi';
 import { computePhase } from './phase';
 import { computeFeasibility } from './feasibility';
 import type { AlertSender } from '../email/alerts';
 import { evaluateAlertRules } from '../alerts/evaluate';
+import { median } from './outlier';
 
 // ── Types ────────────────────────────────────────────────────────────
 
 export interface ScoreResult {
   topicsScored: number;
+  topicsSkipped: number;
   burnDownAlerts: number;
   silentCollectionAlert: boolean;
   alertEventsCreated: number;
@@ -34,30 +34,29 @@ interface ActiveTopic {
   owner_channel: string | null;
 }
 
-// ── Settings defaults ────────────────────────────────────────────────
+// ── Helpers ──────────────────────────────────────────────────────────
 
-async function getWeights(db: SupabaseClient): Promise<MGIWeights> {
-  const { data } = await db
-    .from('settings')
-    .select('value')
-    .eq('key', 'mgi_weights')
-    .single();
+const PAGE_SIZE = 1000;
 
-  if (data?.value && typeof data.value === 'object') {
-    const v = data.value as Record<string, number>;
-    return {
-      trends: v.trends ?? DEFAULT_MGI_WEIGHTS.trends,
-      ytViews: v.ytViews ?? DEFAULT_MGI_WEIGHTS.ytViews,
-      social: v.social ?? DEFAULT_MGI_WEIGHTS.social,
-    };
+async function fetchAllRows<T>(
+  db: SupabaseClient,
+  table: string,
+  columns: string,
+  filterFn?: (q: ReturnType<SupabaseClient['from']>) => unknown,
+): Promise<T[]> {
+  const rows: T[] = [];
+  let offset = 0;
+  while (true) {
+    let query: unknown = db.from(table).select(columns);
+    if (filterFn) query = filterFn(query as ReturnType<SupabaseClient['from']>);
+    const { data } = await (query as ReturnType<ReturnType<SupabaseClient['from']>['select']>)
+      .range(offset, offset + PAGE_SIZE - 1);
+    if (!data || data.length === 0) break;
+    rows.push(...(data as T[]));
+    if (data.length < PAGE_SIZE) break;
+    offset += PAGE_SIZE;
   }
-
-  // Create default
-  await db.from('settings').upsert({
-    key: 'mgi_weights',
-    value: DEFAULT_MGI_WEIGHTS,
-  });
-  return DEFAULT_MGI_WEIGHTS;
+  return rows;
 }
 
 // ── Main service ─────────────────────────────────────────────────────
@@ -66,9 +65,15 @@ export async function runScore(
   db: SupabaseClient,
   alertSender: AlertSender,
 ): Promise<ScoreResult> {
-  const result: ScoreResult = { topicsScored: 0, burnDownAlerts: 0, silentCollectionAlert: false, alertEventsCreated: 0, alertInstantEmails: 0 };
+  const result: ScoreResult = {
+    topicsScored: 0,
+    topicsSkipped: 0,
+    burnDownAlerts: 0,
+    silentCollectionAlert: false,
+    alertEventsCreated: 0,
+    alertInstantEmails: 0,
+  };
   const today = new Date().toISOString().slice(0, 10);
-  const weights = await getWeights(db);
 
   // ── Load active topics with niche info ──────────────────────────
   const { data: topicsRaw } = await db
@@ -91,220 +96,275 @@ export async function runScore(
   });
 
   const topicIds = topics.map((t) => t.id);
+  const cutoff90d = new Date(Date.now() - 90 * 86_400_000).toISOString();
+  const cutoff30d = new Date(Date.now() - 30 * 86_400_000).toISOString();
+  const cutoff4w = new Date(Date.now() - 28 * 86_400_000).toISOString();
+  const cutoff12w = new Date(Date.now() - 84 * 86_400_000).toISOString();
 
-  // ── Gather signals for all topics ───────────────────────────────
-  // Most recent trend_point per topic+source
-  const { data: trendPoints } = await db
-    .from('trend_points')
-    .select('topic_id, source, value')
-    .in('topic_id', topicIds)
-    .gte('captured_at', new Date(Date.now() - 90 * 86_400_000).toISOString().slice(0, 10))
-    .order('captured_at', { ascending: false });
-
-  // Build latest value per topic+source (first occurrence = latest due to desc order)
-  const latestSignal = new Map<string, number>();
-  for (const p of trendPoints ?? []) {
-    const key = `${p.topic_id}:${p.source}`;
-    if (!latestSignal.has(key)) {
-      latestSignal.set(key, Number(p.value));
-    }
+  // ── Load all videos for these topics ────────────────────────────
+  interface TopicVideo {
+    id: string;
+    topic_id: string;
+    channel_id: string;
+    published_at: string;
+    duration_s: number | null;
+    is_qualified: boolean;
   }
 
-  // For trend growth (90 days), get oldest and newest per topic
-  const trendGrowth = new Map<string, number>();
-  const oldestSignal = new Map<string, number>();
-  for (const p of trendPoints ?? []) {
-    if (p.source !== 'trends') continue;
-    const key = p.topic_id;
-    oldestSignal.set(key, Number(p.value)); // last in desc = oldest
-  }
-  for (const topicId of topicIds) {
-    const newest = latestSignal.get(`${topicId}:trends`);
-    const oldest = oldestSignal.get(topicId);
-    if (newest !== undefined && oldest !== undefined && oldest > 0) {
-      trendGrowth.set(topicId, (newest - oldest) / oldest);
-    } else {
-      trendGrowth.set(topicId, 0);
-    }
+  const allVideos: TopicVideo[] = [];
+  for (let i = 0; i < topicIds.length; i += PAGE_SIZE) {
+    const batch = topicIds.slice(i, i + PAGE_SIZE);
+    const { data } = await db
+      .from('videos')
+      .select('id, topic_id, channel_id, published_at, duration_s, is_qualified')
+      .in('topic_id', batch);
+    if (data) allVideos.push(...(data as TopicVideo[]));
   }
 
-  // Reddit/HN rising check: compare last 7 days vs previous 7 days
-  const { data: socialPoints } = await db
-    .from('trend_points')
-    .select('topic_id, source, captured_at, value')
-    .in('topic_id', topicIds)
-    .in('source', ['reddit', 'hn'])
-    .gte('captured_at', new Date(Date.now() - 14 * 86_400_000).toISOString().slice(0, 10))
-    .order('captured_at', { ascending: true });
-
-  const socialRising = new Map<string, boolean>();
-  const sevenDaysAgo = new Date(Date.now() - 7 * 86_400_000).toISOString().slice(0, 10);
-  for (const topicId of topicIds) {
-    const pts = (socialPoints ?? []).filter((p) => p.topic_id === topicId);
-    let recentSum = 0;
-    let recentCount = 0;
-    let olderSum = 0;
-    let olderCount = 0;
-    for (const p of pts) {
-      if (p.captured_at >= sevenDaysAgo) {
-        recentSum += Number(p.value);
-        recentCount++;
-      } else {
-        olderSum += Number(p.value);
-        olderCount++;
-      }
-    }
-    const recentAvg = recentCount > 0 ? recentSum / recentCount : 0;
-    const olderAvg = olderCount > 0 ? olderSum / olderCount : 0;
-    socialRising.set(topicId, recentAvg > olderAvg * 1.2);
-  }
-
-  // Build TopicSignals for all topics (for percentile computation)
-  const allSignals: TopicSignals[] = topics.map((t) => ({
-    trends: latestSignal.get(`${t.id}:trends`) ?? null,
-    ytViews: latestSignal.get(`${t.id}:yt_views`) ?? null,
-    social: combineSocial(
-      latestSignal.get(`${t.id}:reddit`),
-      latestSignal.get(`${t.id}:hn`),
-    ),
-  }));
-
-  // ── Frustration per topic ───────────────────────────────────────
-  // Count of comments with frustration label (confidence >= 0.7) and total comments per topic
-  const { data: topicVideoIds } = await db
-    .from('videos')
-    .select('id, topic_id')
-    .in('topic_id', topicIds);
-
-  // Group video IDs by topic
-  const videosByTopic = new Map<string, string[]>();
-  for (const v of topicVideoIds ?? []) {
+  // Group videos by topic
+  const videosByTopic = new Map<string, TopicVideo[]>();
+  for (const v of allVideos) {
     if (!v.topic_id) continue;
     if (!videosByTopic.has(v.topic_id)) videosByTopic.set(v.topic_id, []);
-    videosByTopic.get(v.topic_id)!.push(v.id);
+    videosByTopic.get(v.topic_id)!.push(v);
   }
 
-  const allVideoIds = (topicVideoIds ?? []).map((v) => v.id);
-
-  // Batch-fetch comment counts and frustration counts
-  const frustrationByTopic = new Map<string, { frustration: number; total: number }>();
-
-  if (allVideoIds.length > 0) {
-    // Total comments per video
-    const { data: commentCounts } = await db
-      .from('comments')
-      .select('video_id')
-      .in('video_id', allVideoIds);
-
-    // Frustration labels
-    const { data: labeledComments } = await db
-      .from('comment_labels')
-      .select('comment_id, label, confidence, comments!inner(video_id)')
-      .in('comments.video_id', allVideoIds)
-      .neq('label', 'none')
-      .gte('confidence', 0.7);
-
-    // Count per video
-    const totalPerVideo = new Map<string, number>();
-    for (const c of commentCounts ?? []) {
-      totalPerVideo.set(c.video_id, (totalPerVideo.get(c.video_id) ?? 0) + 1);
-    }
-
-    const frustPerVideo = new Map<string, number>();
-    for (const l of labeledComments ?? []) {
-      const vid = (l.comments as unknown as { video_id: string }).video_id;
-      frustPerVideo.set(vid, (frustPerVideo.get(vid) ?? 0) + 1);
-    }
-
-    // Aggregate per topic
-    for (const [topicId, vids] of videosByTopic) {
-      let total = 0;
-      let frust = 0;
-      for (const vid of vids) {
-        total += totalPerVideo.get(vid) ?? 0;
-        frust += frustPerVideo.get(vid) ?? 0;
-      }
-      frustrationByTopic.set(topicId, { frustration: frust, total });
+  // ── Load channel subscriber counts ──────────────────────────────
+  const channelIds = [...new Set(allVideos.map((v) => v.channel_id))];
+  const channelSubs = new Map<string, number>();
+  for (let i = 0; i < channelIds.length; i += PAGE_SIZE) {
+    const batch = channelIds.slice(i, i + PAGE_SIZE);
+    const { data: channels } = await db
+      .from('channels')
+      .select('id, subscriber_count')
+      .in('id', batch);
+    for (const ch of channels ?? []) {
+      channelSubs.set(ch.id, Number(ch.subscriber_count) || 0);
     }
   }
 
-  // ── Supply qualified per topic ──────────────────────────────────
-  const sixMonthsAgo = new Date(Date.now() - 180 * 86_400_000).toISOString();
-  const twoYearsAgo = new Date(Date.now() - 730 * 86_400_000).toISOString();
-  const seventyTwoHoursAgo = new Date(Date.now() - 72 * 3_600_000).toISOString();
+  // ── Load video snapshots for velocity (videos < 30d) ────────────
+  const recentVideoIds = allVideos
+    .filter((v) => v.published_at >= cutoff30d)
+    .map((v) => v.id);
 
-  // Qualified videos in 180 days per topic
-  const { data: recentQualified } = await db
-    .from('videos')
-    .select('id, topic_id, published_at')
-    .in('topic_id', topicIds)
-    .eq('is_qualified', true)
-    .gte('published_at', sixMonthsAgo);
-
-  const qualifiedRecentByTopic = new Map<string, number>();
-  const qualifiedIn72hByTopic = new Map<string, number>();
-  for (const v of recentQualified ?? []) {
-    if (!v.topic_id) continue;
-    qualifiedRecentByTopic.set(
-      v.topic_id,
-      (qualifiedRecentByTopic.get(v.topic_id) ?? 0) + 1,
-    );
-    if (v.published_at >= seventyTwoHoursAgo) {
-      qualifiedIn72hByTopic.set(
-        v.topic_id,
-        (qualifiedIn72hByTopic.get(v.topic_id) ?? 0) + 1,
-      );
-    }
-  }
-
-  // Old videos (≥2 years) with ≥10k views/month
-  const { data: oldQualified } = await db
-    .from('videos')
-    .select('id, topic_id')
-    .in('topic_id', topicIds)
-    .eq('is_qualified', true)
-    .lte('published_at', twoYearsAgo);
-
-  const oldHighViewByTopic = new Map<string, number>();
-  if (oldQualified && oldQualified.length > 0) {
-    const oldVideoIds = oldQualified.map((v) => v.id);
-    // Get latest snapshot for each old video
-    const { data: oldSnaps } = await db
+  const viewsByVideo = new Map<string, number>();
+  for (let i = 0; i < recentVideoIds.length; i += PAGE_SIZE) {
+    const batch = recentVideoIds.slice(i, i + PAGE_SIZE);
+    const { data: snaps } = await db
       .from('video_snapshots')
       .select('video_id, views')
-      .in('video_id', oldVideoIds)
+      .in('video_id', batch)
       .order('captured_at', { ascending: false });
+    for (const s of snaps ?? []) {
+      if (!viewsByVideo.has(s.video_id)) {
+        viewsByVideo.set(s.video_id, Number(s.views) || 0);
+      }
+    }
+  }
 
-    const latestViewsByVideo = new Map<string, number>();
-    for (const s of oldSnaps ?? []) {
-      if (!latestViewsByVideo.has(s.video_id)) {
-        latestViewsByVideo.set(s.video_id, s.views ?? 0);
+  // ── Load outlier scores ─────────────────────────────────────────
+  const allVideoIds = allVideos.map((v) => v.id);
+  const outlierByVideo = new Map<string, { score: number; ageDays: number }>();
+  for (let i = 0; i < allVideoIds.length; i += PAGE_SIZE) {
+    const batch = allVideoIds.slice(i, i + PAGE_SIZE);
+    const { data: outliers } = await db
+      .from('video_outliers')
+      .select('video_id, score, age_days')
+      .in('video_id', batch);
+    for (const o of outliers ?? []) {
+      outlierByVideo.set(o.video_id, { score: Number(o.score), ageDays: Number(o.age_days) });
+    }
+  }
+
+  // ── Frustration per topic (like-weighted) ───────────────────────
+  const frustrationByTopic = new Map<string, { frustWeighted: number; totalWeighted: number; commentCount: number }>();
+  {
+    const topicVideoIdSet = new Set(allVideoIds);
+    // Fetch comments for topic videos — use small batches to avoid
+    // Supabase 1000-row cap when .in() matches many rows per ID
+    const IN_BATCH = 200;
+    interface CommentRow { id: string; video_id: string; like_count: number }
+    const comments: CommentRow[] = [];
+    const vidIdArr = [...topicVideoIdSet];
+    for (let i = 0; i < vidIdArr.length; i += IN_BATCH) {
+      const batch = vidIdArr.slice(i, i + IN_BATCH);
+      let offset = 0;
+      while (true) {
+        const { data } = await db
+          .from('comments')
+          .select('id, video_id, like_count')
+          .in('video_id', batch)
+          .range(offset, offset + PAGE_SIZE - 1);
+        if (!data || data.length === 0) break;
+        comments.push(...(data as CommentRow[]));
+        if (data.length < PAGE_SIZE) break;
+        offset += PAGE_SIZE;
       }
     }
 
-    // Map old videos to their topics
-    const oldVideoTopics = new Map<string, string>();
-    for (const v of oldQualified) {
-      if (v.topic_id) oldVideoTopics.set(v.id, v.topic_id);
+    const commentVideoMap = new Map<string, string>();
+    const commentLikeMap = new Map<string, number>();
+    for (const c of comments) {
+      commentVideoMap.set(c.id, c.video_id);
+      commentLikeMap.set(c.id, Number(c.like_count) || 0);
     }
 
-    // ≥ 10k views total as proxy for ≥ 10k/month (we don't have monthly data,
-    // but videos still being watched after 2+ years are likely above this)
-    for (const [videoId, views] of latestViewsByVideo) {
-      if (views >= 10_000) {
-        const topicId = oldVideoTopics.get(videoId);
-        if (topicId) {
-          oldHighViewByTopic.set(
-            topicId,
-            (oldHighViewByTopic.get(topicId) ?? 0) + 1,
-          );
+    // Count comments per topic
+    const videoToTopic = new Map<string, string>();
+    for (const v of allVideos) {
+      if (v.topic_id) videoToTopic.set(v.id, v.topic_id);
+    }
+    for (const c of comments) {
+      const topicId = videoToTopic.get(c.video_id);
+      if (!topicId) continue;
+      if (!frustrationByTopic.has(topicId)) {
+        frustrationByTopic.set(topicId, { frustWeighted: 0, totalWeighted: 0, commentCount: 0 });
+      }
+      frustrationByTopic.get(topicId)!.commentCount++;
+    }
+
+    // Fetch labels — also paginate within each batch
+    const commentIds = comments.map((c) => c.id);
+    interface LabelRow { comment_id: string; label: string; confidence: number }
+    const labels: LabelRow[] = [];
+    for (let i = 0; i < commentIds.length; i += IN_BATCH) {
+      const batch = commentIds.slice(i, i + IN_BATCH);
+      let offset = 0;
+      while (true) {
+        const { data } = await db
+          .from('comment_labels')
+          .select('comment_id, label, confidence')
+          .in('comment_id', batch)
+          .range(offset, offset + PAGE_SIZE - 1);
+        if (!data || data.length === 0) break;
+        labels.push(...(data as LabelRow[]));
+        if (data.length < PAGE_SIZE) break;
+        offset += PAGE_SIZE;
+      }
+    }
+
+    for (const label of labels) {
+      const videoId = commentVideoMap.get(label.comment_id);
+      if (!videoId) continue;
+      const topicId = videoToTopic.get(videoId);
+      if (!topicId) continue;
+
+      const likeWeight = 1 + (commentLikeMap.get(label.comment_id) ?? 0);
+      if (!frustrationByTopic.has(topicId)) {
+        frustrationByTopic.set(topicId, { frustWeighted: 0, totalWeighted: 0, commentCount: 0 });
+      }
+      const entry = frustrationByTopic.get(topicId)!;
+      entry.totalWeighted += likeWeight;
+      if (label.label !== 'none' && label.confidence >= 0.5) {
+        entry.frustWeighted += likeWeight;
+      }
+    }
+  }
+
+  // ── Compute per-topic signals ───────────────────────────────────
+
+  interface TopicComputed {
+    topicIndex: number;
+    ytDemand: TopicYTDemand;
+    longQualityCount: number;
+    videoCount: number;
+    frustration: number;
+    uploadsRecent4w: number;
+    uploadsOlder8w: number;
+    medianOutlierAgeDays: number | null;
+    hasOutlierData: boolean;
+    commentCount: number;
+  }
+
+  const computed: TopicComputed[] = [];
+
+  for (let i = 0; i < topics.length; i++) {
+    const topic = topics[i];
+    const videos = videosByTopic.get(topic.id) ?? [];
+    const videoCount = videos.length;
+
+    // Velocity: median views/day for videos < 30 days
+    const recentVids = videos.filter((v) => v.published_at >= cutoff30d);
+    const velocities: number[] = [];
+    for (const v of recentVids) {
+      const views = viewsByVideo.get(v.id);
+      if (views !== undefined && views > 0) {
+        const ageDays = Math.max(1, Math.floor((Date.now() - new Date(v.published_at).getTime()) / 86_400_000));
+        velocities.push(views / ageDays);
+      }
+    }
+    const velocity = median(velocities);
+
+    // Outlier ratio & count
+    const outlierScores: number[] = [];
+    const outlierAges: number[] = [];
+    let outlierCount = 0;
+    for (const v of videos) {
+      const o = outlierByVideo.get(v.id);
+      if (o) {
+        outlierScores.push(o.score);
+        if (o.score >= 3) {
+          outlierCount++;
+          outlierAges.push(o.ageDays);
         }
       }
     }
+    const outlierRatio = median(outlierScores);
+    const medianOutlierAge = outlierAges.length > 0 ? median(outlierAges) : null;
+
+    // Supply: long quality videos (>= 8min, channel >= 10k subs) in 90d
+    let longQualityCount = 0;
+    for (const v of videos) {
+      if (v.published_at < cutoff90d) continue;
+      if ((v.duration_s ?? 0) < 480) continue;
+      const subs = channelSubs.get(v.channel_id) ?? 0;
+      if (subs >= 10_000) longQualityCount++;
+    }
+
+    // Upload slope
+    const uploadsRecent4w = videos.filter((v) => v.published_at >= cutoff4w).length;
+    const uploadsOlder8w = videos.filter((v) => v.published_at >= cutoff12w && v.published_at < cutoff4w).length;
+
+    // Frustration
+    const frustData = frustrationByTopic.get(topic.id) ?? { frustWeighted: 0, totalWeighted: 0, commentCount: 0 };
+    const frustration = computeFrustration(frustData.frustWeighted, frustData.totalWeighted);
+
+    computed.push({
+      topicIndex: i,
+      ytDemand: { velocity, outlierRatio, outlierCount },
+      longQualityCount,
+      videoCount,
+      frustration,
+      uploadsRecent4w,
+      uploadsOlder8w,
+      medianOutlierAgeDays: medianOutlierAge,
+      hasOutlierData: outlierScores.length > 0,
+      commentCount: frustData.commentCount,
+    });
   }
 
-  // ── Feasibility: owner channel subs + competitor subs per topic ─
-  // Get unique owner channel IDs across niches
+  // ── Niche-level aggregates ──────────────────────────────────────
+  const demandByNiche = new Map<string, TopicYTDemand[]>();
+  const longQualityByNiche = new Map<string, number[]>();
+
+  for (const c of computed) {
+    const nicheId = topics[c.topicIndex].niche_id;
+    // Only include scoreable topics (>= 5 videos) in percentile base
+    if (c.videoCount >= 5) {
+      if (!demandByNiche.has(nicheId)) demandByNiche.set(nicheId, []);
+      demandByNiche.get(nicheId)!.push(c.ytDemand);
+      if (!longQualityByNiche.has(nicheId)) longQualityByNiche.set(nicheId, []);
+      longQualityByNiche.get(nicheId)!.push(c.longQualityCount);
+    }
+  }
+
+  const nicheMedianSupply = new Map<string, number>();
+  for (const [nicheId, counts] of longQualityByNiche) {
+    nicheMedianSupply.set(nicheId, median(counts));
+  }
+
+  // ── Owner channel subs for feasibility ──────────────────────────
   const ownerChannelIds = [...new Set(topics.map((t) => t.owner_channel).filter(Boolean))] as string[];
   const ownerSubsByChannel = new Map<string, number>();
   if (ownerChannelIds.length > 0) {
@@ -317,39 +377,7 @@ export async function runScore(
     }
   }
 
-  // Get competitor channel subscriber counts for qualified videos per topic
-  const competitorSubsByTopic = new Map<string, number[]>();
-  if (recentQualified && recentQualified.length > 0) {
-    const qualVideoIds = recentQualified.map((v) => v.id);
-    const { data: qualVideosWithChannels } = await db
-      .from('videos')
-      .select('id, topic_id, channel_id, channels!inner(subscriber_count)')
-      .in('id', qualVideoIds);
-
-    for (const v of qualVideosWithChannels ?? []) {
-      if (!v.topic_id) continue;
-      const subs = Number((v.channels as unknown as { subscriber_count: number | null })?.subscriber_count ?? 0);
-      if (!competitorSubsByTopic.has(v.topic_id)) competitorSubsByTopic.set(v.topic_id, []);
-      competitorSubsByTopic.get(v.topic_id)!.push(subs);
-    }
-  }
-
-  // ── Data age per topic (hours since last trend_point) ──────────
-  const { data: latestCaptures } = await db
-    .from('trend_points')
-    .select('topic_id, captured_at')
-    .in('topic_id', topicIds)
-    .order('captured_at', { ascending: false });
-
-  const dataAgeByTopic = new Map<string, number>();
-  for (const p of latestCaptures ?? []) {
-    if (!dataAgeByTopic.has(p.topic_id)) {
-      const ageMs = Date.now() - new Date(p.captured_at).getTime();
-      dataAgeByTopic.set(p.topic_id, ageMs / 3_600_000);
-    }
-  }
-
-  // ── Load previous phases for alert rule evaluation ─────────────
+  // ── Previous phases for alert evaluation ────────────────────────
   const previousPhaseByTopic = new Map<string, number>();
   {
     const { data: prevScores } = await db
@@ -358,7 +386,6 @@ export async function runScore(
       .in('topic_id', topicIds)
       .lt('scored_at', today)
       .order('scored_at', { ascending: false });
-
     for (const s of prevScores ?? []) {
       if (!previousPhaseByTopic.has(s.topic_id)) {
         previousPhaseByTopic.set(s.topic_id, s.phase as number);
@@ -366,7 +393,6 @@ export async function runScore(
     }
   }
 
-  // Collect scored topics for alert evaluation
   const scoredTopicsForAlerts: {
     id: string;
     label: string;
@@ -376,133 +402,152 @@ export async function runScore(
     qualifiedIn72h: number;
   }[] = [];
 
-  // ── Pass 1: Compute raw scores for all topics ──────────────────
-  interface ComputedScore {
+  // ── Pass 1: Compute raw MGI for scoreable topics ────────────────
+
+  interface ScoredTopic {
     topicIndex: number;
     demand: number;
     frustration: number;
-    supplyQualified: number;
+    supplyQ: number;
     rawMgi: number;
     phase: number;
     confidence: ReturnType<typeof computeConfidence>;
     feasibility: ReturnType<typeof computeFeasibility>;
-    qualifiedIn72h: number;
   }
 
-  const computed: ComputedScore[] = [];
+  const scored: ScoredTopic[] = [];
 
-  for (let i = 0; i < topics.length; i++) {
-    const topic = topics[i];
-    const signals = allSignals[i];
+  for (const c of computed) {
+    const topic = topics[c.topicIndex];
+    const nicheId = topic.niche_id;
 
-    const demand = computeDemand(signals, allSignals, weights);
+    const confidence = computeConfidence({
+      videoCount: c.videoCount,
+      commentCount: c.commentCount,
+      hasOutlierData: c.hasOutlierData,
+    });
 
-    const frustData = frustrationByTopic.get(topic.id) ?? { frustration: 0, total: 0 };
-    const frustration = computeFrustration(frustData.frustration, frustData.total);
+    const phase = computePhase({
+      uploadsRecent4w: c.uploadsRecent4w,
+      uploadsOlder8w: c.uploadsOlder8w,
+      medianOutlierAgeDays: c.medianOutlierAgeDays,
+      totalVideos: c.videoCount,
+    });
 
-    const qualifiedRecent = qualifiedRecentByTopic.get(topic.id) ?? 0;
-    const oldHighView = oldHighViewByTopic.get(topic.id) ?? 0;
-    const supplyQualified = computeSupplyQualified(qualifiedRecent, oldHighView);
+    if (confidence.level === 'insufficient') {
+      await db.from('topic_scores').upsert(
+        {
+          topic_id: topic.id,
+          scored_at: today,
+          demand: 0,
+          frustration: c.frustration,
+          supply_q: 0,
+          monetization: topic.rpm_coefficient,
+          mgi: null,
+          phase,
+          confidence: 'insufficient',
+          confidence_reason: confidence.reason,
+          feasibility_grade: null,
+          feasibility_reason: null,
+        },
+        { onConflict: 'topic_id,scored_at' },
+      );
+      result.topicsSkipped++;
+      continue;
+    }
+
+    const nicheSignals = demandByNiche.get(nicheId) ?? [c.ytDemand];
+    const demand = computeYTDemand(c.ytDemand, nicheSignals);
+    const nicheMedian = nicheMedianSupply.get(nicheId) ?? 1;
+    const supplyQ = computeSupplyQ(c.longQualityCount, nicheMedian);
 
     const rawMgi = computeMGI({
       demand,
-      frustration,
-      supplyQualified,
+      frustration: c.frustration,
+      supplyQualified: supplyQ,
       monetization: topic.rpm_coefficient,
     });
 
-    const qualifiedIn72h = qualifiedIn72hByTopic.get(topic.id) ?? 0;
-    const phase = computePhase({
-      redditHnRising: socialRising.get(topic.id) ?? false,
-      supplyQualified: qualifiedRecent,
-      trendsGrowth90d: trendGrowth.get(topic.id) ?? 0,
-      qualifiedIn72h,
-    });
-
-    const demandSourceCount = [signals.trends, signals.ytViews, signals.social]
-      .filter((v) => v !== null).length
-      + (latestSignal.has(`${topic.id}:hn`) ? 1 : 0);
-    const confidence = computeConfidence({
-      commentCount: frustData.total,
-      demandSourceCount,
-      dataAgeHours: dataAgeByTopic.get(topic.id) ?? 999,
-    });
-
     const ownerSubs = topic.owner_channel ? (ownerSubsByChannel.get(topic.owner_channel) ?? null) : null;
-    const compSubs = competitorSubsByTopic.get(topic.id) ?? [];
-    const feasibility = computeFeasibility(ownerSubs, compSubs, qualifiedRecent);
+    const compSubs: number[] = [];
+    const videos = videosByTopic.get(topic.id) ?? [];
+    for (const v of videos) {
+      if (v.published_at >= cutoff90d && (v.duration_s ?? 0) >= 480) {
+        const subs = channelSubs.get(v.channel_id) ?? 0;
+        if (subs >= 10_000) compSubs.push(subs);
+      }
+    }
+    const feasibility = computeFeasibility(ownerSubs, compSubs, c.longQualityCount);
 
-    computed.push({
-      topicIndex: i,
+    scored.push({
+      topicIndex: c.topicIndex,
       demand,
-      frustration,
-      supplyQualified,
+      frustration: c.frustration,
+      supplyQ,
       rawMgi,
       phase,
       confidence,
       feasibility,
-      qualifiedIn72h,
     });
   }
 
-  // ── Pass 2: Normalize MGI to 0-100 percentile within each niche ──
+  // ── Pass 2: Normalize MGI to 0-100 percentile within niche ──────
   const rawMgiByNiche = new Map<string, number[]>();
-  for (const c of computed) {
-    const nicheId = topics[c.topicIndex].niche_id;
+  for (const s of scored) {
+    const nicheId = topics[s.topicIndex].niche_id;
     if (!rawMgiByNiche.has(nicheId)) rawMgiByNiche.set(nicheId, []);
-    rawMgiByNiche.get(nicheId)!.push(c.rawMgi);
+    rawMgiByNiche.get(nicheId)!.push(s.rawMgi);
   }
 
-  // ── Pass 3: Write scores to DB ───────────────────────────────────
-  for (const c of computed) {
-    const topic = topics[c.topicIndex];
-    const nicheRawValues = rawMgiByNiche.get(topic.niche_id) ?? [c.rawMgi];
-    const mgi = computePercentile(c.rawMgi, nicheRawValues);
+  // ── Pass 3: Write scores to DB ──────────────────────────────────
+  const cutoff72h = new Date(Date.now() - 72 * 3_600_000).toISOString();
 
-    // Write topic_scores row
+  for (const s of scored) {
+    const topic = topics[s.topicIndex];
+    const nicheRawValues = rawMgiByNiche.get(topic.niche_id) ?? [s.rawMgi];
+    const mgi = computePercentile(s.rawMgi, nicheRawValues);
+
     await db.from('topic_scores').upsert(
       {
         topic_id: topic.id,
         scored_at: today,
-        demand: c.demand,
-        frustration: c.frustration,
-        supply_q: c.supplyQualified,
+        demand: s.demand,
+        frustration: s.frustration,
+        supply_q: s.supplyQ,
         monetization: topic.rpm_coefficient,
         mgi,
-        phase: c.phase,
-        confidence: c.confidence.level,
-        confidence_reason: c.confidence.reason,
-        feasibility_grade: c.feasibility.grade,
-        feasibility_reason: c.feasibility.reason,
+        phase: s.phase,
+        confidence: s.confidence.level,
+        confidence_reason: s.confidence.reason,
+        feasibility_grade: s.feasibility.grade,
+        feasibility_reason: s.feasibility.reason,
       },
       { onConflict: 'topic_id,scored_at' },
     );
 
-    // Update topic phase
-    await db
-      .from('topics')
-      .update({ phase: c.phase })
-      .eq('id', topic.id);
-
+    await db.from('topics').update({ phase: s.phase }).eq('id', topic.id);
     result.topicsScored++;
 
-    // Collect for alert evaluation
+    const videos = videosByTopic.get(topic.id) ?? [];
+    const qualifiedIn72h = videos.filter((v) =>
+      v.published_at >= cutoff72h && v.is_qualified,
+    ).length;
+
     scoredTopicsForAlerts.push({
       id: topic.id,
       label: topic.label,
       niche_id: topic.niche_id,
-      phase: c.phase,
+      phase: s.phase,
       previousPhase: previousPhaseByTopic.get(topic.id) ?? null,
-      qualifiedIn72h: c.qualifiedIn72h,
+      qualifiedIn72h,
     });
 
-    // ── Burn-down detection ─────────────────────────────────────
-    if (c.qualifiedIn72h >= 5 && topic.status === 'in_production') {
+    if (qualifiedIn72h >= 5 && topic.status === 'in_production') {
       const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://tublyti.vercel.app';
       await alertSender.send({
         kind: 'burn_down',
-        subject: `Sujet ${topic.label} : ${c.qualifiedIn72h} chaines ont publie en 72 h`,
-        body: `Sujet « ${topic.label} » : ${c.qualifiedIn72h} videos qualifiees publiees dans les 72 dernieres heures. Fenetre en train de se fermer.`,
+        subject: `Sujet ${topic.label} : ${qualifiedIn72h} chaines ont publie en 72 h`,
+        body: `Sujet « ${topic.label} » : ${qualifiedIn72h} videos qualifiees publiees dans les 72 dernieres heures.`,
         actionUrl: `${baseUrl}/topics/${topic.id}`,
         actionLabel: 'Voir la fiche sujet',
       });
@@ -511,18 +556,18 @@ export async function runScore(
   }
 
   // ── Silent collection detection ──────────────────────────────
-  const thirtyySixHoursAgo = new Date(Date.now() - 36 * 3_600_000).toISOString();
+  const thirtySixHoursAgo = new Date(Date.now() - 36 * 3_600_000).toISOString();
   const { data: recentSnap } = await db
     .from('video_snapshots')
     .select('video_id')
-    .gte('captured_at', thirtyySixHoursAgo)
+    .gte('captured_at', thirtySixHoursAgo)
     .limit(1);
 
   if (!recentSnap || recentSnap.length === 0) {
     await alertSender.send({
       kind: 'silent_collection',
       subject: 'Collecte silencieuse depuis 36 h',
-      body: 'Aucun snapshot video enregistre dans les 36 dernieres heures. Le cron collect est peut-etre en echec.',
+      body: 'Aucun snapshot video enregistre dans les 36 dernieres heures.',
       actionUrl: `${process.env.NEXT_PUBLIC_APP_URL ?? 'https://tublyti.vercel.app'}/admin/jobs`,
       actionLabel: 'Voir les jobs',
     });
@@ -530,7 +575,6 @@ export async function runScore(
   }
 
   // ── Evaluate alert rules ──────────────────────────────────────
-  // Gather video outlier data for video_outlier rules
   const videoOutliersForAlerts: {
     videoId: string;
     title: string;
@@ -576,14 +620,4 @@ export async function runScore(
   }
 
   return result;
-}
-
-// ── Helpers ───────────────────────────────────────────────────────────
-
-function combineSocial(
-  reddit: number | undefined,
-  hn: number | undefined,
-): number | null {
-  if (reddit === undefined && hn === undefined) return null;
-  return (reddit ?? 0) + (hn ?? 0);
 }

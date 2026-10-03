@@ -2,18 +2,11 @@
 
 import { revalidatePath } from 'next/cache';
 import { createServiceClient } from '@/lib/supabase/server';
-import { DEFAULT_MGI_WEIGHTS, type MGIWeights } from '@/lib/scoring/mgi';
 import { DEFAULT_SCORING } from '@/lib/scoring/scoring-config';
 import type { ScoringSettings } from '@/lib/scoring/scoring-config';
 
 export async function getScoringSettings(): Promise<ScoringSettings> {
   const db = createServiceClient();
-
-  const { data: weightsRow } = await db
-    .from('settings')
-    .select('value')
-    .eq('key', 'mgi_weights')
-    .single();
 
   const { data: thresholdsRow } = await db
     .from('settings')
@@ -22,46 +15,27 @@ export async function getScoringSettings(): Promise<ScoringSettings> {
     .single();
 
   return {
-    mgiWeights: weightsRow?.value ?? DEFAULT_MGI_WEIGHTS,
     thresholds: thresholdsRow?.value ?? DEFAULT_SCORING.thresholds,
   };
 }
 
 export async function saveScoringSettings(settings: ScoringSettings) {
-  // Validate weights sum to ~1.0
-  const { trends, ytViews, social } = settings.mgiWeights;
-  const sum = trends + ytViews + social;
-  if (Math.abs(sum - 1.0) > 0.01) {
-    return { error: `La somme des poids doit être 1.0 (actuellement ${sum.toFixed(2)}).` };
-  }
-
-  if (trends < 0 || ytViews < 0 || social < 0) {
-    return { error: 'Les poids ne peuvent pas être négatifs.' };
-  }
-
   const db = createServiceClient();
 
-  const { error: e1 } = await db
-    .from('settings')
-    .upsert({ key: 'mgi_weights', value: settings.mgiWeights });
-
-  if (e1) return { error: e1.message };
-
-  const { error: e2 } = await db
+  const { error } = await db
     .from('settings')
     .upsert({ key: 'thresholds', value: settings.thresholds });
 
-  if (e2) return { error: e2.message };
+  if (error) return { error: error.message };
 
   revalidatePath('/settings');
   revalidatePath('/dashboard');
   return { success: true };
 }
 
-export async function previewTopTenWithWeights(weights: MGIWeights) {
+export async function previewTopTenWithWeights() {
   const db = createServiceClient();
 
-  // Get all active topics with their latest scores
   const { data: topics } = await db
     .from('topics')
     .select('id, label, phase, niches(name)')
@@ -72,7 +46,6 @@ export async function previewTopTenWithWeights(weights: MGIWeights) {
 
   const topicIds = topics.map((t: Record<string, unknown>) => t.id as string);
 
-  // Get latest scores
   const { data: scores } = await db
     .from('topic_scores')
     .select('topic_id, mgi, demand, supply_q, frustration, monetization')
@@ -88,7 +61,6 @@ export async function previewTopTenWithWeights(weights: MGIWeights) {
     }
   }
 
-  // Build top 10 by current MGI
   const ranked = topics
     .map((t: Record<string, unknown>) => {
       const s = latestScores[t.id as string];

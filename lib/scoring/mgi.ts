@@ -1,8 +1,8 @@
 // ── Pure scoring functions — no DB access, fully testable ──────────────
 
 export interface MGIInputs {
-  demand: number;
-  frustration: number;
+  demand: number;        // 0–1
+  frustration: number;   // 0–1
   supplyQualified: number;
   monetization: number;
 }
@@ -11,20 +11,6 @@ export function computeMGI(inputs: MGIInputs): number {
   const { demand, frustration, supplyQualified, monetization } = inputs;
   return (demand * (1 + frustration)) / (1 + supplyQualified) * monetization;
 }
-
-// ── Weights ────────────────────────────────────────────────────────────
-
-export interface MGIWeights {
-  trends: number;  // default 0.4
-  ytViews: number; // default 0.3
-  social: number;  // default 0.3
-}
-
-export const DEFAULT_MGI_WEIGHTS: MGIWeights = {
-  trends: 0.4,
-  ytViews: 0.3,
-  social: 0.3,
-};
 
 // ── Percentile ────────────────────────────────────────────────────────
 
@@ -39,140 +25,112 @@ export function computePercentile(value: number, allValues: number[]): number {
   return (below / (sorted.length - 1)) * 100;
 }
 
-// ── Demand ────────────────────────────────────────────────────────────
+// ── YouTube-based Demand ──────────────────────────────────────────────
 
-export interface TopicSignals {
-  trends: number | null;
-  ytViews: number | null;
-  social: number | null; // reddit + hn combined
+/**
+ * Raw demand signals computed from YouTube data for a single topic.
+ */
+export interface TopicYTDemand {
+  velocity: number;      // median views/day for videos < 30 days
+  outlierRatio: number;  // median of video outlier scores
+  outlierCount: number;  // count of videos with outlier score >= 3
 }
 
 /**
- * Compute demand D as a weighted-average percentile.
- * Missing signals → redistribute weight among available signals.
+ * Compute demand D ∈ [0, 1] using YouTube signals, normalized as
+ * percentiles within the niche.
+ *
+ *   D = 0.4 × velocity_pctl + 0.4 × outlierRatio_pctl + 0.2 × outlierCount_pctl
+ *
+ * Each percentile is computed against allInNiche (all topics in the same niche).
  */
-export function computeDemand(
-  signals: TopicSignals,
-  allSignals: TopicSignals[],
-  weights: MGIWeights = DEFAULT_MGI_WEIGHTS,
+export function computeYTDemand(
+  topic: TopicYTDemand,
+  allInNiche: TopicYTDemand[],
 ): number {
-  const entries: { key: keyof TopicSignals; weight: number }[] = [
-    { key: 'trends', weight: weights.trends },
-    { key: 'ytViews', weight: weights.ytViews },
-    { key: 'social', weight: weights.social },
-  ];
+  if (allInNiche.length === 0) return 0;
 
-  const available = entries.filter((e) => signals[e.key] !== null);
-  if (available.length === 0) return 0;
+  const velPctl = computePercentile(topic.velocity, allInNiche.map((t) => t.velocity)) / 100;
+  const ratioPctl = computePercentile(topic.outlierRatio, allInNiche.map((t) => t.outlierRatio)) / 100;
+  const countPctl = computePercentile(topic.outlierCount, allInNiche.map((t) => t.outlierCount)) / 100;
 
-  const totalWeight = available.reduce((s, e) => s + e.weight, 0);
-
-  let demand = 0;
-  for (const entry of available) {
-    const allValues = allSignals
-      .map((s) => s[entry.key])
-      .filter((v): v is number => v !== null);
-    const percentile = computePercentile(signals[entry.key]!, allValues);
-    demand += (entry.weight / totalWeight) * percentile;
-  }
-
-  return demand;
+  return 0.4 * velPctl + 0.4 * ratioPctl + 0.2 * countPctl;
 }
 
 // ── Frustration ───────────────────────────────────────────────────────
 
 /**
- * F = proportion of topic comments with frustration label and confidence ≥ 0.7.
+ * F = weighted proportion of topic comments with frustration label.
+ * frustrationLikeWeighted = sum of (1 + like_count) for frustration comments
+ * totalLikeWeighted = sum of (1 + like_count) for all labeled comments
  */
 export function computeFrustration(
-  frustrationCount: number,
-  totalComments: number,
+  frustrationWeighted: number,
+  totalWeighted: number,
 ): number {
-  if (totalComments === 0) return 0;
-  return frustrationCount / totalComments;
+  if (totalWeighted === 0) return 0;
+  return frustrationWeighted / totalWeighted;
 }
 
 // ── Supply Qualified ──────────────────────────────────────────────────
 
 /**
- * O_q = qualified videos in 180 days + 0.3 × old videos (≥2 years) still
- * getting ≥ 10k views/month.
+ * O_q = count of long quality videos (>= 8 min, channel >= 10k subs)
+ *       published in last 90 days, divided by the niche median count.
+ * Result >= 0. If niche median is 0, use 1 to avoid division by zero.
  */
-export function computeSupplyQualified(
-  qualifiedRecent: number,
-  oldHighViewCount: number,
+export function computeSupplyQ(
+  topicLongQualityCount: number,
+  nicheMedianLongQuality: number,
 ): number {
-  return qualifiedRecent + 0.3 * oldHighViewCount;
+  const denom = nicheMedianLongQuality > 0 ? nicheMedianLongQuality : 1;
+  return topicLongQualityCount / denom;
 }
 
 // ── Confidence ──────────────────────────────────────────────────────
 
 export interface ConfidenceInputs {
+  videoCount: number;     // videos attached to this topic
   commentCount: number;
-  demandSourceCount: number; // how many of trends/ytViews/hn/stackexchange are present (0–4)
-  dataAgeHours: number;     // hours since last trend_point capture
+  hasOutlierData: boolean;
 }
 
 export interface ConfidenceResult {
-  level: 'high' | 'medium' | 'low';
+  level: 'high' | 'medium' | 'low' | 'insufficient';
   reason: string;
 }
 
 /**
  * Confidence = how much we trust the MGI score.
- * - High: ≥100 comments, ≥3 sources, data <24h old
- * - Low: <50 comments OR 0–1 sources OR data >72h old
- * - Medium: everything else
+ * - insufficient: < 5 videos → MGI = null
+ * - low: 5–9 videos or < 20 comments
+ * - medium: 10–19 videos or no outlier data
+ * - high: >= 20 videos, >= 50 comments, has outlier data
  */
 export function computeConfidence(inputs: ConfidenceInputs): ConfidenceResult {
-  const { commentCount, demandSourceCount, dataAgeHours } = inputs;
+  const { videoCount, commentCount, hasOutlierData } = inputs;
 
-  const reasons: string[] = [];
+  if (videoCount < 5) {
+    return { level: 'insufficient', reason: `${videoCount} vidéos seulement (min 5)` };
+  }
+
   let score = 0;
+  const reasons: string[] = [];
 
-  // Comments
-  if (commentCount >= 100) {
-    score += 2;
-  } else if (commentCount >= 50) {
-    score += 1;
-  } else {
-    reasons.push(`${commentCount} commentaires seulement`);
-  }
+  if (videoCount >= 20) score += 2;
+  else if (videoCount >= 10) score += 1;
+  else reasons.push(`${videoCount} vidéos`);
 
-  // Demand sources
-  if (demandSourceCount >= 3) {
-    score += 2;
-  } else if (demandSourceCount >= 2) {
-    score += 1;
-  } else {
-    const sourceLabel = demandSourceCount === 0
-      ? 'aucune source de demande'
-      : '1 seule source de demande';
-    reasons.push(sourceLabel);
-  }
+  if (commentCount >= 50) score += 2;
+  else if (commentCount >= 20) score += 1;
+  else reasons.push(`${commentCount} commentaires`);
 
-  // Data freshness
-  if (dataAgeHours <= 24) {
-    score += 2;
-  } else if (dataAgeHours <= 72) {
-    score += 1;
-  } else {
-    reasons.push(`données datant de ${Math.round(dataAgeHours)} h`);
-  }
+  if (hasOutlierData) score += 1;
+  else reasons.push('pas de données outlier');
 
-  if (score >= 5) {
-    return { level: 'high', reason: 'Données abondantes et récentes' };
-  }
-  if (score <= 2) {
-    return {
-      level: 'low',
-      reason: reasons.length > 0 ? reasons.join(', ') : 'Données insuffisantes',
-    };
-  }
-  return {
-    level: 'medium',
-    reason: reasons.length > 0 ? reasons.join(', ') : 'Données partielles',
-  };
+  if (score >= 4) return { level: 'high', reason: 'Données abondantes' };
+  if (score >= 2) return { level: 'medium', reason: reasons.length > 0 ? reasons.join(', ') : 'Données partielles' };
+  return { level: 'low', reason: reasons.join(', ') || 'Données insuffisantes' };
 }
 
 // ── MGI Band ────────────────────────────────────────────────────────

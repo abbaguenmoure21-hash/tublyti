@@ -15,8 +15,8 @@ export default async function SettingsPage() {
   // Scoring settings
   const scoring = await getScoringSettings();
 
-  // Preview top 10 with current weights
-  const { data: topTen } = await previewTopTenWithWeights(scoring.mgiWeights);
+  // Preview top 10
+  const { data: topTen } = await previewTopTenWithWeights();
 
   // Niches
   const { data: niches } = await db

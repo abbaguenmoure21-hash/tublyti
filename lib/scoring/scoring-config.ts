@@ -1,7 +1,4 @@
-import { DEFAULT_MGI_WEIGHTS, type MGIWeights } from './mgi';
-
 export interface ScoringSettings {
-  mgiWeights: MGIWeights;
   thresholds: {
     phase2TrendsGrowth: number;
     phase2MaxSupply: number;
@@ -10,7 +7,6 @@ export interface ScoringSettings {
 }
 
 export const DEFAULT_SCORING: ScoringSettings = {
-  mgiWeights: DEFAULT_MGI_WEIGHTS,
   thresholds: {
     phase2TrendsGrowth: 30,
     phase2MaxSupply: 3,

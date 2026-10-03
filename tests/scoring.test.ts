@@ -2,10 +2,11 @@ import { describe, it, expect } from 'vitest';
 import {
   computeMGI,
   computePercentile,
-  computeDemand,
+  computeYTDemand,
   computeFrustration,
-  computeSupplyQualified,
-  DEFAULT_MGI_WEIGHTS,
+  computeSupplyQ,
+  computeConfidence,
+  type TopicYTDemand,
 } from '@/lib/scoring/mgi';
 import { computePhase } from '@/lib/scoring/phase';
 
@@ -59,7 +60,6 @@ describe('computePercentile', () => {
   });
 
   it('returns correct percentile for middle value', () => {
-    // 30 has 2 values below it out of 4 intervals → 50%
     expect(computePercentile(30, [10, 20, 30, 40, 50])).toBe(50);
   });
 
@@ -68,53 +68,47 @@ describe('computePercentile', () => {
   });
 });
 
-// ── computeDemand ───────────────────────────────────────────────────
+// ── computeYTDemand ─────────────────────────────────────────────────
 
-describe('computeDemand', () => {
-  const allSignals = [
-    { trends: 10, ytViews: 100, social: 5 },
-    { trends: 20, ytViews: 200, social: 10 },
-    { trends: 30, ytViews: 300, social: 15 },
-    { trends: 40, ytViews: 400, social: 20 },
-    { trends: 50, ytViews: 500, social: 25 },
+describe('computeYTDemand', () => {
+  const allInNiche: TopicYTDemand[] = [
+    { velocity: 100, outlierRatio: 1.0, outlierCount: 0 },
+    { velocity: 200, outlierRatio: 2.0, outlierCount: 1 },
+    { velocity: 300, outlierRatio: 3.0, outlierCount: 2 },
+    { velocity: 400, outlierRatio: 4.0, outlierCount: 3 },
+    { velocity: 500, outlierRatio: 5.0, outlierCount: 4 },
   ];
 
-  it('returns 0 when all signals are null', () => {
-    const signals = { trends: null, ytViews: null, social: null };
-    expect(computeDemand(signals, allSignals)).toBe(0);
+  it('returns 0 for empty niche', () => {
+    expect(computeYTDemand({ velocity: 100, outlierRatio: 1, outlierCount: 0 }, [])).toBe(0);
   });
 
-  it('redistributes weights when one signal is missing', () => {
-    // Only trends and ytViews available → weights redistribute
-    const signals = { trends: 50, ytViews: 500, social: null };
-    const result = computeDemand(signals, allSignals);
-    // trends: percentile 100, weight 0.4/(0.4+0.3) ≈ 0.571
-    // ytViews: percentile 100, weight 0.3/(0.4+0.3) ≈ 0.429
-    // demand ≈ 0.571 × 100 + 0.429 × 100 = 100
-    expect(result).toBeCloseTo(100, 0);
+  it('returns ~0.5 for middle topic', () => {
+    const result = computeYTDemand(allInNiche[2], allInNiche);
+    expect(result).toBeCloseTo(0.5, 1);
   });
 
-  it('redistributes weights when two signals are missing', () => {
-    // Only social available
-    const signals = { trends: null, ytViews: null, social: 15 };
-    const result = computeDemand(signals, allSignals);
-    // social: percentile of 15 in [5,10,15,20,25] → 2/4 = 50
-    expect(result).toBeCloseTo(50, 0);
+  it('returns 0 for lowest topic', () => {
+    const result = computeYTDemand(allInNiche[0], allInNiche);
+    expect(result).toBe(0);
   });
 
-  it('computes weighted percentile with all signals', () => {
-    // Middle topic: all percentiles = 50
-    const signals = allSignals[2]; // trends=30, ytViews=300, social=15
-    const result = computeDemand(signals, allSignals);
-    // All percentiles are 50, so weighted average = 50
-    expect(result).toBeCloseTo(50, 0);
+  it('returns 1 for highest topic', () => {
+    const result = computeYTDemand(allInNiche[4], allInNiche);
+    expect(result).toBe(1);
+  });
+
+  it('increases with velocity', () => {
+    const low = computeYTDemand(allInNiche[1], allInNiche);
+    const high = computeYTDemand(allInNiche[3], allInNiche);
+    expect(high).toBeGreaterThan(low);
   });
 });
 
 // ── computeFrustration ──────────────────────────────────────────────
 
 describe('computeFrustration', () => {
-  it('returns 0 when no comments (F = 0)', () => {
+  it('returns 0 when no comments (total = 0)', () => {
     expect(computeFrustration(0, 0)).toBe(0);
   });
 
@@ -131,58 +125,95 @@ describe('computeFrustration', () => {
   });
 });
 
-// ── computeSupplyQualified ──────────────────────────────────────────
+// ── computeSupplyQ ──────────────────────────────────────────────────
 
-describe('computeSupplyQualified', () => {
-  it('returns 0 when no qualified videos (O_q = 0)', () => {
-    expect(computeSupplyQualified(0, 0)).toBe(0);
+describe('computeSupplyQ', () => {
+  it('returns 0 when no qualified videos', () => {
+    expect(computeSupplyQ(0, 10)).toBe(0);
   });
 
-  it('counts recent qualified only', () => {
-    expect(computeSupplyQualified(5, 0)).toBe(5);
+  it('returns count when niche median is 0 (uses 1)', () => {
+    expect(computeSupplyQ(5, 0)).toBe(5);
   });
 
-  it('adds 0.3 × old high-view videos', () => {
-    expect(computeSupplyQualified(5, 10)).toBeCloseTo(8);
+  it('normalizes by niche median', () => {
+    expect(computeSupplyQ(10, 5)).toBe(2);
+  });
+
+  it('returns < 1 when below niche median', () => {
+    expect(computeSupplyQ(3, 10)).toBeCloseTo(0.3);
+  });
+});
+
+// ── computeConfidence ───────────────────────────────────────────────
+
+describe('computeConfidence', () => {
+  it('returns insufficient for < 5 videos', () => {
+    expect(computeConfidence({ videoCount: 3, commentCount: 100, hasOutlierData: true }).level).toBe('insufficient');
+  });
+
+  it('returns high for abundant data', () => {
+    expect(computeConfidence({ videoCount: 25, commentCount: 60, hasOutlierData: true }).level).toBe('high');
+  });
+
+  it('returns low for minimal data', () => {
+    expect(computeConfidence({ videoCount: 5, commentCount: 5, hasOutlierData: false }).level).toBe('low');
+  });
+
+  it('returns medium for partial data', () => {
+    expect(computeConfidence({ videoCount: 12, commentCount: 30, hasOutlierData: false }).level).toBe('medium');
   });
 });
 
 // ── computePhase ────────────────────────────────────────────────────
 
 describe('computePhase', () => {
-  it('returns 3 (saturation) when >= 5 qualified in 72h', () => {
+  it('returns 0 (emergence) for < 5 total videos', () => {
     expect(
-      computePhase({ redditHnRising: false, supplyQualified: 10, trendsGrowth90d: 0.5, qualifiedIn72h: 5 }),
+      computePhase({ uploadsRecent4w: 2, uploadsOlder8w: 1, medianOutlierAgeDays: null, totalVideos: 3 }),
+    ).toBe(0);
+  });
+
+  it('returns 3 (saturation) when slope < 0.5', () => {
+    expect(
+      computePhase({ uploadsRecent4w: 1, uploadsOlder8w: 16, medianOutlierAgeDays: null, totalVideos: 20 }),
     ).toBe(3);
   });
 
-  it('returns 2 (window) when trends growing and low supply', () => {
+  it('returns 3 (saturation) with high volume + old outliers', () => {
     expect(
-      computePhase({ redditHnRising: false, supplyQualified: 2, trendsGrowth90d: 0.4, qualifiedIn72h: 0 }),
+      computePhase({ uploadsRecent4w: 12, uploadsOlder8w: 10, medianOutlierAgeDays: 90, totalVideos: 30 }),
+    ).toBe(3);
+  });
+
+  it('returns 2 (window) with strong slope', () => {
+    expect(
+      computePhase({ uploadsRecent4w: 8, uploadsOlder8w: 4, medianOutlierAgeDays: null, totalVideos: 15 }),
     ).toBe(2);
   });
 
-  it('returns 0 (emergence) when reddit rising and no supply', () => {
+  it('returns 2 (window) with moderate slope + young outliers', () => {
     expect(
-      computePhase({ redditHnRising: true, supplyQualified: 0, trendsGrowth90d: 0.1, qualifiedIn72h: 0 }),
+      computePhase({ uploadsRecent4w: 6, uploadsOlder8w: 6, medianOutlierAgeDays: 7, totalVideos: 15 }),
+    ).toBe(2);
+  });
+
+  it('returns 0 (emergence) when very few total uploads', () => {
+    expect(
+      computePhase({ uploadsRecent4w: 2, uploadsOlder8w: 2, medianOutlierAgeDays: null, totalVideos: 10 }),
     ).toBe(0);
   });
 
   it('returns 1 (short virality) as default', () => {
     expect(
-      computePhase({ redditHnRising: false, supplyQualified: 5, trendsGrowth90d: 0.1, qualifiedIn72h: 2 }),
+      computePhase({ uploadsRecent4w: 5, uploadsOlder8w: 8, medianOutlierAgeDays: 30, totalVideos: 20 }),
     ).toBe(1);
   });
 
   it('saturation takes priority over window', () => {
+    // slope < 0.5 → saturation, even with young outliers
     expect(
-      computePhase({ redditHnRising: true, supplyQualified: 0, trendsGrowth90d: 0.5, qualifiedIn72h: 5 }),
+      computePhase({ uploadsRecent4w: 1, uploadsOlder8w: 20, medianOutlierAgeDays: 5, totalVideos: 25 }),
     ).toBe(3);
-  });
-
-  it('window takes priority over emergence', () => {
-    expect(
-      computePhase({ redditHnRising: true, supplyQualified: 0, trendsGrowth90d: 0.4, qualifiedIn72h: 0 }),
-    ).toBe(2);
   });
 });

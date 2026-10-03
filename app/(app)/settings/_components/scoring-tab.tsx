@@ -15,33 +15,6 @@ interface TopTenItem {
   mgi: number;
 }
 
-function WeightSlider({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: number;
-  onChange: (v: number) => void;
-}) {
-  return (
-    <div className="flex items-center gap-3">
-      <label className="text-[13px] text-foreground w-24 shrink-0">{label}</label>
-      <input
-        type="range"
-        min={0}
-        max={100}
-        value={Math.round(value * 100)}
-        onChange={(e) => onChange(Number(e.target.value) / 100)}
-        className="flex-1 accent-primary h-1.5"
-      />
-      <span className="text-[13px] tabular-nums text-muted-foreground w-12 text-right">
-        {(value * 100).toFixed(0)} %
-      </span>
-    </div>
-  );
-}
-
 export function ScoringTab({
   scoring,
   defaultScoring,
@@ -51,21 +24,15 @@ export function ScoringTab({
   defaultScoring: ScoringSettings;
   topTen: TopTenItem[];
 }) {
-  const [weights, setWeights] = useState(scoring.mgiWeights);
   const [thresholds, setThresholds] = useState(scoring.thresholds);
   const [isPending, startTransition] = useTransition();
 
-  const weightSum = weights.trends + weights.ytViews + weights.social;
   const isModified =
-    JSON.stringify({ weights, thresholds }) !==
-    JSON.stringify({ weights: scoring.mgiWeights, thresholds: scoring.thresholds });
+    JSON.stringify(thresholds) !== JSON.stringify(scoring.thresholds);
 
   function handleSave() {
     startTransition(async () => {
-      const result = await saveScoringSettings({
-        mgiWeights: weights,
-        thresholds,
-      });
+      const result = await saveScoringSettings({ thresholds });
       if (result.error) {
         toast.error(result.error);
       } else {
@@ -75,16 +42,25 @@ export function ScoringTab({
   }
 
   function handleReset() {
-    setWeights(defaultScoring.mgiWeights);
     setThresholds(defaultScoring.thresholds);
   }
 
   return (
     <div className="space-y-6">
-      {/* Weights */}
+      {/* Demand info */}
+      <section className="bg-card border border-border rounded-[10px] shadow-[0_1px_2px_rgba(20,24,34,0.06)] p-5 space-y-2">
+        <h2 className="text-[15px] font-semibold">Demande (D)</h2>
+        <p className="text-[13px] text-muted-foreground">
+          La demande est calculée automatiquement depuis YouTube :
+          vélocité des vues (40 %), ratio outlier (40 %), nombre d&apos;outliers (20 %).
+          Chaque composante est normalisée en percentile au sein de la niche.
+        </p>
+      </section>
+
+      {/* Thresholds */}
       <section className="bg-card border border-border rounded-[10px] shadow-[0_1px_2px_rgba(20,24,34,0.06)] p-5 space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-[15px] font-semibold">Poids de la demande (D)</h2>
+          <h2 className="text-[15px] font-semibold">Seuils de phase</h2>
           <button
             type="button"
             onClick={handleReset}
@@ -94,33 +70,6 @@ export function ScoringTab({
             Valeurs par défaut
           </button>
         </div>
-
-        <WeightSlider
-          label="Google Trends"
-          value={weights.trends}
-          onChange={(v) => setWeights((w) => ({ ...w, trends: v }))}
-        />
-        <WeightSlider
-          label="Vues YouTube"
-          value={weights.ytViews}
-          onChange={(v) => setWeights((w) => ({ ...w, ytViews: v }))}
-        />
-        <WeightSlider
-          label="HN + Stack"
-          value={weights.social}
-          onChange={(v) => setWeights((w) => ({ ...w, social: v }))}
-        />
-
-        {Math.abs(weightSum - 1.0) > 0.01 && (
-          <p className="text-[12px] text-destructive">
-            La somme doit être 100 % (actuellement {(weightSum * 100).toFixed(0)} %).
-          </p>
-        )}
-      </section>
-
-      {/* Thresholds */}
-      <section className="bg-card border border-border rounded-[10px] shadow-[0_1px_2px_rgba(20,24,34,0.06)] p-5 space-y-4">
-        <h2 className="text-[15px] font-semibold">Seuils de phase</h2>
 
         <div className="grid grid-cols-3 gap-4">
           <div>
@@ -175,7 +124,7 @@ export function ScoringTab({
                 <span className="flex-1 truncate">{t.label}</span>
                 <span className="text-[11px] text-muted-foreground">{t.nicheName}</span>
                 <span className="w-12 text-right tabular-nums font-medium">
-                  {Math.round(t.mgi)}
+                  {t.mgi != null ? Math.round(t.mgi) : '—'}
                 </span>
               </div>
             ))}
@@ -196,7 +145,7 @@ export function ScoringTab({
           <button
             type="button"
             onClick={handleSave}
-            disabled={isPending || Math.abs(weightSum - 1.0) > 0.01}
+            disabled={isPending}
             className="h-9 px-4 rounded-lg bg-primary text-primary-foreground text-[13px] font-medium hover:bg-primary/90 transition-colors disabled:opacity-50 cursor-pointer"
           >
             {isPending ? 'Enregistrement…' : 'Enregistrer'}

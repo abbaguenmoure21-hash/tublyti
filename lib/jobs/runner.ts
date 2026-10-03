@@ -17,4 +17,5 @@ export interface JobRunner {
   acquireLock(kind: string): Promise<boolean>;
   releaseLock(kind: string): Promise<void>;
   setAlertSender(sender: AlertSender): void;
+  cleanAbandoned(): Promise<number>;
 }

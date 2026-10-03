@@ -80,9 +80,9 @@ export class SupabaseJobRunner implements JobRunner {
     const lock = data.value as { locked: boolean; at: string };
     if (!lock.locked) return false;
 
-    // Stale lock: if older than 10 minutes, consider it released
+    // Stale lock: if older than 2 hours, consider it released
     const lockAge = Date.now() - new Date(lock.at).getTime();
-    if (lockAge > 10 * 60 * 1000) return false;
+    if (lockAge > 2 * 60 * 60 * 1000) return false;
 
     return true;
   }
@@ -91,7 +91,7 @@ export class SupabaseJobRunner implements JobRunner {
     // Atomic lock acquisition: single upsert that only succeeds if not currently locked
     // This eliminates the TOCTOU race between isLocked() and upsert()
     const now = new Date().toISOString();
-    const staleCutoff = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    const staleCutoff = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
     const key = `lock_${kind}`;
 
     // Try to insert a new lock (if key doesn't exist) or update if unlocked/stale
@@ -119,5 +119,20 @@ export class SupabaseJobRunner implements JobRunner {
       key: `lock_${kind}`,
       value: { locked: false, at: new Date().toISOString() },
     });
+  }
+
+  /**
+   * Mark jobs started > 2 hours ago that never finished as abandoned.
+   * Call at the start of each cron to prevent stuck jobs from blocking.
+   */
+  async cleanAbandoned(): Promise<number> {
+    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+    const { data } = await this.db
+      .from('jobs')
+      .update({ finished_at: new Date().toISOString(), error: 'abandoned' })
+      .is('finished_at', null)
+      .lt('started_at', twoHoursAgo)
+      .select('id');
+    return data?.length ?? 0;
   }
 }
