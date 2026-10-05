@@ -8,23 +8,33 @@ function formatVector(vec: number[]): string {
 }
 
 /**
- * Embed ALL video titles that have no title_embedding yet.
- * No limit — processes until done or deadline.
+ * Embed video titles that have no title_embedding yet.
+ * Most recent first so fresh videos get embeddings before old ones.
+ *
+ * @param maxCount - max videos to embed in this run (0 = unlimited). Default: 0.
  */
 export async function runEmbedAll(
   db: SupabaseClient,
   embedder: EmbeddingProvider,
   deadlineMs: number,
+  maxCount = 0,
 ): Promise<{ embedded: number }> {
   let totalEmbedded = 0;
 
   while (Date.now() < deadlineMs) {
+    if (maxCount > 0 && totalEmbedded >= maxCount) break;
+
+    const take = maxCount > 0
+      ? Math.min(BATCH_SIZE, maxCount - totalEmbedded)
+      : BATCH_SIZE;
+
     const { data: videos } = await db
       .from('videos')
       .select('id, title')
       .is('title_embedding', null)
       .not('title', 'is', null)
-      .limit(BATCH_SIZE);
+      .order('published_at', { ascending: false })
+      .limit(take);
 
     if (!videos || videos.length === 0) break;
 
@@ -40,7 +50,7 @@ export async function runEmbedAll(
 
     totalEmbedded += videos.length;
 
-    if (videos.length < BATCH_SIZE) break;
+    if (videos.length < take) break;
   }
 
   return { embedded: totalEmbedded };

@@ -1,8 +1,9 @@
 /**
  * Local nightly pipeline.
- * Order: collect → embed → attach → enrich-insufficient → discover-topics → quality-gates
- *        → search → search-emerging → discover-sources/channels → auto-triage
- *        → embed+attach (pass 2) → classify → score → reject-stale → aggregate.
+ * Order: user-channels → collect → embed → attach → enrich-insufficient
+ *        → discover-topics → quality-gates → search-emerging → search
+ *        → discover-sources/channels → auto-triage → embed+attach (pass 2)
+ *        → classify → score → reject-stale → aggregate.
  * Each step sees data from the previous step.
  *
  * Usage: pnpm nightly
@@ -49,6 +50,11 @@ import { ResendAlertSender, ConsoleAlertSender } from '../lib/email/resend-alert
 import { SupabaseJobRunner } from '../lib/jobs/supabase-runner';
 
 const DEADLINE_MS = parseInt(process.env.NIGHTLY_DEADLINE_MIN ?? '15', 10) * 60 * 1000;
+const EMBED_MAX_PER_NIGHT = parseInt(process.env.EMBED_MAX_PER_NIGHT ?? '3000', 10);
+// Minimum time (ms) guaranteed for attach and enrich-insufficient.
+const MIN_STEP_MS = 10 * 60 * 1000; // 10 minutes
+
+const skippedSteps: string[] = [];
 
 async function runStep(
   runner: SupabaseJobRunner,
@@ -58,6 +64,7 @@ async function runStep(
 ): Promise<void> {
   if (Date.now() >= deadline) {
     console.log(`  [${kind}] SKIPPED — deadline reached`);
+    skippedSteps.push(kind);
     const job = await runner.start(kind);
     await runner.finish(job.id, {
       quotaUsed: 0,
@@ -107,16 +114,26 @@ async function main() {
   const start = Date.now();
 
   // ── Per-group time budgets ──────────────────────────────────────
-  // collect 40%, embed+attach 15%, discover+triage 15%, classify 15%, score+aggregate gets the rest
-  const collectEnd     = start + DEADLINE_MS * 0.40;
-  const embedAttachEnd = start + DEADLINE_MS * 0.55;
-  const discoverEnd    = start + DEADLINE_MS * 0.70;
-  const classifyEnd    = start + DEADLINE_MS * 0.85;
-  // score uses global deadline — it always runs
+  // collect 30% (down from 40%), embed 15%, discover+triage 20%, classify 15%, score+agg rest
+  // attach & enrich-insufficient get their own MIN_STEP_MS from when they start.
+  const collectEnd     = start + DEADLINE_MS * 0.30;
+  const embedEnd       = start + DEADLINE_MS * 0.45;
+  const discoverEnd    = start + DEADLINE_MS * 0.65;
+  const classifyEnd    = start + DEADLINE_MS * 0.80;
 
-  console.log(`  Time budgets: collect ${Math.round(DEADLINE_MS * 0.40 / 60000)}min, embed+attach ${Math.round(DEADLINE_MS * 0.15 / 60000)}min, discover ${Math.round(DEADLINE_MS * 0.15 / 60000)}min, classify ${Math.round(DEADLINE_MS * 0.15 / 60000)}min, score+agg rest`);
+  console.log(`  Time budgets: collect ${Math.round(DEADLINE_MS * 0.30 / 60000)}min, embed ${Math.round(DEADLINE_MS * 0.15 / 60000)}min, discover ${Math.round(DEADLINE_MS * 0.20 / 60000)}min, classify ${Math.round(DEADLINE_MS * 0.15 / 60000)}min, score+agg rest`);
+  console.log(`  Embed cap: ${EMBED_MAX_PER_NIGHT} videos/night, attach/enrich min: ${MIN_STEP_MS / 60000}min each`);
 
-  // ── Step 1: COLLECT (signals + videos + snapshots + comments) ────
+  // ── Step 1: USER-CHANNELS (fast — ~1 API call per 50 channels) ──
+  console.log('\n========== USER-CHANNELS ==========');
+
+  await runStep(runner, deadline, 'user-channels', async () => {
+    const uc = await updateUserChannelSubs(db);
+    console.log(`  Updated: ${uc.updated}, Handles resolved: ${uc.resolved}, Quota: ${uc.quotaUsed}`);
+    return { quota: uc.quotaUsed, items: uc.updated };
+  });
+
+  // ── Step 2: COLLECT (signals + videos + snapshots + comments) ────
   console.log('\n========== COLLECT ==========');
 
   await runStep(runner, collectEnd, 'collect', async () => {
@@ -136,39 +153,32 @@ async function main() {
     };
   });
 
-  // ── Step 2: USER-CHANNELS (update subscriber counts for client channels) ──
-  console.log('\n========== USER-CHANNELS ==========');
-
-  await runStep(runner, collectEnd, 'user-channels', async () => {
-    const uc = await updateUserChannelSubs(db);
-    console.log(`  Updated: ${uc.updated}, Handles resolved: ${uc.resolved}, Quota: ${uc.quotaUsed}`);
-    return { quota: uc.quotaUsed, items: uc.updated };
-  });
-
-  // ── Step 3: EMBED (all unembedded video titles) ────────────────
+  // ── Step 3: EMBED (capped to EMBED_MAX_PER_NIGHT, most recent first) ──
   console.log('\n========== EMBED ==========');
 
-  await runStep(runner, embedAttachEnd, 'embed', async () => {
-    const { embedded } = await runEmbedAll(db, embedder, embedAttachEnd);
-    console.log(`  Embedded: ${embedded} videos`);
+  await runStep(runner, embedEnd, 'embed', async () => {
+    const { embedded } = await runEmbedAll(db, embedder, embedEnd, EMBED_MAX_PER_NIGHT);
+    console.log(`  Embedded: ${embedded} videos (cap: ${EMBED_MAX_PER_NIGHT})`);
     return { quota: 0, items: embedded };
   });
 
-  // ── Step 3: ATTACH (all unattached videos → topics) ───────────
+  // ── Step 4: ATTACH (own deadline: at least MIN_STEP_MS from now) ──
   console.log('\n========== ATTACH ==========');
 
-  await runStep(runner, embedAttachEnd, 'attach', async () => {
-    const { attached, orphans } = await runAttachAll(db, embedAttachEnd);
+  await runStep(runner, deadline, 'attach', async () => {
+    const attachDeadline = Math.min(Date.now() + MIN_STEP_MS, deadline);
+    const { attached, orphans } = await runAttachAll(db, attachDeadline);
     console.log(`  Attached: ${attached}, Orphans: ${orphans}`);
     return { quota: 0, items: attached };
   });
 
-  // ── Step 4: ENRICH-INSUFFICIENT (targeted attachment for insufficient topics) ──
+  // ── Step 5: ENRICH-INSUFFICIENT (own deadline: at least MIN_STEP_MS) ──
   console.log('\n========== ENRICH-INSUFFICIENT ==========');
 
   let enrichInsuffResult: { topicsProcessed: number; videosAttached: number; details: Record<string, number> } = { topicsProcessed: 0, videosAttached: 0, details: {} };
-  await runStep(runner, embedAttachEnd, 'enrich-insufficient', async () => {
-    enrichInsuffResult = await runAttachInsufficient(db, embedAttachEnd);
+  await runStep(runner, deadline, 'enrich-insufficient', async () => {
+    const enrichDeadline = Math.min(Date.now() + MIN_STEP_MS, deadline);
+    enrichInsuffResult = await runAttachInsufficient(db, enrichDeadline);
     console.log(`  Topics enriched: ${enrichInsuffResult.topicsProcessed}, Videos attached: ${enrichInsuffResult.videosAttached}`);
     if (enrichInsuffResult.topicsProcessed > 0) {
       for (const [label, count] of Object.entries(enrichInsuffResult.details)) {
@@ -178,7 +188,7 @@ async function main() {
     return { quota: 0, items: enrichInsuffResult.videosAttached };
   });
 
-  // ── Step 5: DISCOVER-TOPICS (cluster orphans into new topics) ──
+  // ── Step 6: DISCOVER-TOPICS (cluster orphans into new topics) ──
   console.log('\n========== DISCOVER-TOPICS ==========');
 
   await runStep(runner, discoverEnd, 'discover-topics', async () => {
@@ -187,7 +197,7 @@ async function main() {
     return { quota: 0, items: clustering.topicsProposed };
   });
 
-  // ── Step 6: QUALITY-GATES (reject single-channel-dominated topics) ──
+  // ── Step 7: QUALITY-GATES (reject single-channel-dominated topics) ──
   console.log('\n========== QUALITY-GATES ==========');
 
   await runStep(runner, discoverEnd, 'quality-gates', async () => {
@@ -198,16 +208,7 @@ async function main() {
     return { quota: 0, items: gates.rejectedMonoChannel + gates.rejectedChannelName };
   });
 
-  // ── Step 7: SEARCH ──────────────────────────────────────────────
-  console.log('\n========== SEARCH ==========');
-
-  await runStep(runner, discoverEnd, 'search', async () => {
-    const search = await runYouTubeSearch(db, discoverEnd, yt.getQuotaUsed());
-    console.log(`  Searches: ${search.searchesPerformed}, Discovered: ${search.videosDiscovered}`);
-    return { quota: 0, items: search.videosDiscovered };
-  });
-
-  // ── Step 8: SEARCH-EMERGING (YouTube search for starved insufficient topics) ──
+  // ── Step 8: SEARCH-EMERGING (capped at 15 searches — runs before main search) ──
   console.log('\n========== SEARCH-EMERGING ==========');
 
   let emergingResult = { searchesPerformed: 0, videosFound: 0, videosAttached: 0, quotaUsed: 0 };
@@ -218,7 +219,16 @@ async function main() {
     return { quota: emergingResult.quotaUsed, items: emergingResult.videosAttached };
   });
 
-  // ── Step 9: DISCOVER-SOURCES (channelSections + search results) ─
+  // ── Step 9: SEARCH ──────────────────────────────────────────────
+  console.log('\n========== SEARCH ==========');
+
+  await runStep(runner, discoverEnd, 'search', async () => {
+    const search = await runYouTubeSearch(db, discoverEnd, yt.getQuotaUsed());
+    console.log(`  Searches: ${search.searchesPerformed}, Discovered: ${search.videosDiscovered}`);
+    return { quota: 0, items: search.videosDiscovered };
+  });
+
+  // ── Step 10: DISCOVER-SOURCES (channelSections + search results) ─
   console.log('\n========== DISCOVER-SOURCES ==========');
 
   await runStep(runner, discoverEnd, 'discover-sources', async () => {
@@ -230,7 +240,7 @@ async function main() {
     return { quota: totalQuota, items: totalChannels };
   });
 
-  // ── Step 10: DISCOVER-CHANNELS (search for new channels in phase 1/2 topics) ─
+  // ── Step 11: DISCOVER-CHANNELS (search for new channels in phase 1/2 topics) ─
   console.log('\n========== DISCOVER-CHANNELS ==========');
 
   await runStep(runner, discoverEnd, 'discover-channels', async () => {
@@ -247,7 +257,7 @@ async function main() {
     return { quota: 0, items: disc.channelsDiscovered };
   });
 
-  // ── Step 11: AUTO-TRIAGE (enrich + classify pending candidates) ─
+  // ── Step 12: AUTO-TRIAGE (enrich + classify pending candidates) ─
   console.log('\n========== AUTO-TRIAGE ==========');
 
   await runStep(runner, discoverEnd, 'auto-triage', async () => {
@@ -257,7 +267,7 @@ async function main() {
     return { quota: triage.quotaUsed, items: triage.processed };
   });
 
-  // ── Step 12: EMBED-2 + ATTACH-2 (new videos from search) ──────
+  // ── Step 13: EMBED-2 + ATTACH-2 (new videos from search) ──────
   console.log('\n========== EMBED+ATTACH (pass 2) ==========');
 
   await runStep(runner, discoverEnd, 'embed-pass2', async () => {
@@ -267,7 +277,7 @@ async function main() {
     return { quota: 0, items: embedded + attached };
   });
 
-  // ── Step 13: CLASSIFY (retrieve pending batches + submit new) ───
+  // ── Step 14: CLASSIFY (retrieve pending batches + submit new) ───
   console.log('\n========== CLASSIFY ==========');
 
   if (process.env.ANTHROPIC_API_KEY) {
@@ -281,7 +291,7 @@ async function main() {
     console.log('  ANTHROPIC_API_KEY not set — skipped');
   }
 
-  // ── Step 14: SCORE (MGI + phase + outliers) ────────────────────
+  // ── Step 15: SCORE (MGI + phase + outliers) ────────────────────
   console.log('\n========== SCORE ==========');
 
   await runStep(runner, deadline, 'score', async () => {
@@ -302,7 +312,7 @@ async function main() {
     return { quota: 0, items: score.topicsScored + outlierCount };
   });
 
-  // ── Step 15: REJECT-STALE (close topics < 5 videos after 21 days) ──
+  // ── Step 16: REJECT-STALE (close topics < 5 videos after 21 days) ──
   console.log('\n========== REJECT-STALE ==========');
 
   let rejectResult = { rejected: 0, protected: 0 };
@@ -316,7 +326,7 @@ async function main() {
     return { quota: 0, items: r.rejected };
   });
 
-  // ── Step 16: AGGREGATE (compress old snapshots into weekly) ────
+  // ── Step 17: AGGREGATE (compress old snapshots into weekly) ────
   console.log('\n========== AGGREGATE ==========');
 
   await runStep(runner, deadline, 'aggregate', async () => {
@@ -384,6 +394,11 @@ async function main() {
   console.log(`  Enrichment: topics enriched ${enrichInsuffResult.topicsProcessed}, videos attached ${enrichInsuffResult.videosAttached}`);
   console.log(`  Emerging: searches ${emergingResult.searchesPerformed} (quota ${emergingResult.quotaUsed}), attached ${emergingResult.videosAttached}`);
   console.log(`  Stale: rejected ${rejectResult.rejected}, protected ${rejectResult.protected}`);
+  if (skippedSteps.length > 0) {
+    console.log(`  Skipped steps: ${skippedSteps.join(', ')}`);
+  } else {
+    console.log('  Skipped steps: none');
+  }
 }
 
 main().catch((err) => {
