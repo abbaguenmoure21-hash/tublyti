@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { ChevronRight, SearchX } from 'lucide-react';
 import { createServiceClient } from '@/lib/supabase/server';
-import { resolveScope } from '@/lib/scope';
+import { resolveScope, labelsByNiche } from '@/lib/scope';
 import { requireUser } from '@/lib/auth/session';
 import { listTopics, getTopicDetail, parseMoments, DEFAULT_MOMENTS } from '@/lib/sujets/queries';
 import { PhaseBadge } from '@/components/tublyti/phase-badge';
@@ -40,7 +40,7 @@ export default async function SujetsPage({ searchParams }: { searchParams: Promi
   const params = await searchParams;
   const user = await requireUser();
   const db = createServiceClient();
-  const { scope, nicheIds, niches } = await resolveScope(db, user.id);
+  const { scopeLabel, nicheIds, niches } = await resolveScope(db, user.id);
 
   // Premier lancement : aucune chaîne encore ajoutée.
   if (!niches.length) redirect('/bienvenue');
@@ -50,8 +50,9 @@ export default async function SujetsPage({ searchParams }: { searchParams: Promi
   const reliableOnly = params.fiable === '1';
 
   const { rows, scoredAt } = await listTopics(db, { userId: user.id, nicheIds, moments, reliableOnly, query: params.q ?? '' });
-  const nicheById = new Map(niches.map((n) => [n.id, n]));
-  const scopeLabel = scope ? nicheById.get(scope)?.label : null;
+  // Deux chaînes peuvent partager une niche : leurs noms sont réunis.
+  const labels = labelsByNiche(niches);
+  const nicheById = new Map(niches.map((n) => [n.id, { ...n, label: labels.get(n.id) ?? n.label }]));
 
   const userSubsByNiche = await getUserSubsByNiche(db, user.id);
 

@@ -1,5 +1,6 @@
 import { SupabaseClient } from '@supabase/supabase-js';
 import { isSensitiveTopic } from './sensitive';
+import { autoValidateTopics } from './auto-validate';
 
 const SINGLE_CHANNEL_THRESHOLD = 0.70;
 const CHANNEL_NAME_RE = /\bchannel\b/i;
@@ -8,6 +9,10 @@ export interface QualityGatesResult {
   rejectedMonoChannel: number;
   rejectedChannelName: number;
   sensitiveFlagged: number;
+  /** Validation automatique des sujets proposés (après les contrôles). */
+  autoPublished?: number;
+  autoMerged?: number;
+  autoWaiting?: number;
 }
 
 /**
@@ -19,13 +24,26 @@ export async function runQualityGates(
   db: SupabaseClient,
 ): Promise<QualityGatesResult> {
   const result: QualityGatesResult = { rejectedMonoChannel: 0, rejectedChannelName: 0, sensitiveFlagged: 0 };
+  const finish = async () => {
+    // Les sujets proposés qui ont passé les contrôles sont publiés ou fusionnés automatiquement.
+    try {
+      const auto = await autoValidateTopics(db);
+      result.autoPublished = auto.published;
+      result.autoMerged = auto.merged;
+      result.autoWaiting = auto.waiting;
+      console.log(`  Validation automatique : ${auto.published} publiés, ${auto.merged} fusionnés, ${auto.waiting} en attente, ${auto.sensitive} sensibles (manuel)`);
+    } catch (e) {
+      console.error(`  auto-validate: ${(e as Error).message}`);
+    }
+    return result;
+  };
 
   const { data: topics } = await db
     .from('topics')
     .select('id, label, status')
     .in('status', ['proposed', 'active', 'in_production']);
 
-  if (!topics?.length) return result;
+  if (!topics?.length) return finish();
 
   const toRejectMono: string[] = [];
   const toRejectName: string[] = [];
@@ -70,5 +88,5 @@ export async function runQualityGates(
     }
   }
 
-  return result;
+  return finish();
 }

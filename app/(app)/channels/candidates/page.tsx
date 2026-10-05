@@ -39,24 +39,34 @@ export default async function CandidatesPage({
 
   const db = createServiceClient();
 
-  const [{ data: candidates }, { data: niches }] = await Promise.all([
+  const BASE = 'id, title, subscriber_count, median_views, videos_per_month, faceless_probability, faceless_reason, discovered_via, source_topic_id, created_at, topics(label)';
+  const pendingQ = (cols: string) =>
     db
       .from('candidate_channels')
-      .select('id, title, subscriber_count, median_views, videos_per_month, faceless_probability, faceless_reason, discovered_via, source_topic_id, created_at, topics(label)')
+      .select(cols)
       .eq('status', 'pending')
-      .order(
-        sortBy === 'faceless' ? 'faceless_probability' : 'median_views',
-        { ascending: false, nullsFirst: false },
-      )
-      .limit(1000),
+      .order(sortBy === 'faceless' ? 'faceless_probability' : 'median_views', { ascending: false, nullsFirst: false })
+      .limit(1000);
+  const [pendingRes, { data: niches }, decidedRes] = await Promise.all([
+    pendingQ(`${BASE}, niche_id, niche_confidence, niche_source`),
     db
       .from('niches')
       .select('id, name')
       .eq('status', 'active')
       .order('name'),
+    db
+      .from('candidate_channels')
+      .select('id, title, status, auto_reason, niche_id, decided_at')
+      .not('decided_at', 'is', null)
+      .order('decided_at', { ascending: false })
+      .limit(40),
   ]);
+  // Avant la migration 00024 : pas de niche détectée.
+  const candidates = (pendingRes.error ? (await pendingQ(BASE)).data : pendingRes.data) as Record<string, unknown>[] | null;
+  const decided = (decidedRes.error ? [] : decidedRes.data ?? []) as { id: string; title: string | null; status: string; auto_reason: string | null; niche_id: string | null; decided_at: string }[];
 
   const nicheList = (niches ?? []) as { id: string; name: string }[];
+  const nicheName = new Map(nicheList.map((n) => [n.id, n.name]));
 
   return (
     <div className="flex-1 flex flex-col min-h-full relative overflow-x-clip">
@@ -78,7 +88,7 @@ export default async function CandidatesPage({
               </span>
             </div>
             <p className="text-[16px] font-medium text-muted-foreground/80">
-              Chaînes découvertes automatiquement pendant la collecte. Ajoute au catalogue celles qui correspondent vraiment à une niche.
+              Chaque nuit, TubLyTI lit les chaînes découvertes, détecte leur niche à partir de leurs derniers titres, puis les ajoute au catalogue ou les écarte. Quand au moins 3 bonnes chaînes semblables ne ressemblent à aucune niche, une nouvelle niche est créée pour elles. Celles qui restent ici n’ont pas encore été lues.
             </p>
           </div>
 
@@ -118,12 +128,13 @@ export default async function CandidatesPage({
                     <th className="px-5 py-4">Médiane vues</th>
                     <th className="px-5 py-4">Vidéos/mois</th>
                     <th className="px-5 py-4">Faceless</th>
+                    <th className="px-5 py-4">Niche détectée</th>
                     <th className="px-5 py-4">Sujet source</th>
                     <th className="px-5 py-4">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {(candidates ?? []).map((c: Record<string, unknown>) => {
+                  {(candidates ?? []).map((c) => {
                     const topic = c.topics as unknown as { label: string } | null;
                     return (
                       <tr
@@ -159,6 +170,20 @@ export default async function CandidatesPage({
                           </div>
                         </td>
                         <td className="px-5 py-4">
+                          {c.niche_id ? (
+                            <span className="flex flex-col">
+                              <span className="text-[13px] font-medium">{nicheName.get(c.niche_id as string) ?? '—'}</span>
+                              {c.niche_confidence != null && (
+                                <span className="text-[11px] text-muted-foreground">
+                                  {c.niche_source === 'manual' ? 'choisie à la main' : `${Math.round((c.niche_confidence as number) * 100)} % de ressemblance`}
+                                </span>
+                              )}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground/50">À lire cette nuit</span>
+                          )}
+                        </td>
+                        <td className="px-5 py-4">
                           {topic ? (
                             <span className="text-[13px] font-medium text-muted-foreground">
                               {topic.label}
@@ -171,6 +196,7 @@ export default async function CandidatesPage({
                           <CandidateActions
                             candidateId={c.id as string}
                             niches={nicheList}
+                            defaultNiche={(c.niche_id as string | null) ?? undefined}
                           />
                         </td>
                       </tr>
@@ -189,6 +215,34 @@ export default async function CandidatesPage({
               à partir des sujets en phase 1 et 2.
             </p>
           </div>
+        )}
+
+        {decided.length > 0 && (
+          <section aria-labelledby="decisions-titre" className="flex flex-col gap-3">
+            <h2 id="decisions-titre" className="text-[20px] font-semibold tracking-[-0.01em]">Décisions automatiques récentes</h2>
+            <ul className="overflow-hidden rounded-2xl bg-card">
+              {decided.map((d) => (
+                <li key={d.id} className="flex items-start gap-3 border-b border-muted px-4 py-3 last:border-b-0">
+                  <span
+                    className={`mt-0.5 shrink-0 rounded-full px-2 py-0.5 text-[12px] font-medium ${
+                      d.status === 'rejected' ? 'bg-muted text-muted-foreground' : d.status === 'unmatched' ? 'bg-warning/10 text-warning' : 'bg-success/10 text-success'
+                    }`}
+                  >
+                    {d.status === 'rejected' ? 'Écartée' : d.status === 'unmatched' ? 'Hors niche' : 'Ajoutée'}
+                  </span>
+                  <div className="flex min-w-0 flex-col">
+                    <a href={`https://youtube.com/channel/${d.id}`} target="_blank" rel="noreferrer" className="truncate text-sm font-medium hover:underline">
+                      {d.title ?? d.id}
+                    </a>
+                    <span className="text-xs leading-snug text-muted-foreground">
+                      {d.niche_id && d.status !== 'unmatched' ? `${nicheName.get(d.niche_id) ?? ''} · ` : ''}
+                      {d.auto_reason}
+                    </span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </section>
         )}
       </div>
     </div>

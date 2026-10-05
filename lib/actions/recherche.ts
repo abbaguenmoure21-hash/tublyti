@@ -2,7 +2,7 @@
 
 import { createServiceClient } from '@/lib/supabase/server';
 import { getSessionUser } from '@/lib/auth/session';
-import { resolveScope } from '@/lib/scope';
+import { resolveScope, labelsByNiche } from '@/lib/scope';
 import { escapeLike } from '@/lib/utils';
 
 export interface SearchHit {
@@ -25,7 +25,7 @@ export async function searchEverything(query: string): Promise<SearchHit[]> {
   const pattern = `%${escapeLike(q.slice(0, 80))}%`;
   const { nicheIds, niches } = await resolveScope(db, user.id);
   const isAdmin = user.role === 'admin';
-  const labelByNiche = new Map(niches.map((n) => [n.id, n.label]));
+  const labelByNiche = labelsByNiche(niches);
 
   let topicsQ = db.from('topics').select('id, label, niche_id, niches(name)').in('status', ['active', 'in_production']).ilike('label', pattern).limit(8);
   if (!isAdmin) topicsQ = topicsQ.in('niche_id', nicheIds.length ? nicheIds : ['00000000-0000-0000-0000-000000000000']);

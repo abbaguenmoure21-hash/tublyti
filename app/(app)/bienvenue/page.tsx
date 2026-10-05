@@ -1,6 +1,9 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { createServiceClient } from '@/lib/supabase/server';
+import { loadMyChannels } from '@/lib/my-channels';
+import { googleEnabled } from '@/lib/youtube/google-oauth';
+import { readGoogleChannels } from '@/lib/actions/compte';
 import { requireUser } from '@/lib/auth/session';
 import { nicheColor, listScopeNiches } from '@/lib/scope';
 import { MyChannels } from '../settings/_client/my-channels';
@@ -14,13 +17,13 @@ const STEPS = [
 ];
 
 /** Premier lancement d'un client : une seule chose à faire, ajouter sa chaîne. */
-export default async function BienvenuePage() {
+export default async function BienvenuePage({ searchParams }: { searchParams: Promise<{ google?: string }> }) {
+  const googleStatus = (await searchParams).google ?? null;
   const user = await requireUser();
   const db = createServiceClient();
-  const [existing, nichesRes, channelsRes] = await Promise.all([
+  const [existing, nichesRes] = await Promise.all([
     listScopeNiches(db, user.id),
     db.from('niches').select('id, name, category').eq('status', 'active').order('name'),
-    db.from('user_channels').select('id, title, niche_id, youtube_channel_id').eq('user_id', user.id).order('created_at'),
   ]);
   const catalogue = ((nichesRes.data ?? []) as { id: string; name: string; category: string | null }[]).map((n) => ({
     id: n.id,
@@ -28,13 +31,7 @@ export default async function BienvenuePage() {
     color: nicheColor(n.category),
   }));
   const nicheName = new Map(catalogue.map((n) => [n.id, n.name]));
-  const channels = ((channelsRes.data ?? []) as { id: string; title: string; niche_id: string; youtube_channel_id: string | null }[]).map((c) => ({
-    id: c.id,
-    title: c.title,
-    nicheId: c.niche_id,
-    nicheName: nicheName.get(c.niche_id) ?? '',
-    youtube: c.youtube_channel_id,
-  }));
+  const channels = await loadMyChannels(db, user.id, nicheName);
   const ready = existing.length > 0;
 
   return (
@@ -59,7 +56,7 @@ export default async function BienvenuePage() {
 
       <section aria-labelledby="ajout" className="flex flex-col gap-3">
         <h2 id="ajout" className="text-lg font-semibold">{ready ? 'Tes chaînes' : 'Ajoute ta chaîne'}</h2>
-        <MyChannels channels={channels} catalogue={catalogue} />
+        <MyChannels channels={channels} catalogue={catalogue} googleEnabled={googleEnabled()} googleChannels={await readGoogleChannels()} googleStatus={googleStatus} returnTo="bienvenue" />
       </section>
 
       {ready && (

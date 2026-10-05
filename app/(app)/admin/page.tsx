@@ -18,7 +18,8 @@ function ago(iso: string) {
 export default async function AdminPage() {
   await requireAdmin();
   const db = createServiceClient();
-  const [proposed, candidates, channels, profiles, noChannel, waitlist, jobs] = await Promise.all([
+  const weekAgo = new Date(Date.now() - 7 * 86_400_000).toISOString();
+  const [proposed, candidates, channels, profiles, noChannel, waitlist, jobs, autoTopics, autoChannels] = await Promise.all([
     db.from('topics').select('id', { count: 'exact', head: true }).eq('status', 'proposed'),
     db.from('candidate_channels').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
     db.from('channels').select('id', { count: 'exact', head: true }),
@@ -26,17 +27,20 @@ export default async function AdminPage() {
     db.from('user_channels').select('user_id'),
     db.from('waitlist').select('id', { count: 'exact', head: true }),
     db.from('jobs').select('id, kind, started_at, finished_at, error, quota_used').order('started_at', { ascending: false }).limit(8),
+    db.from('topics').select('id', { count: 'exact', head: true }).eq('validated_by', 'auto').eq('status', 'active').gte('validated_at', weekAgo),
+    db.from('candidate_channels').select('id', { count: 'exact', head: true }).in('status', ['accepted', 'followed']).gte('decided_at', weekAgo),
   ]);
 
   const withChannel = new Set(((noChannel.data ?? []) as { user_id: string }[]).map((r) => r.user_id)).size;
   const todo = [
-    { n: proposed.count ?? 0, label: 'sujets proposés à valider', href: '/admin/sujets' },
-    { n: candidates.count ?? 0, label: 'chaînes candidates à examiner', href: '/channels/candidates' },
+    { n: proposed.count ?? 0, label: 'sujets proposés : publiés automatiquement dès 5 vidéos de 3 chaînes (sensibles : à la main)', href: '/admin/sujets' },
+    { n: candidates.count ?? 0, label: 'chaînes candidates pas encore lues (niche et décision automatiques chaque nuit)', href: '/channels/candidates' },
     { n: waitlist.count ?? 0, label: 'inscriptions sur la liste d’attente', href: '/admin/attente' },
   ];
   const stats = [
     { label: 'Clients', value: profiles.count ?? 0, hint: `${withChannel} compte${withChannel > 1 ? 's' : ''} avec au moins une chaîne` },
     { label: 'Chaînes analysées', value: channels.count ?? 0, hint: 'Catalogue commun à tous les clients' },
+    { label: 'Validé automatiquement', value: (autoTopics.count ?? 0) + (autoChannels.count ?? 0), hint: `7 derniers jours : ${autoTopics.count ?? 0} sujets publiés, ${autoChannels.count ?? 0} chaînes ajoutées` },
   ];
   const jobRows = (jobs.data ?? []) as { id: string; kind: string; started_at: string; finished_at: string | null; error: string | null; quota_used: number | null }[];
 

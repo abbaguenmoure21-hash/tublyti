@@ -200,12 +200,12 @@ async function main() {
   // ── Step 7: QUALITY-GATES (reject single-channel-dominated topics) ──
   console.log('\n========== QUALITY-GATES ==========');
 
-  await runStep(runner, discoverEnd, 'quality-gates', async () => {
+  await runStep(runner, deadline, 'quality-gates', async () => {
     const gates = await runQualityGates(db);
     console.log(`  Rejected (mono-channel): ${gates.rejectedMonoChannel}`);
     console.log(`  Rejected (channel-name): ${gates.rejectedChannelName}`);
     console.log(`  Sensitive flagged: ${gates.sensitiveFlagged}`);
-    return { quota: 0, items: gates.rejectedMonoChannel + gates.rejectedChannelName };
+    return { quota: 0, items: gates.rejectedMonoChannel + gates.rejectedChannelName + (gates.autoPublished ?? 0) + (gates.autoMerged ?? 0) };
   });
 
   // ── Step 8: SEARCH-EMERGING (capped at 15 searches — runs before main search) ──
@@ -260,7 +260,7 @@ async function main() {
   // ── Step 12: AUTO-TRIAGE (enrich + classify pending candidates) ─
   console.log('\n========== AUTO-TRIAGE ==========');
 
-  await runStep(runner, discoverEnd, 'auto-triage', async () => {
+  await runStep(runner, deadline, 'auto-triage', async () => {
     const triage = await autoTriageCandidates(db, embedder);
     console.log(`  Processed: ${triage.processed}, Accepted: ${triage.accepted}, Rejected: ${triage.rejected}, Manual: ${triage.manual}`);
     console.log(`  Enriched: ${triage.enriched}, Promoted: ${triage.promoted}`);

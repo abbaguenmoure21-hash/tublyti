@@ -43,11 +43,11 @@ export default async function PrintDossierPage({
   if (user.role !== 'admin') {
     // Un client n'exporte que les sujets de ses thématiques.
     const db = createServiceClient();
-    const [{ nicheIds }, { data: t }] = await Promise.all([
+    const [{ niches: mine }, { data: t }] = await Promise.all([
       resolveScope(db, user.id),
       db.from('topics').select('niche_id').eq('id', id).maybeSingle(),
     ]);
-    if (!t || !nicheIds.includes(t.niche_id as string)) notFound();
+    if (!t || !mine.some((n) => n.id === (t.niche_id as string))) notFound();
   }
   const data = await fetchDossierData(id);
   if (!data) notFound();

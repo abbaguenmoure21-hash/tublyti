@@ -5,13 +5,19 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 export const SCOPE_COOKIE = 'tublyti-scope';
 
 export interface ScopeNiche {
-  /** Identifiant de la niche du catalogue (clé de filtrage des sujets). */
+  /** Clé unique dans le sélecteur « Afficher » : la chaîne du client, ou la niche suivie sans chaîne. */
+  key: string;
+  /** Identifiant de la niche du catalogue (clé de filtrage des sujets). Deux chaînes peuvent partager la même niche. */
   id: string;
   /** Nom affiché : le nom de la chaîne du client, ou le nom de la niche si elle est suivie sans chaîne. */
   label: string;
   nicheName: string;
   /** « channel » = une chaîne du client ; « niche » = une niche suivie sans chaîne. */
   kind: 'channel' | 'niche';
+  /** Propriété de la chaîne prouvée (toujours vrai pour une niche suivie). */
+  verified: boolean;
+  /** Ligne user_channels de la chaîne (null pour une niche suivie). */
+  channelId: string | null;
   /** Couleur de repère (catégorielle, distincte des couleurs de moment). */
   color: string;
 }
@@ -36,28 +42,53 @@ export async function getScope(): Promise<string | null> {
   return value && value !== 'all' ? value : null;
 }
 
-/** Les chaînes du client, puis les niches qu'il suit sans chaîne. */
-export async function listScopeNiches(db: SupabaseClient, userId: string): Promise<ScopeNiche[]> {
-  const [channelsRes, nichesRes] = await Promise.all([
-    db.from('user_channels').select('title, niche_id, niches(name, category)').eq('user_id', userId).order('title'),
+/**
+ * Les chaînes du client, puis les niches qu'il suit sans chaîne.
+ * Par défaut, seules les chaînes vérifiées : une chaîne non vérifiée ne donne accès à aucune donnée.
+ */
+export async function listScopeNiches(
+  db: SupabaseClient,
+  userId: string,
+  opts: { includePending?: boolean } = {},
+): Promise<ScopeNiche[]> {
+  const [firstChannelsRes, nichesRes] = await Promise.all([
+    // Seules les chaînes dont la propriété est vérifiée comptent.
+    db.from('user_channels').select('id, title, niche_id, verified_at, niches(name, category)').eq('user_id', userId).order('title'),
     db.from('user_niches').select('niche_id, niches(name, category)').eq('user_id', userId),
   ]);
+  let channelsRes = firstChannelsRes;
+  if (channelsRes.error) {
+    // Avant la migration 00021 (pas de colonne verified_at) : toutes les chaînes comptent.
+    channelsRes = (await db
+      .from('user_channels')
+      .select('id, title, niche_id, niches(name, category)')
+      .eq('user_id', userId)
+      .order('title')) as unknown as typeof channelsRes;
+  }
   if (channelsRes.error) return legacyScopeNiches(db);
   const channels = ((channelsRes.data ?? []) as unknown as {
-    title: string; niche_id: string; niches: { name: string; category: string } | null;
-  }[]).map((c) => ({
+    id: string; title: string; niche_id: string; verified_at?: string | null; niches: { name: string; category: string } | null;
+  }[])
+    .filter((c) => opts.includePending || c.verified_at !== null) // undefined = colonne absente (avant 00021)
+    .map((c) => ({
+    verified: c.verified_at !== null,
+    channelId: c.id,
+    key: c.id,
     id: c.niche_id,
     label: c.title,
     nicheName: c.niches?.name ?? '',
     kind: 'channel' as const,
     color: nicheColor(c.niches?.category),
   }));
-  const taken = new Set(channels.map((c) => c.id));
+  const taken = new Set(channels.filter((c) => c.verified).map((c) => c.id));
   const followed = ((nichesRes.data ?? []) as unknown as {
     niche_id: string; niches: { name: string; category: string } | null;
   }[])
     .filter((n) => !taken.has(n.niche_id))
     .map((n) => ({
+      verified: true,
+      channelId: null,
+      key: n.niche_id,
       id: n.niche_id,
       label: n.niches?.name ?? '',
       nicheName: n.niches?.name ?? '',
@@ -78,6 +109,9 @@ async function legacyScopeNiches(db: SupabaseClient): Promise<ScopeNiche[]> {
   return ((data ?? []) as { id: string; name: string; category: string | null; owner_channel: string | null }[])
     .filter((n) => n.owner_channel?.trim())
     .map((n) => ({
+      verified: true,
+      channelId: null,
+      key: n.id,
       id: n.id,
       label: n.owner_channel!.trim(),
       nicheName: n.name,
@@ -93,9 +127,58 @@ async function legacyScopeNiches(db: SupabaseClient): Promise<ScopeNiche[]> {
 export async function resolveScope(
   db: SupabaseClient,
   userId: string,
-): Promise<{ scope: string | null; nicheIds: string[]; niches: ScopeNiche[] }> {
-  const [stored, niches] = await Promise.all([getScope(), listScopeNiches(db, userId)]);
-  const scope = stored && niches.some((n) => n.id === stored) ? stored : null;
-  const nicheIds = scope ? [scope] : niches.map((n) => n.id);
-  return { scope, nicheIds, niches };
+): Promise<{
+  /** Niche de la chaîne affichée (null = toutes mes chaînes). */
+  scope: string | null;
+  /** Clé de l'élément choisi dans « Afficher » (chaîne ou niche suivie). */
+  scopeKey: string | null;
+  /** Nom de la chaîne affichée. */
+  scopeLabel: string | null;
+  /** Ligne user_channels de la chaîne affichée (null pour « toutes » ou une niche suivie). */
+  scopeChannelId: string | null;
+  /** Chaîne choisie mais pas encore vérifiée : aucune donnée n'est servie, l'app demande la vérification. */
+  pendingChannel: ScopeNiche | null;
+  /** Niches autorisées pour les requêtes (vide si la chaîne choisie n'est pas vérifiée). */
+  nicheIds: string[];
+  /** Chaînes vérifiées et niches suivies (données). */
+  niches: ScopeNiche[];
+  /** Tout ce que montre le sélecteur « Afficher », chaînes à vérifier comprises. */
+  allChannels: ScopeNiche[];
+}> {
+  const [stored, allChannels] = await Promise.all([getScope(), listScopeNiches(db, userId, { includePending: true })]);
+  const niches = allChannels.filter((n) => n.verified);
+  // L'ancien cookie contenait un identifiant de niche : on l'accepte encore.
+  const chosen = stored ? allChannels.find((n) => n.key === stored) ?? niches.find((n) => n.id === stored) ?? null : null;
+
+  if (chosen && !chosen.verified) {
+    return {
+      scope: chosen.id,
+      scopeKey: chosen.key,
+      scopeLabel: chosen.label,
+      scopeChannelId: chosen.channelId,
+      pendingChannel: chosen,
+      nicheIds: [],
+      niches,
+      allChannels,
+    };
+  }
+  const scope = chosen?.id ?? null;
+  const nicheIds = scope ? [scope] : [...new Set(niches.map((n) => n.id))];
+  return {
+    scope,
+    scopeKey: chosen?.key ?? null,
+    scopeLabel: chosen?.label ?? null,
+    scopeChannelId: chosen?.channelId ?? null,
+    pendingChannel: null,
+    nicheIds,
+    niches,
+    allChannels,
+  };
+}
+
+/** Nom affiché par niche : les noms des chaînes du client qui la partagent, séparés par « · ». */
+export function labelsByNiche(niches: ScopeNiche[]): Map<string, string> {
+  const map = new Map<string, string[]>();
+  for (const n of niches) map.set(n.id, [...(map.get(n.id) ?? []), n.label]);
+  return new Map([...map].map(([id, labels]) => [id, labels.join(' · ')]));
 }

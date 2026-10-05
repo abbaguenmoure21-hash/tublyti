@@ -1,5 +1,8 @@
 import type { Metadata } from 'next';
 import { createServiceClient } from '@/lib/supabase/server';
+import { loadMyChannels } from '@/lib/my-channels';
+import { googleEnabled } from '@/lib/youtube/google-oauth';
+import { readGoogleChannels } from '@/lib/actions/compte';
 import { requireUser, getToolsUser } from '@/lib/auth/session';
 import { getAlertRules } from '@/lib/actions/alerts';
 import { listApiTokens } from '@/lib/actions/api-tokens';
@@ -16,11 +19,12 @@ import { ThemeChoice } from './_client/theme-choice';
 export const metadata: Metadata = { title: 'Réglages' };
 
 /** Réglages du client : ses chaînes, les thématiques qu'il suit, son profil, l'apparence. */
-export default async function SettingsPage() {
+export default async function SettingsPage({ searchParams }: { searchParams: Promise<{ google?: string; verifier?: string }> }) {
+  const sp = await searchParams;
+  const googleStatus = sp.google ?? null;
   const user = await requireUser();
   const db = createServiceClient();
-  const [channelsRes, followedRes, nichesRes] = await Promise.all([
-    db.from('user_channels').select('id, title, niche_id, youtube_channel_id').eq('user_id', user.id).order('created_at'),
+  const [followedRes, nichesRes] = await Promise.all([
     db.from('user_niches').select('niche_id').eq('user_id', user.id),
     db.from('niches').select('id, name, category').eq('status', 'active').order('name'),
   ]);
@@ -31,13 +35,7 @@ export default async function SettingsPage() {
     color: nicheColor(n.category),
   }));
   const nicheName = new Map(catalogue.map((n) => [n.id, n.name]));
-  const channels = ((channelsRes.data ?? []) as { id: string; title: string; niche_id: string; youtube_channel_id: string | null }[]).map((c) => ({
-    id: c.id,
-    title: c.title,
-    nicheId: c.niche_id,
-    nicheName: nicheName.get(c.niche_id) ?? 'Thématique retirée',
-    youtube: c.youtube_channel_id,
-  }));
+  const channels = await loadMyChannels(db, user.id, nicheName);
   const followed = ((followedRes.data ?? []) as { niche_id: string }[]).map((f) => f.niche_id);
 
   // Alertes et jetons : propres au compte (migration 00019). Avant : réservés à l'administration.
@@ -62,9 +60,9 @@ export default async function SettingsPage() {
       <section id="chaines" aria-labelledby="titre-chaines" className="flex scroll-mt-6 flex-col gap-3">
         <div className="flex flex-col gap-1">
           <h2 id="titre-chaines" className="text-lg font-semibold">Mes chaînes</h2>
-          <p className="text-sm text-muted-foreground">Une chaîne par thématique. Chaque chaîne apparaît dans le sélecteur « Afficher » de la barre latérale.</p>
+          <p className="text-sm text-muted-foreground">Ajoute chaque chaîne avec son lien YouTube : TubLyTI vérifie qu’elle t’appartient, puis lit ses abonnés et ses vidéos. Chaque chaîne apparaît dans « Afficher ».</p>
         </div>
-        <MyChannels channels={channels} catalogue={catalogue} />
+        <MyChannels channels={channels} catalogue={catalogue} googleEnabled={googleEnabled()} googleChannels={await readGoogleChannels()} googleStatus={googleStatus} returnTo="settings" autoVerifyId={sp.verifier ?? null} />
       </section>
 
       <section aria-labelledby="titre-themes" className="flex flex-col gap-3">

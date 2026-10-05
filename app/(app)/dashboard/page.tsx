@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { requireUser } from '@/lib/auth/session';
-import { resolveScope } from '@/lib/scope';
+import { resolveScope, labelsByNiche } from '@/lib/scope';
 import { createServiceClient } from '@/lib/supabase/server';
 import { getLatestScoreDate } from '@/lib/scoring/latest-score-date';
 import { isSensitiveTopic } from '@/lib/topics/sensitive';
@@ -39,9 +39,8 @@ export default async function CartePage({ searchParams }: { searchParams: Promis
   const params = await searchParams;
   const user = await requireUser();
   const db = createServiceClient();
-  const { scope, nicheIds, niches } = await resolveScope(db, user.id);
+  const { scopeLabel, nicheIds, niches } = await resolveScope(db, user.id);
   const ids = nicheIds.length ? nicheIds : ['00000000-0000-0000-0000-000000000000'];
-  const scopeLabel = scope ? niches.find((n) => n.id === scope)?.label : null;
 
   const scoredAt = await getLatestScoreDate(db);
   const { data: scores } = await db
@@ -71,7 +70,7 @@ export default async function CartePage({ searchParams }: { searchParams: Promis
     for (const v of (vids ?? []) as { topic_id: string }[]) videoCount.set(v.topic_id, (videoCount.get(v.topic_id) ?? 0) + 1);
   }
 
-  const labelByNiche = new Map(niches.map((n) => [n.id, n.label]));
+  const labelByNiche = labelsByNiche(niches);
   let all: CarteTopic[] = rows.map((r) => {
     const demand = Number(r.demand ?? 0);
     const supply = Number(r.supply_q ?? 0);

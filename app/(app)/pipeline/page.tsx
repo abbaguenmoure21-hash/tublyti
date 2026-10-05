@@ -1,7 +1,7 @@
 import { createServiceClient } from '@/lib/supabase/server';
 import { KanbanBoard } from './_components/kanban-board';
 import { requireUser, isDbReady } from '@/lib/auth/session';
-import { resolveScope } from '@/lib/scope';
+import { resolveScope, labelsByNiche } from '@/lib/scope';
 
 export const metadata = { title: 'Mes vidéos' };
 
@@ -51,8 +51,8 @@ export default async function PipelinePage({
   const { niche: nicheFilter } = await searchParams;
   const user = await requireUser();
   const db = createServiceClient();
-  const { nicheIds: scopeNicheIds, niches: myNiches } = await resolveScope(db, user.id);
-  const labelByNiche = new Map(myNiches.map((n) => [n.id, n.label]));
+  const { nicheIds: scopeNicheIds, niches: myNiches, scopeChannelId } = await resolveScope(db, user.id);
+  const labelByNiche = labelsByNiche(myNiches);
 
   // Les vidéos du client connecté uniquement
   const ready = await isDbReady();
@@ -68,6 +68,17 @@ export default async function PipelinePage({
   if (ready) query = query.eq('user_id', user.id);
 
   const { data: angles } = await query;
+
+  // Chaîne de chaque vidéo (migration 00022) : avec une chaîne choisie dans « Afficher »,
+  // on garde ses vidéos et celles qui ne sont rattachées à aucune chaîne de la même thématique.
+  const channelOf = new Map<string, string | null>();
+  if (scopeChannelId && (angles ?? []).length) {
+    const { data: links, error: linkErr } = await db
+      .from('angles')
+      .select('id, user_channel_id')
+      .in('id', (angles ?? []).map((a: Record<string, unknown>) => a.id as string));
+    if (!linkErr) for (const l of (links ?? []) as { id: string; user_channel_id: string | null }[]) channelOf.set(l.id, l.user_channel_id);
+  }
 
   // Get latest scores for all topics that have angles
   const topicIds = [...new Set((angles ?? []).map((a: Record<string, unknown>) => {
@@ -209,7 +220,8 @@ export default async function PipelinePage({
       performanceVsMedian: vid ? (videoPerformance[vid] ?? null) : null,
     };
   })
-    .filter((c: PipelineCard) => scopeNicheIds.length === 0 || scopeNicheIds.includes(c.nicheId))
+    .filter((c: PipelineCard) => scopeNicheIds.includes(c.nicheId))
+    .filter((c: PipelineCard) => !scopeChannelId || !channelOf.get(c.angleId) || channelOf.get(c.angleId) === scopeChannelId)
     .filter((c: PipelineCard) => !nicheFilter || c.nicheId === nicheFilter);
 
   // Group cards by column
@@ -225,7 +237,7 @@ export default async function PipelinePage({
     columns[col].push(card);
   }
 
-  const nichesList = myNiches.map((n) => ({ id: n.id, name: n.nicheName, channelName: n.label }));
+  const nichesList = [...new Map(myNiches.map((n) => [n.id, { id: n.id, name: n.nicheName, channelName: labelByNiche.get(n.id) ?? n.label }])).values()];
 
   return (
     <div className="flex flex-col min-h-full relative overflow-x-clip">

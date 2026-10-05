@@ -16,7 +16,8 @@
  * Otherwise: manual review.
  */
 import { SupabaseClient } from '@supabase/supabase-js';
-import type { EmbeddingProvider } from '../providers/embeddings';
+import { FakeEmbeddingProvider, type EmbeddingProvider } from '../providers/embeddings';
+import { classifyCandidates } from './candidate-niche';
 
 const YT_BASE = 'https://www.googleapis.com/youtube/v3';
 
@@ -232,6 +233,31 @@ export async function autoTriageCandidates(
     processed: 0, accepted: 0, rejected: 0, manual: 0,
     enriched: 0, promoted: 0, quotaUsed: 0,
   };
+
+  // Voie principale : niche détectée par les titres + décision automatique (lib/youtube/candidate-niche.ts).
+  // L'ancienne règle (titre de la chaîne comparé au nom de la niche) ne sert plus que sans fournisseur d'embeddings réel.
+  if (embedder && !(embedder instanceof FakeEmbeddingProvider)) {
+    try {
+      const r = await classifyCandidates(db, embedder, { limit });
+      console.log(`  Seuils calibrés : accepter ≥ ${(r.calibration.acceptSim * 100).toFixed(0)} %, refuser < ${(r.calibration.rejectSim * 100).toFixed(0)} % (${r.calibration.sample} chaînes de référence)`);
+      if (r.niches) {
+        for (const n of r.niches.created) console.log(`  Nouvelle niche : ${n.name} (${n.channels.length} chaînes)`);
+        console.log(`  Hors niche en attente : ${r.niches.waiting}, coût IA ${r.niches.aiCostUSD.toFixed(4)} $`);
+      }
+      return {
+        processed: r.accepted + r.rejected + r.unmatched,
+        accepted: r.accepted,
+        rejected: r.rejected,
+        manual: 0,
+        enriched: r.read,
+        promoted: r.promoted,
+        quotaUsed: r.quotaUsed,
+      };
+    } catch (e) {
+      // Colonnes de la migration 00024 absentes ou autre erreur : on garde l'ancien tri.
+      console.error(`  candidate-niche: ${(e as Error).message} — ancien tri utilisé`);
+    }
+  }
 
   // Step 1: Enrich unenriched candidates
   const enrichResult = await enrichCandidates(db, limit);

@@ -123,9 +123,10 @@ export default async function TopicPage({
 
   // Un client ne voit que les sujets de ses thématiques (l'admin voit tout).
   if (user.role !== 'admin') {
-    const { nicheIds } = await resolveScope(db, user.id);
+    // Accès : toutes les chaînes vérifiées du client (pas seulement celle affichée).
+    const { niches: mine } = await resolveScope(db, user.id);
     const topicNiche = (topic.niches as unknown as { id: string } | null)?.id;
-    if (!topicNiche || !nicheIds.includes(topicNiche)) notFound();
+    if (!topicNiche || !mine.some((n) => n.id === topicNiche)) notFound();
   }
 
   // Latest score

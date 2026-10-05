@@ -3,6 +3,8 @@ import { Toaster } from 'sonner';
 import { NuqsAdapter } from 'nuqs/adapters/next/app';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { Sidebar } from '@/components/app-shell/sidebar';
+import { ScopeGate } from '@/components/app-shell/scope-gate';
+import { MobileScope } from '@/components/app-shell/mobile-scope';
 import { SectionTabs } from '@/components/app-shell/section-tabs';
 import { MobileTabBar } from '@/components/mobile-tab-bar';
 import { KeyboardProvider } from '@/components/keyboard-provider';
@@ -13,18 +15,30 @@ import { resolveScope } from '@/lib/scope';
 async function getShellData(userId: string, ready: boolean) {
   const db = createServiceClient();
   try {
-    let videosQ = db.from('angles').select('id', { count: 'exact', head: true }).in('status', ['idea', 'in_production']);
+    let videosQ = db.from('angles').select('id, topics!inner(niche_id)').in('status', ['idea', 'in_production']).limit(500);
     if (ready) videosQ = videosQ.eq('user_id', userId);
-    const [{ scope, niches }, inProgress, lastScore] = await Promise.all([
+    const [{ scopeKey: scope, allChannels: niches, pendingChannel, nicheIds, scopeChannelId }, inProgress, lastScore] = await Promise.all([
       resolveScope(db, userId),
       videosQ,
       db.from('jobs').select('finished_at').eq('kind', 'score').not('finished_at', 'is', null).order('finished_at', { ascending: false }).limit(1),
     ]);
     const last = lastScore.data?.[0]?.finished_at as string | undefined;
     const dataFresh = last ? Date.now() - new Date(last).getTime() < 36 * 3_600_000 : false;
-    return { niches, scope, badges: { videos: inProgress.count ?? 0 }, dataFresh };
+    // Pastille « Mes vidéos » : uniquement les vidéos de la chaîne affichée.
+    let videos = ((inProgress.data ?? []) as unknown as { id: string; topics: { niche_id: string } }[]).filter((v) =>
+      nicheIds.includes(v.topics.niche_id),
+    );
+    if (scopeChannelId && videos.length) {
+      const { data: links, error } = await db.from('angles').select('id, user_channel_id').in('id', videos.map((v) => v.id));
+      if (!error) {
+        const ch = new Map(((links ?? []) as { id: string; user_channel_id: string | null }[]).map((l) => [l.id, l.user_channel_id]));
+        videos = videos.filter((v) => !ch.get(v.id) || ch.get(v.id) === scopeChannelId);
+      }
+    }
+    const pending = pendingChannel?.channelId ? { channelId: pendingChannel.channelId, label: pendingChannel.label } : null;
+    return { niches, scope, pending, badges: { videos: videos.length }, dataFresh };
   } catch {
-    return { niches: [], scope: null, badges: {}, dataFresh: false };
+    return { niches: [], scope: null, pending: null, badges: {}, dataFresh: false };
   }
 }
 
@@ -59,9 +73,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
                 les comptes clients. En attendant, l’app fonctionne comme avant.
               </p>
             )}
+            <MobileScope channels={shell.niches.map((n) => ({ key: n.key, label: n.label, verified: n.verified }))} scope={shell.scope} />
             <SectionTabs />
             <main id="contenu-principal" className="relative min-w-0 flex-1 pb-28 md:pb-0">
-              {children}
+              <ScopeGate pending={shell.pending}>{children}</ScopeGate>
             </main>
           </div>
         </div>

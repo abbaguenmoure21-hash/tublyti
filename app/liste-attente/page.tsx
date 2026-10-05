@@ -125,6 +125,7 @@ export default async function ListeAttentePage({
           <span>© {new Date().getFullYear()}</span>
           <div className="flex-1" />
           <Link href="/" className="hover:text-foreground">Accueil</Link>
+          <Link href="/confidentialite" className="hover:text-foreground">Confidentialité</Link>
           <Link href="/login" className="hover:text-foreground">Se connecter</Link>
         </div>
       </footer>

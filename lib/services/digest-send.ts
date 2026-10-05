@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { buildDigestData } from '@/lib/services/digest';
 import { buildDigestHtml, sendDigestEmail } from '@/lib/email/digest-email';
-import { listScopeNiches } from '@/lib/scope';
+import { listScopeNiches, labelsByNiche } from '@/lib/scope';
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://tublyti.vercel.app';
 
@@ -19,8 +19,8 @@ export async function sendDigestToUser(
   if (!niches.length && !user.isAdmin) return { ok: false, error: 'Aucune chaîne.', blocks: 0 };
   const data = await buildDigestData(db, {
     userId: user.id,
-    nicheIds: user.isAdmin ? null : niches.map((n) => n.id),
-    labels: new Map(niches.map((n) => [n.id, n.label])),
+    nicheIds: user.isAdmin ? null : [...new Set(niches.map((n) => n.id))],
+    labels: labelsByNiche(niches),
     personalAlerts,
     includeAlerts: personalAlerts || user.isAdmin,
   });

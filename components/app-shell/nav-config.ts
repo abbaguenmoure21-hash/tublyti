@@ -45,7 +45,7 @@ export const SECTION_TABS: Record<SpaceKey, { href: string; label: string; match
   ],
   videos: [
     { href: '/pipeline', label: 'Tableau', match: ['/pipeline'] },
-    { href: '/my-channel', label: 'Résultats', match: ['/my-channel'] },
+    { href: '/my-channel', label: 'Ma chaîne', match: ['/my-channel'] },
   ],
   veille: [{ href: '/activity', label: 'À voir cette semaine', match: ['/activity'] }],
   admin: [

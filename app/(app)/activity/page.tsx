@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { ArrowRight, Upload, Type, Image as ImageIcon, TrendingUp } from 'lucide-react';
 import { createServiceClient } from '@/lib/supabase/server';
 import { requireUser } from '@/lib/auth/session';
-import { resolveScope } from '@/lib/scope';
+import { resolveScope, labelsByNiche } from '@/lib/scope';
 
 export const metadata: Metadata = { title: 'Veille' };
 
@@ -68,10 +68,9 @@ export default async function VeillePage({ searchParams }: { searchParams: Promi
   const params = await searchParams;
   const user = await requireUser();
   const db = createServiceClient();
-  const { scope, nicheIds, niches } = await resolveScope(db, user.id);
+  const { scope, scopeLabel, nicheIds, niches } = await resolveScope(db, user.id);
   const ids = nicheIds.length ? nicheIds : ['00000000-0000-0000-0000-000000000000'];
-  const labelByNiche = new Map(niches.map((n) => [n.id, n.label]));
-  const scopeLabel = scope ? labelByNiche.get(scope) : null;
+  const labelByNiche = labelsByNiche(niches);
 
   const since = new Date(Date.now() - 14 * 86_400_000).toISOString();
   const { data: raw } = await db

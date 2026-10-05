@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { createServiceClient } from '@/lib/supabase/server';
 import { getSessionUser, getAdminOrNull, isDbReady } from '@/lib/auth/session';
+import { resolveScope } from '@/lib/scope';
 
 const Id = z.string().uuid();
 const NOT_SIGNED = { error: 'Connecte-toi pour continuer.' } as const;
@@ -27,7 +28,7 @@ export async function createVideoFromTopic(topicId: string, angleId?: string | n
   if (!Id.safeParse(topicId).success) return { error: 'Sujet introuvable.' };
   const db = createServiceClient();
 
-  const { data: topic } = await db.from('topics').select('id, label').eq('id', topicId).single();
+  const { data: topic } = await db.from('topics').select('id, label, niche_id').eq('id', topicId).single();
   if (!topic) return { error: 'Sujet introuvable.' };
 
   let title = topic.label as string;
@@ -41,11 +42,29 @@ export async function createVideoFromTopic(topicId: string, angleId?: string | n
   }
 
   const ready = await isDbReady();
-  const { data, error } = await db
+
+  // Chaîne de la vidéo : celle choisie dans « Afficher » si le sujet est de sa thématique,
+  // sinon la seule chaîne vérifiée du client sur cette thématique.
+  let userChannelId: string | null = null;
+  if (ready) {
+    const { scopeChannelId, scope, allChannels } = await resolveScope(db, user.id);
+    if (scopeChannelId && scope === topic.niche_id) userChannelId = scopeChannelId;
+    else {
+      const same = allChannels.filter((c) => c.kind === 'channel' && c.verified && c.id === topic.niche_id && c.channelId);
+      if (same.length === 1) userChannelId = same[0].channelId;
+    }
+  }
+
+  const base = { topic_id: topicId, title, hook, status: 'in_production', ...(ready ? { user_id: user.id } : {}) };
+  let { data, error } = await db
     .from('angles')
-    .insert({ topic_id: topicId, title, hook, status: 'in_production', ...(ready ? { user_id: user.id } : {}) })
+    .insert(userChannelId ? { ...base, user_channel_id: userChannelId } : base)
     .select('id')
     .single();
+  if (error && userChannelId && (error.code === '42703' || error.code === 'PGRST204')) {
+    // Avant la migration 00022 : pas encore de colonne user_channel_id.
+    ({ data, error } = await db.from('angles').insert(base).select('id').single());
+  }
   if (error || !data) return { error: "La vidéo n'a pas pu être créée. Réessaie." };
   // Avant la migration 00018 : le statut du sujet sert encore de repère « Dans Mes vidéos ».
   if (!ready) await db.from('topics').update({ status: 'in_production' }).eq('id', topicId).eq('status', 'active');

@@ -72,21 +72,26 @@ export function Sidebar({ niches, scope, badges, dataFresh, userLabel, isAdmin =
       {niches.length > 0 && (
         <div role="radiogroup" aria-label="Chaîne affichée" className="well mb-4 flex flex-col gap-0.5 rounded-[14px] bg-muted/50 p-1.5">
           <span className="px-2 pb-1 pt-0.5 text-[11px] font-semibold uppercase tracking-[0.04em] text-muted-foreground">Afficher</span>
-          {[{ id: 'all', label: 'Toutes mes chaînes', color: 'var(--foreground)' }, ...niches].map((n) => {
-            const checked = optimisticScope === n.id;
+          {[{ key: 'all', id: 'all', label: 'Toutes mes chaînes', color: 'var(--foreground)', verified: true }, ...niches].map((n) => {
+            const checked = optimisticScope === n.key;
             return (
               <button
-                key={n.id}
+                key={n.key}
                 type="button"
                 role="radio"
                 aria-checked={checked}
-                onClick={() => chooseScope(n.id)}
+                onClick={() => chooseScope(n.key)}
                 className={`flex h-8 items-center gap-2 rounded-md px-2 text-left text-[13px] transition-colors ${
                   checked ? 'elev-1 bg-card font-medium text-foreground' : 'text-muted-foreground hover:bg-card/60 hover:text-foreground'
                 }`}
               >
                 <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: n.color }} aria-hidden="true" />
                 <span className="truncate">{n.label}</span>
+                {!n.verified && (
+                  <span className="ml-auto shrink-0 rounded-md bg-phase-1-soft px-1.5 text-[10px] font-semibold text-phase-1-ink" title="Chaîne pas encore vérifiée">
+                    À vérifier
+                  </span>
+                )}
               </button>
             );
           })}

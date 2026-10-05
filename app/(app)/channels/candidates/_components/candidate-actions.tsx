@@ -12,11 +12,13 @@ interface Niche {
 export function CandidateActions({
   candidateId,
   niches,
+  defaultNiche,
 }: {
   candidateId: string;
   niches: Niche[];
+  defaultNiche?: string;
 }) {
-  const [selectedNiche, setSelectedNiche] = useState(niches[0]?.id ?? '');
+  const [selectedNiche, setSelectedNiche] = useState(defaultNiche ?? niches[0]?.id ?? '');
   const [isPending, startTransition] = useTransition();
   const [done, setDone] = useState<'followed' | 'ignored' | null>(null);
 
