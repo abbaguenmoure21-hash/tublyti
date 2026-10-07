@@ -23,6 +23,8 @@ export interface SearchResult {
   videoId: string;
   title: string;
   channelId: string;
+  /** Nom de la chaîne (fourni gratuitement par search.list). */
+  channelTitle?: string;
   publishedAt: string;
 }
 
@@ -300,6 +302,7 @@ export async function searchSingle(
       videoId,
       title: item.snippet?.title ?? '',
       channelId: item.snippet?.channelId ?? '',
+      channelTitle: item.snippet?.channelTitle ?? '',
       publishedAt: item.snippet?.publishedAt ?? new Date().toISOString(),
     });
   }

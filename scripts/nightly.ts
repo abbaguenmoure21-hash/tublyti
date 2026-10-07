@@ -43,7 +43,7 @@ import { runQualityGates } from '../lib/topics/quality-gates';
 import { discoverChannels, retrieveDiscoveryBatches } from '../lib/youtube/discover-channels';
 import { runDiscoverySources } from '../lib/youtube/discover-sources';
 import { autoTriageCandidates } from '../lib/youtube/auto-triage';
-import { runAttachInsufficient, searchForEmergingTopics } from '../lib/topics/enrich-insufficient';
+import { runAttachInsufficient, searchForEmergingTopics, type EmergingSearchResult } from '../lib/topics/enrich-insufficient';
 import { rejectStaleTopics } from '../lib/topics/reject-stale';
 import { updateUserChannelSubs } from '../lib/youtube/update-user-channels';
 import { ResendAlertSender, ConsoleAlertSender } from '../lib/email/resend-alerts';
@@ -120,6 +120,8 @@ async function main() {
   const embedEnd       = start + DEADLINE_MS * 0.45;
   const discoverEnd    = start + DEADLINE_MS * 0.65;
   const classifyEnd    = start + DEADLINE_MS * 0.80;
+  // Découverte de chaînes et 2e passe : tout le temps restant, en gardant 15 % pour le classement et le calcul du potentiel.
+  const lateEnd        = start + DEADLINE_MS * 0.85;
 
   console.log(`  Time budgets: collect ${Math.round(DEADLINE_MS * 0.30 / 60000)}min, embed ${Math.round(DEADLINE_MS * 0.15 / 60000)}min, discover ${Math.round(DEADLINE_MS * 0.20 / 60000)}min, classify ${Math.round(DEADLINE_MS * 0.15 / 60000)}min, score+agg rest`);
   console.log(`  Embed cap: ${EMBED_MAX_PER_NIGHT} videos/night, attach/enrich min: ${MIN_STEP_MS / 60000}min each`);
@@ -211,12 +213,12 @@ async function main() {
   // ── Step 8: SEARCH-EMERGING (capped at 15 searches — runs before main search) ──
   console.log('\n========== SEARCH-EMERGING ==========');
 
-  let emergingResult = { searchesPerformed: 0, videosFound: 0, videosAttached: 0, quotaUsed: 0 };
+  let emergingResult: EmergingSearchResult = { searchesPerformed: 0, videosFound: 0, videosAttached: 0, quotaUsed: 0 };
   await runStep(runner, discoverEnd, 'search-emerging', async () => {
     emergingResult = await searchForEmergingTopics(db, embedder, discoverEnd, yt.getQuotaUsed());
-    console.log(`  Searches: ${emergingResult.searchesPerformed}, Found: ${emergingResult.videosFound}, Attached: ${emergingResult.videosAttached}`);
+    console.log(`  Searches: ${emergingResult.searchesPerformed}, Found: ${emergingResult.videosFound}, Attached: ${emergingResult.videosAttached}, Candidate channels: ${emergingResult.channelsProposed ?? 0}`);
     console.log(`  Quota: ${emergingResult.quotaUsed}`);
-    return { quota: emergingResult.quotaUsed, items: emergingResult.videosAttached };
+    return { quota: emergingResult.quotaUsed, items: emergingResult.videosAttached + (emergingResult.channelsProposed ?? 0) };
   });
 
   // ── Step 9: SEARCH ──────────────────────────────────────────────
@@ -231,8 +233,8 @@ async function main() {
   // ── Step 10: DISCOVER-SOURCES (channelSections + search results) ─
   console.log('\n========== DISCOVER-SOURCES ==========');
 
-  await runStep(runner, discoverEnd, 'discover-sources', async () => {
-    const sources = await runDiscoverySources(db, discoverEnd, 500);
+  await runStep(runner, lateEnd, 'discover-sources', async () => {
+    const sources = await runDiscoverySources(db, lateEnd, 500);
     console.log(`  channelSections: ${sources.channelSections.channelsDiscovered} channels (${sources.channelSections.quotaUsed} quota)`);
     console.log(`  searchResults: ${sources.searchResults.channelsDiscovered} channels`);
     const totalQuota = sources.channelSections.quotaUsed;
@@ -243,8 +245,8 @@ async function main() {
   // ── Step 11: DISCOVER-CHANNELS (search for new channels in phase 1/2 topics) ─
   console.log('\n========== DISCOVER-CHANNELS ==========');
 
-  await runStep(runner, discoverEnd, 'discover-channels', async () => {
-    const disc = await discoverChannels(db, discoverEnd, yt.getQuotaUsed());
+  await runStep(runner, lateEnd, 'discover-channels', async () => {
+    const disc = await discoverChannels(db, lateEnd, yt.getQuotaUsed());
     console.log(`  Searches: ${disc.searchesPerformed}, Channels: ${disc.channelsDiscovered}`);
     console.log(`  Faceless estimated: ${disc.facelessEstimated} ($${disc.estimatedCostUSD.toFixed(3)})`);
     if (disc.stoppedByQuota) console.log('  Stopped by quota');
@@ -270,9 +272,9 @@ async function main() {
   // ── Step 13: EMBED-2 + ATTACH-2 (new videos from search) ──────
   console.log('\n========== EMBED+ATTACH (pass 2) ==========');
 
-  await runStep(runner, discoverEnd, 'embed-pass2', async () => {
-    const { embedded } = await runEmbedAll(db, embedder, discoverEnd);
-    const { attached, orphans } = await runAttachAll(db, discoverEnd);
+  await runStep(runner, lateEnd, 'embed-pass2', async () => {
+    const { embedded } = await runEmbedAll(db, embedder, lateEnd);
+    const { attached, orphans } = await runAttachAll(db, lateEnd);
     console.log(`  Embedded: ${embedded}, Attached: ${attached}, Orphans: ${orphans}`);
     return { quota: 0, items: embedded + attached };
   });
@@ -281,8 +283,8 @@ async function main() {
   console.log('\n========== CLASSIFY ==========');
 
   if (process.env.ANTHROPIC_API_KEY) {
-    await runStep(runner, classifyEnd, 'classify', async () => {
-      const classify = await runClassify(db, classifyEnd);
+    await runStep(runner, deadline, 'classify', async () => {
+      const classify = await runClassify(db, Math.min(deadline, Math.max(classifyEnd, Date.now() + 3 * 60_000)));
       console.log(`  Submitted: ${classify.commentsSubmitted}, Labels: ${classify.labelsStored}`);
       console.log(`  Batches: submitted=${classify.batchSubmitted}, retrieved=${classify.batchesRetrieved}`);
       return { quota: 0, items: classify.labelsStored };

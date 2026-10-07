@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./node_modules/.bin/tsx scripts/retrieve-batches.ts)",
+      "Bash(ls node_modules/.pnpm/tsx*/node_modules/.bin/tsx)",
+      "Bash(pnpm exec:*)",
+      "Bash(node scripts/diagnose-data.mjs)",
+      "Bash(pnpm exec tsx -e \":*)",
+      "Bash(git add:*)",
+      "Bash(jobs -l)",
+      "Bash(ls /Users/mac/Desktop/TubLyTI/app/\\\\\\(app\\\\\\)/admin/)",
+      "Bash(git rm:*)",
+      "Bash(ps -p 73817 -o state=,etime=)",
+      "Bash(ps -p 74039 -o state=,etime=)",
+      "Bash(ps -p 74199 -o state=,etime=)",
+      "Bash(ls -la \"/Users/mac/Desktop/TubLyTI/app/\\(app\\)/topics/\")",
+      "Bash(cat \"/Users/mac/Desktop/TubLyTI/app/\\(app\\)/topics/[id]/page.tsx\")",
+      "Bash(cat \"/Users/mac/Desktop/TubLyTI/app/\\(app\\)/dashboard/_components/carte-view.tsx\")",
+      "Bash(cat \"/Users/mac/Desktop/TubLyTI/app/\\(app\\)/topics/[id]/print/page.tsx\")",
+      "Bash(cat \"/Users/mac/Desktop/TubLyTI/app/\\(app\\)/dashboard/_components/dashboard-shell.tsx\")"
+    ]
+  }
+}

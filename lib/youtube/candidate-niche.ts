@@ -107,13 +107,17 @@ export async function loadNicheCentroids(db: SupabaseClient, perNiche = 200): Pr
   const centroids: NicheCentroid[] = [];
   const sims: number[] = [];
   for (const n of (niches ?? []) as { id: string; name: string }[]) {
-    const { data: rows } = await db
-      .from('videos')
-      .select('channel_id, title_embedding, channels!inner(niche_id)')
-      .eq('channels.niche_id', n.id)
-      .not('title_embedding', 'is', null)
-      .order('published_at', { ascending: false, nullsFirst: false })
-      .limit(perNiche);
+    // Deux requêtes simples plutôt qu'une jointure triée (trop lente sur la table des vidéos) :
+    // les chaînes de la niche, puis des vidéos déjà analysées de ces chaînes.
+    const { data: chans, error: chErr } = await db.from('channels').select('id').eq('niche_id', n.id).eq('status', 'active').limit(120);
+    if (chErr) console.error(`  centre de « ${n.name} » : ${chErr.message}`);
+    const chanIds = ((chans ?? []) as { id: string }[]).map((c) => c.id);
+    let rows: unknown[] | null = [];
+    if (chanIds.length) {
+      const r = await db.from('videos').select('channel_id, title_embedding').in('channel_id', chanIds).not('title_embedding', 'is', null).limit(perNiche);
+      if (r.error) console.error(`  vidéos de « ${n.name} » : ${r.error.message}`);
+      rows = r.data;
+    }
     const vids = ((rows ?? []) as { channel_id: string; title_embedding: unknown }[])
       .map((r) => ({ ch: r.channel_id, v: parseVec(r.title_embedding) }))
       .filter((r) => r.v.length > 0);
@@ -257,7 +261,9 @@ export async function classifyCandidates(
   const { centroids, calibration } = await loadNicheCentroids(db);
   const result: CandidateRunResult = { read: 0, detected: 0, accepted: 0, rejected: 0, unmatched: 0, niches: null, promoted: 0, quotaUsed: 0, calibration, decisions: [] };
   const fresh: UnmatchedChannel[] = [];
-  if (!centroids.length) return result;
+  // Sans niche de référence, rien ne peut être décidé : l'erreur apparaît dans l'historique de la collecte.
+  if (!centroids.length) throw new Error('aucune niche de référence chargée (vidéos analysées introuvables pour les niches actives)');
+  console.log(`  ${centroids.length} niches de référence, seuils ${Math.round(calibration.acceptSim * 100)} % / ${Math.round(calibration.rejectSim * 100)} % (${calibration.sample} chaînes)`);
   const nicheName = new Map(centroids.map((c) => [c.id, c.name]));
 
   // 1) en attente ; 2) écartées pour leur taille ou leur format il y a plus de RECHECK_DAYS jours ;

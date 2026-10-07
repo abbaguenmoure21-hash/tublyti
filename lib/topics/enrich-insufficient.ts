@@ -66,6 +66,8 @@ export interface EmergingSearchResult {
   videosFound: number;
   videosAttached: number;
   quotaUsed: number;
+  /** Chaînes pas encore suivies proposées comme candidates (vidéos proches du sujet). */
+  channelsProposed?: number;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────
@@ -384,8 +386,37 @@ export async function searchForEmergingTopics(
               // Embedding failed — video stays for next embed pass
             }
           }
-          // Videos from non-followed channels are ignored here;
-          // the regular search step handles search_results insertion.
+          // Vidéos de chaînes pas encore suivies : voir plus bas (chaînes candidates).
+        }
+
+        // Chaînes pas encore suivies dont une vidéo correspond au sujet : proposées comme chaînes candidates.
+        // Le tri de nuit (niche détectée, taille, format) décide ensuite de les ajouter au catalogue ;
+        // une fois suivies, leurs vidéos sont collectées et rattachées au sujet.
+        const outside = search.results.filter((sr) => sr.channelId && !followedChannelIds.has(sr.channelId) && sr.title);
+        if (outside.length) {
+          try {
+            const embs = await embedder.embed(outside.map((o) => o.title), 'document');
+            const matched = new Map<string, string>();
+            outside.forEach((o, i) => {
+              if (cosineSimilarity(embs[i], topic.embedding) >= ATTACH_THRESHOLD) matched.set(o.channelId, o.channelTitle ?? '');
+            });
+            if (matched.size) {
+              const { error: candErr } = await db.from('candidate_channels').upsert(
+                [...matched.entries()].map(([id, title]) => ({
+                  id,
+                  title: title || null,
+                  discovered_via: 'emerging_search',
+                  source_topic_id: topic.id,
+                  niche_id: topic.niche_id,
+                  status: 'pending',
+                })),
+                { onConflict: 'id', ignoreDuplicates: true },
+              );
+              if (!candErr) result.channelsProposed = (result.channelsProposed ?? 0) + matched.size;
+            }
+          } catch {
+            // embeddings indisponibles : on réessaiera à la prochaine recherche
+          }
         }
       }
     } catch (err) {

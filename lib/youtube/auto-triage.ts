@@ -254,8 +254,8 @@ export async function autoTriageCandidates(
         quotaUsed: r.quotaUsed,
       };
     } catch (e) {
-      // Colonnes de la migration 00024 absentes ou autre erreur : on garde l'ancien tri.
-      console.error(`  candidate-niche: ${(e as Error).message} — ancien tri utilisé`);
+      // L'erreur remonte dans l'historique de la collecte (migration 00024/00025 absente, niches vides…).
+      throw new Error(`Tri des chaînes candidates : ${(e as Error).message}`);
     }
   }
 
