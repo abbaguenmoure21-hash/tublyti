@@ -12,6 +12,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { EmbeddingProvider } from '../providers/embeddings';
+import { classifyWithAI, aiClassifyEnabled } from './niche-ai';
 import { createNichesFromUnmatched, type NicheCreateResult, type UnmatchedChannel } from './niche-create';
 
 const YT = 'https://www.googleapis.com/youtube/v3';
@@ -184,7 +185,12 @@ interface Candidate {
   subscriber_count: number | null;
   median_views: number | null;
   long_video_count: number | null;
+  videos_per_month: number | null;
   recent_titles: string[] | null;
+  description?: string | null;
+  keywords?: string | null;
+  topic_categories?: string[] | null;
+  profile_text?: string | null;
   niche_id: string | null;
   niche_source: string | null;
 }
@@ -195,16 +201,27 @@ async function readCandidates(cands: Candidate[]): Promise<{ quota: number; upda
   let quota = 0;
   for (let i = 0; i < cands.length; i += 50) {
     const batch = cands.slice(i, i + 50);
-    const ch = await yt<{ items?: { id: string; snippet?: { title?: string }; statistics?: { subscriberCount?: string }; contentDetails?: { relatedPlaylists?: { uploads?: string } } }[] }>(
-      'channels',
-      { part: 'snippet,statistics,contentDetails', id: batch.map((c) => c.id).join(','), maxResults: '50' },
-    ).catch(() => ({ items: [] }));
+    // Même coût (1 unité par lot de 50) avec la description, les mots-clés et les catégories YouTube de la chaîne.
+    const ch = await yt<{
+      items?: {
+        id: string;
+        snippet?: { title?: string; description?: string; country?: string; defaultLanguage?: string };
+        statistics?: { subscriberCount?: string };
+        contentDetails?: { relatedPlaylists?: { uploads?: string } };
+        topicDetails?: { topicCategories?: string[] };
+        brandingSettings?: { channel?: { keywords?: string } };
+      }[];
+    }>('channels', { part: 'snippet,statistics,contentDetails,topicDetails,brandingSettings', id: batch.map((c) => c.id).join(','), maxResults: '50' }).catch(() => ({ items: [] }));
     quota += 1;
     for (const it of ch.items ?? []) {
       updates.set(it.id, {
         title: it.snippet?.title ?? null,
         subscriber_count: Number(it.statistics?.subscriberCount ?? 0),
         uploads: it.contentDetails?.relatedPlaylists?.uploads ?? `UU${it.id.slice(2)}`,
+        description: (it.snippet?.description ?? '').slice(0, 1500) || null,
+        keywords: (it.brandingSettings?.channel?.keywords ?? '').slice(0, 500) || null,
+        // « https://en.wikipedia.org/wiki/Food » → « Food »
+        topic_categories: (it.topicDetails?.topicCategories ?? []).map((u) => decodeURIComponent(u.split('/').pop() ?? '').replace(/_/g, ' ')).filter(Boolean),
       });
     }
   }
@@ -220,7 +237,7 @@ async function readCandidates(cands: Candidate[]): Promise<{ quota: number; upda
       quota += 1;
       const ids = (pl.items ?? []).map((x) => x.contentDetails?.videoId).filter((x): x is string => Boolean(x));
       if (ids.length) {
-        const v = await yt<{ items?: { snippet?: { title?: string }; contentDetails?: { duration?: string }; statistics?: { viewCount?: string } }[] }>('videos', {
+        const v = await yt<{ items?: { snippet?: { title?: string; publishedAt?: string; description?: string; tags?: string[] }; contentDetails?: { duration?: string }; statistics?: { viewCount?: string } }[] }>('videos', {
           part: 'snippet,contentDetails,statistics',
           id: ids.join(','),
           maxResults: '50',
@@ -230,13 +247,35 @@ async function readCandidates(cands: Candidate[]): Promise<{ quota: number; upda
           title: x.snippet?.title ?? '',
           long: seconds(x.contentDetails?.duration ?? '') > LONG_S,
           views: Number(x.statistics?.viewCount ?? 0),
+          at: new Date(x.snippet?.publishedAt ?? Date.now()).getTime(),
+          description: (x.snippet?.description ?? '').split('\n').filter((l) => l.trim() && !/https?:\/\//.test(l)).slice(0, 3).join(' ').slice(0, 300),
+          tags: x.snippet?.tags ?? [],
         }));
+        // Rythme de publication : nombre de vidéos lues ramené à 30 jours.
+        if (vids.length >= 2) {
+          const span = Math.max(1, (Math.max(...vids.map((x) => x.at)) - Math.min(...vids.map((x) => x.at))) / 86_400_000);
+          u.videos_per_month = Math.round((vids.length / span) * 30 * 10) / 10;
+        }
         const longs = vids.filter((x) => x.long);
         u.long_video_count = longs.length;
         // Vues habituelles : sur les vidéos hors Shorts quand il y en a assez (les Shorts faussent la médiane).
         u.median_views = median((longs.length >= 3 ? longs : vids).map((x) => x.views));
         // Titres pour la niche : hors Shorts d'abord, puis le reste, 15 au plus.
         u.recent_titles = [...longs, ...vids.filter((x) => !x.long)].map((x) => x.title).filter(Boolean).slice(0, 15);
+        // Profil complet : description et mots-clés de la chaîne, catégories YouTube, tags fréquents,
+        // début des descriptions des vidéos récentes (les transcriptions ne sont pas accessibles par l'API officielle).
+        const tagCount = new Map<string, number>();
+        for (const x of vids) for (const t of x.tags) tagCount.set(t.toLowerCase(), (tagCount.get(t.toLowerCase()) ?? 0) + 1);
+        const topTags = [...tagCount.entries()].sort((a, b) => b[1] - a[1]).slice(0, 25).map(([t]) => t);
+        u.profile_text = [
+          `Channel: ${u.title ?? ''}`,
+          u.description ? `About: ${u.description.slice(0, 800)}` : '',
+          u.keywords ? `Keywords: ${u.keywords}` : '',
+          u.topic_categories?.length ? `YouTube topics: ${u.topic_categories.join(', ')}` : '',
+          topTags.length ? `Frequent tags: ${topTags.join(', ')}` : '',
+          `Recent titles: ${u.recent_titles.join(' | ')}`,
+          `Video descriptions: ${[...longs, ...vids].slice(0, 5).map((x) => x.description).filter(Boolean).join(' || ')}`,
+        ].filter(Boolean).join('\n').slice(0, 4000);
       }
     } catch {
       // chaîne sans vidéo publique ou erreur passagère : on réessaiera la nuit suivante
@@ -268,14 +307,14 @@ export async function classifyCandidates(
 
   // 1) en attente ; 2) écartées pour leur taille ou leur format il y a plus de RECHECK_DAYS jours ;
   // 3) hors niche : comparées de nouveau aux niches (une niche a pu être créée entre-temps), sans relecture YouTube.
-  const COLS = 'id, title, subscriber_count, median_views, long_video_count, recent_titles, niche_id, niche_source, status, auto_reason';
+  const COLS = 'id, title, subscriber_count, median_views, long_video_count, videos_per_month, recent_titles, profile_text, niche_id, niche_source, status, auto_reason';
   const recheckBefore = new Date(Date.now() - RECHECK_DAYS * 86_400_000).toISOString();
   const [pendingRes, recheckRes, unmatchedRes] = await Promise.all([
     db.from('candidate_channels').select(COLS).eq('status', 'pending').order('created_at', { ascending: true }).limit(limit),
     db.from('candidate_channels').select(COLS).eq('status', 'rejected').lt('decided_at', recheckBefore).not('auto_reason', 'like', 'Contenu trop éloigné%').not('auto_reason', 'like', 'Hors des niches suivies%').limit(Math.ceil(limit / 3)),
-    db.from('candidate_channels').select(`${COLS}, embedding`).eq('status', 'unmatched').limit(500),
+    db.from('candidate_channels').select(`${COLS}, embedding, ai_niche`).eq('status', 'unmatched').limit(500),
   ]);
-  if (pendingRes.error) throw new Error(`candidate_channels : ${pendingRes.error.message} (migrations 00024 et 00025 lancées ?)`);
+  if (pendingRes.error) throw new Error(`candidate_channels : ${pendingRes.error.message} (migrations 00024 à 00026 lancées ?)`);
   type Row = Candidate & { status: string; auto_reason: string | null; embedding?: unknown };
   const cands = [
     ...((pendingRes.data ?? []) as Row[]),
@@ -285,7 +324,8 @@ export async function classifyCandidates(
   if (!cands.length) return result;
 
   // 1. Lecture YouTube pour celles à qui il manque des données
-  const missing = cands.filter((c) => c.subscriber_count === null || !c.recent_titles?.length || c.long_video_count === null);
+  // Relue si une donnée manque, y compris le profil complet (description, mots-clés, catégories) pour les chaînes à classer.
+  const missing = cands.filter((c) => c.subscriber_count === null || !c.recent_titles?.length || c.long_video_count === null || !c.profile_text);
   if (missing.length) {
     const { quota, updates } = await readCandidates(missing);
     result.quotaUsed += quota;
@@ -297,13 +337,22 @@ export async function classifyCandidates(
       if (!opts.dryRun) {
         await db
           .from('candidate_channels')
-          .update({ title: c.title, subscriber_count: c.subscriber_count, median_views: c.median_views, long_video_count: c.long_video_count, recent_titles: c.recent_titles })
+          .update({
+            title: c.title, subscriber_count: c.subscriber_count, median_views: c.median_views, long_video_count: c.long_video_count,
+            videos_per_month: c.videos_per_month, recent_titles: c.recent_titles,
+            description: c.description ?? null, keywords: c.keywords ?? null, topic_categories: c.topic_categories ?? null, profile_text: c.profile_text ?? null,
+          })
           .eq('id', c.id);
       }
     }
   }
 
   // 2. Niche et décision
+  const useAI = aiClassifyEnabled();
+  // Toutes les niches actives, même celles qui n'ont pas encore assez de vidéos pour un centre.
+  const { data: allNiches } = await db.from('niches').select('id, name').eq('status', 'active');
+  const nicheList = ((allNiches ?? []) as { id: string; name: string }[]);
+  for (const n of nicheList) if (!nicheName.has(n.id)) nicheName.set(n.id, n.name);
   for (const c of cands) {
     if (Date.now() >= deadline) break;
     const titles = (c.recent_titles ?? []).filter((t) => t.length > 3);
@@ -314,32 +363,53 @@ export async function classifyCandidates(
       }
       continue;
     }
-    let vec: number[] = c.status === 'unmatched' ? parseVec(c.embedding) : [];
+    // Vecteur de la chaîne : titres (60 %) + profil complet (40 %) — description, mots-clés, catégories, tags, descriptions de vidéos.
+    let vec: number[] = c.status === 'unmatched' && c.profile_text ? parseVec(c.embedding) : [];
     if (!vec.length) {
       try {
-        vec = normalize(sum(await embedder.embed(titles.slice(0, 15), 'document')));
+        const texts = [...titles.slice(0, 15), ...(c.profile_text ? [c.profile_text] : [])];
+        const embs = await embedder.embed(texts, 'document');
+        const t = normalize(sum(embs.slice(0, Math.min(15, titles.length))));
+        const p = c.profile_text ? normalize(embs[embs.length - 1]) : t;
+        vec = normalize(t.map((x, k) => 0.6 * x + 0.4 * p[k]));
       } catch {
         continue;
       }
     }
-    const { best, margin } = detectNiche(vec, centroids);
+    const { best, margin, scored } = detectNiche(vec, centroids);
     if (!best) continue;
     result.detected++;
 
     const manual = c.niche_source === 'manual' && c.niche_id;
-    const nicheId = manual ? c.niche_id : best.id;
-    const nicheSim = manual ? cosine(vec, centroids.find((x) => x.id === c.niche_id)?.vec ?? []) : best.sim;
+    let nicheId = manual ? c.niche_id : best.id;
+    let nicheSim = manual ? cosine(vec, centroids.find((x) => x.id === c.niche_id)?.vec ?? []) : best.sim;
+    let source: 'manual' | 'detected' | 'ai' = manual ? 'manual' : 'detected';
+
+    // Avis de l'IA (si activé) : lit tout le profil et choisit une niche existante ou en propose une nouvelle.
+    let ai: Awaited<ReturnType<typeof classifyWithAI>> = null;
+    if (useAI && !manual && c.profile_text) {
+      ai = await classifyWithAI(db, c.profile_text, nicheList, scored.slice(0, 5).map((x) => x.name));
+      if (ai?.nicheId) {
+        nicheId = ai.nicheId;
+        nicheSim = cosine(vec, centroids.find((x) => x.id === ai!.nicheId)?.vec ?? []);
+        source = 'ai';
+      }
+    }
+
     if (!opts.dryRun) {
       await db
         .from('candidate_channels')
         .update({
           embedding: `[${vec.join(',')}]`,
           niche_id: nicheId,
-          niche_source: manual ? 'manual' : 'detected',
+          niche_source: source,
           niche_confidence: nicheSim,
           niche_margin: margin,
           embedding_similarity: nicheSim,
           niche_checked_at: new Date().toISOString(),
+          ...(ai
+            ? { ai_niche: ai.newNiche?.name ?? ai.nicheName, ai_category: ai.newNiche?.category ?? null, ai_rpm_low: ai.newNiche?.rpmLow ?? null, ai_rpm_high: ai.newNiche?.rpmHigh ?? null, ai_confidence: ai.confidence, ai_reason: ai.reason }
+            : {}),
         })
         .eq('id', c.id);
     }
@@ -350,26 +420,29 @@ export async function classifyCandidates(
     const label = nicheName.get(nicheId ?? '') ?? '—';
     const size = `${subs.toLocaleString('fr-FR')} abonnés, ${med.toLocaleString('fr-FR')} vues habituelles, ${longs}/${RECENT} vidéos hors Shorts`;
     const big = subs >= BIG_SUBS || med >= BIG_MEDIAN;
-    const acceptSim = big ? (calibration.acceptSim + calibration.rejectSim) / 2 : calibration.acceptSim;
-
     const sizeOk = subs >= MIN_SUBS || med >= MIN_MEDIAN;
-    if (nicheSim < calibration.rejectSim && c.status === 'unmatched') {
-      continue; // toujours hors niche : reste dans la réserve, regroupée plus bas
-    } else if (nicheSim < calibration.rejectSim && !manual && sizeOk && (big || longs >= MIN_LONG)) {
-      // Bonne chaîne hors des niches suivies : gardée pour créer une nouvelle niche avec ses semblables.
-      fresh.push({ id: c.id, title: c.title, vec, titles, subs });
-      await decide(db, result, c, 'unmatched', null, `Hors des niches suivies (la plus proche : « ${label} » à ${fmt(nicheSim)}) : en attente d'autres chaînes semblables pour créer une niche.`, opts.dryRun);
-    } else if (nicheSim < calibration.rejectSim) {
-      await decide(db, result, c, 'rejected', nicheId, `Contenu trop éloigné des niches suivies (proche de « ${label} » à ${fmt(nicheSim)}, seuil ${fmt(calibration.rejectSim)}).`, opts.dryRun);
-    } else if (subs < MIN_SUBS && med < MIN_MEDIAN) {
+    const keepForNewNiche = (why: string) => {
+      fresh.push({ id: c.id, title: c.title, vec, titles, subs, aiNiche: ai?.newNiche ?? null });
+      return decide(db, result, c, 'unmatched', null, why, opts.dryRun);
+    };
+
+    // Toutes les niches comptent : une chaîne n'est jamais écartée pour son sujet, seulement pour sa taille ou son format.
+    if (!sizeOk) {
       await decide(db, result, c, 'rejected', nicheId, `Trop petite pour servir de référence : ${size}.`, opts.dryRun);
     } else if (!big && longs < MIN_LONG) {
       await decide(db, result, c, 'rejected', nicheId, `Presque uniquement des Shorts : ${longs}/${RECENT} vidéos de plus de 3 min.`, opts.dryRun);
-    } else if (nicheSim >= acceptSim && (manual || big || margin >= MIN_MARGIN)) {
-      await decide(db, result, c, 'accepted', nicheId, `${big ? 'Grosse chaîne, ' : ''}niche « ${label} » détectée à ${fmt(nicheSim)} (seuil ${fmt(acceptSim)}) ; ${size}.`, opts.dryRun);
+    } else if (ai?.newNiche) {
+      if (c.status === 'unmatched') continue;
+      await keepForNewNiche(`Niche nouvelle selon l'IA : « ${ai.newNiche.name} » (${ai.reason}). Créée dès qu'une autre chaîne la rejoint${big ? ', ou tout de suite pour une grosse chaîne' : ''}.`);
+    } else if (ai?.nicheId) {
+      await decide(db, result, c, 'accepted', nicheId, `Niche « ${label} » choisie par l'IA (${ai.reason}) ; ${size}.`, opts.dryRun);
+    } else if (manual || (nicheSim >= calibration.acceptSim && margin >= MIN_MARGIN)) {
+      await decide(db, result, c, 'accepted', nicheId, `${big ? 'Grosse chaîne, ' : ''}niche « ${label} » détectée à ${fmt(nicheSim)} (seuil ${fmt(calibration.acceptSim)}) ; ${size}.`, opts.dryRun);
+    } else if (c.status === 'unmatched') {
+      continue; // toujours sans niche nette : reste dans la réserve, regroupée plus bas
     } else {
-      const why = margin < MIN_MARGIN ? `hésite entre plusieurs niches (écart ${fmt(margin)})` : `ressemblance ${fmt(nicheSim)} sous le seuil ${fmt(acceptSim)}`;
-      await decide(db, result, c, 'rejected', nicheId, `Niche pas assez nette : ${why}.`, opts.dryRun);
+      const why = margin < MIN_MARGIN ? `hésite entre plusieurs niches (écart ${fmt(margin)})` : `la plus proche, « ${label} », n'est qu'à ${fmt(nicheSim)}`;
+      await keepForNewNiche(`Pas de niche existante assez nette (${why}) : en attente de chaînes semblables pour créer une niche.`);
     }
   }
 
@@ -409,7 +482,11 @@ export async function promoteAccepted(db: SupabaseClient): Promise<number> {
   let promoted = 0;
   for (const c of (data ?? []) as { id: string; title: string | null; subscriber_count: number | null; niche_id: string | null }[]) {
     if (!c.niche_id) continue;
-    const { data: existing } = await db.from('channels').select('id').eq('id', c.id).maybeSingle();
+    const { data: existing } = await db.from('channels').select('id, niche_id').eq('id', c.id).maybeSingle();
+    if (existing && existing.niche_id !== c.niche_id) {
+      // Chaîne déjà suivie, reclassée : elle change de niche.
+      await db.from('channels').update({ niche_id: c.niche_id }).eq('id', c.id);
+    }
     if (!existing) {
       const { error } = await db.from('channels').insert({
         id: c.id,

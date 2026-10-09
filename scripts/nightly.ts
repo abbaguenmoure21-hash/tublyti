@@ -28,7 +28,7 @@ if (existsSync(envPath)) {
 }
 
 import { RealYouTubeClient } from '../lib/youtube/client';
-import { runCollect } from '../lib/youtube/collect';
+import { runCollect, runCommentIngestion } from '../lib/youtube/collect';
 import { collectSignals } from '../lib/signals/collect-signals';
 import { runEmbedAll } from '../lib/topics/embed-service';
 import { runAttachAll } from '../lib/topics/attach-service';
@@ -188,6 +188,17 @@ async function main() {
       }
     }
     return { quota: 0, items: enrichInsuffResult.videosAttached };
+  });
+
+  // ── Step 5b: COMMENTS (own window: up to COMMENTS_MIN minutes, quota budget « comments ») ──
+  // Séparée de la collecte : avant, elle arrivait en fin de collecte et sautait faute de temps.
+  console.log('\n========== COMMENTS ==========');
+
+  await runStep(runner, deadline, 'comments', async () => {
+    const commentsDeadline = Math.min(Date.now() + parseInt(process.env.COMMENTS_MIN ?? '8', 10) * 60_000, deadline);
+    const c = await runCommentIngestion(db, yt, commentsDeadline);
+    console.log(`  Videos: ${c.videosChecked}, Comments: ${c.commentsImported}, Purged: ${c.commentsPurged}, Quota: ${c.quotaUsed}${c.stoppedByQuota ? ' (budget atteint)' : ''}${c.stoppedByTimeout ? ' (temps atteint)' : ''}`);
+    return { quota: c.quotaUsed, items: c.commentsImported };
   });
 
   // ── Step 6: DISCOVER-TOPICS (cluster orphans into new topics) ──

@@ -14,6 +14,9 @@ import Anthropic from '@anthropic-ai/sdk';
 import { cosine, parseVec, type Calibration } from './candidate-niche';
 
 const MIN_CHANNELS = Number(process.env.NICHE_AUTO_MIN_CHANNELS ?? 3);
+/** Niche proposée par l'IA : créée dès que ce nombre de chaînes la partagent (ou tout de suite pour une grosse chaîne). */
+const MIN_AI_CHANNELS = Number(process.env.NICHE_AUTO_MIN_CHANNELS_AI ?? 2);
+const BIG_SUBS = Number(process.env.CANDIDATE_BIG_SUBS ?? 100_000);
 const MAX_PER_NIGHT = Number(process.env.NICHE_AUTO_MAX_PER_NIGHT ?? 2);
 const EXPIRE_DAYS = Number(process.env.NICHE_AUTO_EXPIRE_DAYS ?? 90);
 const MODEL = 'claude-haiku-4-5-20251001';
@@ -26,6 +29,8 @@ export interface UnmatchedChannel {
   vec: number[];
   titles: string[];
   subs: number;
+  /** Nouvelle niche proposée par l'IA pour cette chaîne. */
+  aiNiche?: { name: string; category: string; rpmLow: number | null; rpmHigh: number | null } | null;
 }
 export interface NicheCreateResult {
   created: { name: string; category: string; channels: string[]; rpm: string }[];
@@ -145,12 +150,15 @@ export async function createNichesFromUnmatched(
   // Chaînes hors niche déjà en base (les plus anciennes expirent)
   const { data } = await db
     .from('candidate_channels')
-    .select('id, title, embedding, recent_titles, subscriber_count, decided_at')
+    .select('id, title, embedding, recent_titles, subscriber_count, decided_at, ai_niche, ai_category, ai_rpm_low, ai_rpm_high')
     .eq('status', 'unmatched')
     .limit(1000);
   const pool = new Map<string, UnmatchedChannel>();
   const expireBefore = now.getTime() - EXPIRE_DAYS * 86_400_000;
-  for (const r of (data ?? []) as { id: string; title: string | null; embedding: unknown; recent_titles: string[] | null; subscriber_count: number | null; decided_at: string | null }[]) {
+  for (const r of (data ?? []) as {
+    id: string; title: string | null; embedding: unknown; recent_titles: string[] | null; subscriber_count: number | null; decided_at: string | null;
+    ai_niche: string | null; ai_category: string | null; ai_rpm_low: number | null; ai_rpm_high: number | null;
+  }[]) {
     if (r.decided_at && new Date(r.decided_at).getTime() < expireBefore) {
       res.expired++;
       if (!opts.dryRun) {
@@ -162,17 +170,71 @@ export async function createNichesFromUnmatched(
       continue;
     }
     const vec = parseVec(r.embedding);
-    if (vec.length) pool.set(r.id, { id: r.id, title: r.title, vec, titles: r.recent_titles ?? [], subs: r.subscriber_count ?? 0 });
+    if (vec.length) {
+      pool.set(r.id, {
+        id: r.id, title: r.title, vec, titles: r.recent_titles ?? [], subs: r.subscriber_count ?? 0,
+        aiNiche: r.ai_niche && r.ai_category ? { name: r.ai_niche, category: r.ai_category, rpmLow: r.ai_rpm_low, rpmHigh: r.ai_rpm_high } : null,
+      });
+    }
   }
   for (const f of fresh) pool.set(f.id, f);
 
   const { data: nicheRows } = await db.from('niches').select('id, name, category').eq('status', 'active');
   const existing = (nicheRows ?? []) as { id: string; name: string; category: string }[];
 
-  // Regroupement : graine = la plus grosse chaîne restante ; voisines proches ; noyau resserré autour du centre.
-  const left = [...pool.values()].sort((a, b) => b.subs - a.subs);
   const used = new Set<string>();
   let made = 0;
+
+  // 1) Niches proposées par l'IA : regroupées par nom, créées dès MIN_AI_CHANNELS chaînes (ou une grosse chaîne).
+  const byAiName = new Map<string, UnmatchedChannel[]>();
+  for (const c of pool.values()) {
+    if (!c.aiNiche) continue;
+    const k = c.aiNiche.name.trim().toLowerCase();
+    byAiName.set(k, [...(byAiName.get(k) ?? []), c]);
+  }
+  for (const group of byAiName.values()) {
+    if (made >= MAX_PER_NIGHT * 3) break;
+    if (group.length < MIN_AI_CHANNELS && !group.some((g) => g.subs >= BIG_SUBS)) continue;
+    const proposal = group[0].aiNiche!;
+    const ids = group.map((g) => g.id);
+    const names = group.map((g) => g.title ?? g.id);
+    for (const id of ids) used.add(id);
+    const same = existing.find((e) => e.name.toLowerCase() === proposal.name.toLowerCase());
+    if (same) {
+      res.joined.push({ niche: same.name, channels: names });
+      if (!opts.dryRun) await accept(db, ids, same.id, `Rattachée à « ${same.name} » (niche proposée par l'IA).`);
+      continue;
+    }
+    res.created.push({ name: proposal.name, category: proposal.category, channels: names, rpm: proposal.rpmLow !== null ? `${proposal.rpmLow}–${proposal.rpmHigh} $` : '—' });
+    made++;
+    if (opts.dryRun) continue;
+    const { data: niche, error } = await db
+      .from('niches')
+      .insert({
+        name: proposal.name,
+        category: proposal.category,
+        rpm_coefficient: 1,
+        rpm_low: proposal.rpmLow,
+        rpm_high: proposal.rpmHigh,
+        rpm_source: proposal.rpmLow !== null ? 'Estimation IA à vérifier' : null,
+        status: 'active',
+        auto_created: true,
+        created_from: 'candidates',
+        auto_reason: `Créée le ${now.toISOString().slice(0, 10)} sur proposition de l'IA, à partir de ${ids.length} chaîne(s) : ${names.slice(0, 5).join(', ')}.`,
+      })
+      .select('id')
+      .single();
+    if (error || !niche) {
+      console.error(`  création de niche « ${proposal.name} » : ${error?.message}`);
+      continue;
+    }
+    existing.push({ id: niche.id as string, name: proposal.name, category: proposal.category });
+    await accept(db, ids, niche.id as string, `Nouvelle niche « ${proposal.name} » créée (proposée par l'IA) avec ${ids.length} chaîne(s).`);
+  }
+
+  // 2) Sans proposition de l'IA : regroupement par ressemblance — graine = la plus grosse chaîne restante,
+  //    voisines proches, noyau resserré autour du centre.
+  const left = [...pool.values()].filter((c) => !used.has(c.id) && !c.aiNiche).sort((a, b) => b.subs - a.subs);
   for (const seed of left) {
     if (used.has(seed.id) || made >= MAX_PER_NIGHT) continue;
     let group = left.filter((c) => !used.has(c.id) && cosine(seed.vec, c.vec) >= calibration.rejectSim);

@@ -92,6 +92,7 @@ export async function runCollect(
     const { data: channels } = await db
       .from('channels')
       .select('id, uploads_playlist_id, subscriber_count')
+      .neq('status', 'paused') // chaînes mises en pause : plus suivies
       .order('last_checked_at', { ascending: true, nullsFirst: true });
 
     if (!channels || channels.length === 0) return result;
@@ -135,6 +136,7 @@ export async function runCollect(
       .from('channels')
       .select('id, uploads_playlist_id, subscriber_count')
       .not('uploads_playlist_id', 'is', null)
+      .neq('status', 'paused')
       .order('last_checked_at', { ascending: true, nullsFirst: true });
 
     for (const channel of updatedChannels ?? []) {
@@ -372,129 +374,8 @@ export async function runCollect(
       return result;
     }
 
-    // ── Step 4: Comment ingestion ─────────────────────────────────
-    const t4 = Date.now();
-    // Only: long videos (≥8min), ≥10k views, from followed channels,
-    // attached to an active topic, sorted by views desc.
-    // Cooldown: skip videos whose comments were fetched < 7 days ago.
-    const sevenDaysAgoForComments = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-
-    // Single query: long videos attached to active topics
-    const { data: commentCandidates } = await db
-      .from('videos')
-      .select(`id, topic_id, duration_s, topics!inner(phase, status)`)
-      .not('topic_id', 'is', null)
-      .gte('duration_s', DURATION_THRESHOLD)
-      .in('topics.status', ['active', 'in_production']);
-
-    const candidateIds = (commentCandidates ?? []).map((v) => v.id);
-
-    // Batch-fetch latest views per video
-    const viewsByVideo = new Map<string, number>();
-    if (candidateIds.length > 0) {
-      const { data: snaps } = await db
-        .from('video_snapshots')
-        .select('video_id, views')
-        .in('video_id', candidateIds)
-        .order('captured_at', { ascending: false });
-      for (const s of snaps ?? []) {
-        if (!viewsByVideo.has(s.video_id)) viewsByVideo.set(s.video_id, s.views ?? 0);
-      }
-    }
-
-    // Batch-fetch last comment date per video
-    const lastCommentDate = new Map<string, string>();
-    if (candidateIds.length > 0) {
-      const { data: latestComments } = await db
-        .from('comments')
-        .select('video_id, published_at')
-        .in('video_id', candidateIds)
-        .order('published_at', { ascending: false });
-      for (const c of latestComments ?? []) {
-        if (!lastCommentDate.has(c.video_id)) lastCommentDate.set(c.video_id, c.published_at);
-      }
-    }
-
-    // Filter: ≥10k views, cooldown respected
-    const videosNeedingComments: { id: string; phase: number | null; views: number }[] = [];
-    for (const v of commentCandidates ?? []) {
-      const views = viewsByVideo.get(v.id) ?? 0;
-      if (views < 10_000) continue;
-
-      const lastFetch = lastCommentDate.get(v.id);
-      if (lastFetch && lastFetch >= sevenDaysAgoForComments.toISOString()) continue;
-
-      const topicsData = v.topics as unknown as { phase: number | null } | null;
-      videosNeedingComments.push({ id: v.id, phase: topicsData?.phase ?? null, views });
-    }
-
-    // Sort: phase 0/1/2 first, then by views desc
-    videosNeedingComments.sort((a, b) => {
-      const aP = a.phase !== null && a.phase <= 2 ? a.phase : 99;
-      const bP = b.phase !== null && b.phase <= 2 ? b.phase : 99;
-      if (aP !== bP) return aP - bP;
-      return b.views - a.views;
-    });
-
-    for (const video of videosNeedingComments) {
-      if (isTimedOut()) {
-        result.stoppedByTimeout = true;
-        break;
-      }
-      if (commentQuota >= budget.comments) {
-        result.stoppedByQuota = true;
-        break;
-      }
-
-      try {
-        const comments = await yt.getCommentThreads(video.id, 100, COMMENT_MAX_PAGES);
-        commentQuota += COMMENT_MAX_PAGES;
-
-        for (const comment of comments) {
-          if (comment.text.length < MIN_COMMENT_LENGTH) continue;
-
-          const { error } = await db.from('comments').upsert(
-            {
-              id: comment.id,
-              workspace_id: '00000000-0000-0000-0000-000000000001',
-              video_id: comment.videoId,
-              text: comment.text,
-              like_count: comment.likeCount,
-              published_at: comment.publishedAt,
-            },
-            { onConflict: 'id' },
-          );
-          if (!error) result.commentsImported++;
-        }
-      } catch (err) {
-        if (err instanceof QuotaSoftLimitReached) throw err;
-        console.error(`Skipping comments for video ${video.id}: ${(err as Error).message}`);
-        continue;
-      }
-    }
-
-    logStep('comment-ingestion', t4);
-
-    if (result.stoppedByTimeout || result.stoppedByQuota) {
-      result.quotaUsed = yt.getQuotaUsed();
-      return result;
-    }
-
-    // ── Step 5: Purge old comments (>90 days) that already have labels ─
-    const t5 = Date.now();
-    const { data: purgeTargets } = await db
-      .from('comments')
-      .select('id, comment_labels(comment_id)')
-      .lt('published_at', ninetyDaysAgo.toISOString());
-
-    for (const comment of purgeTargets ?? []) {
-      const labels = comment.comment_labels as { comment_id: string }[] | null;
-      if (labels && labels.length > 0) {
-        await db.from('comments').delete().eq('id', comment.id);
-        result.commentsPurged++;
-      }
-    }
-    logStep('comment-purge', t5);
+    // Commentaires : étape de nuit séparée (runCommentIngestion), avec son propre temps et son quota.
+    // Avant, ils arrivaient en fin de collecte et étaient sautés dès que la collecte manquait de temps.
   } catch (err) {
     if (err instanceof QuotaSoftLimitReached) {
       result.stoppedByQuota = true;
@@ -512,4 +393,135 @@ export async function runCollect(
   });
 
   return result;
+}
+
+
+export interface CommentIngestionResult {
+  videosChecked: number;
+  commentsImported: number;
+  commentsPurged: number;
+  quotaUsed: number;
+  stoppedByQuota: boolean;
+  stoppedByTimeout: boolean;
+}
+
+/**
+ * Collecte des commentaires (étape de nuit « comments »).
+ * Vidéos longues (≥ 8 min) d'au moins 10 000 vues, rattachées à un sujet publié, dont les commentaires
+ * n'ont pas été lus depuis 7 jours ; sujets en phase 0 à 2 d'abord, puis les plus vues.
+ * Coût : COMMENT_MAX_PAGES unités par vidéo au plus (commentThreads.list), dans la limite du budget « comments ».
+ */
+export async function runCommentIngestion(
+  db: SupabaseClient,
+  yt: YouTubeClient,
+  deadlineMs: number,
+): Promise<CommentIngestionResult> {
+  const res: CommentIngestionResult = { videosChecked: 0, commentsImported: 0, commentsPurged: 0, quotaUsed: 0, stoppedByQuota: false, stoppedByTimeout: false };
+  const budget = await loadQuotaBudget(db, 8000);
+  const now = new Date();
+  const sevenDaysAgo = new Date(now.getTime() - 7 * 86_400_000).toISOString();
+  const ninetyDaysAgo = new Date(now.getTime() - 90 * 86_400_000).toISOString();
+  const quotaStart = yt.getQuotaUsed();
+
+  // Vidéos candidates, par pages de 1 000 (limite de Supabase), au plus 5 000.
+  const candidates: { id: string; phase: number | null }[] = [];
+  for (let from = 0; from < 5000; from += 1000) {
+    const { data, error } = await db
+      .from('videos')
+      .select('id, topics!inner(phase, status)')
+      .not('topic_id', 'is', null)
+      .gte('duration_s', DURATION_THRESHOLD)
+      .in('topics.status', ['active', 'in_production'])
+      .order('published_at', { ascending: false, nullsFirst: false })
+      .range(from, from + 999);
+    if (error) throw new Error(`commentaires, sélection des vidéos : ${error.message}`);
+    for (const v of (data ?? []) as unknown as { id: string; topics: { phase: number | null } | null }[]) {
+      candidates.push({ id: v.id, phase: v.topics?.phase ?? null });
+    }
+    if ((data ?? []).length < 1000) break;
+  }
+
+  // Vues et date du dernier commentaire lu, par lots de 150 (les longues listes d'identifiants échouent).
+  const views = new Map<string, number>();
+  const lastComment = new Map<string, string>();
+  for (let k = 0; k < candidates.length; k += 150) {
+    const ids = candidates.slice(k, k + 150).map((c) => c.id);
+    const [snaps, comments] = await Promise.all([
+      db.from('video_snapshots').select('video_id, views, captured_at').in('video_id', ids).order('captured_at', { ascending: false }).limit(2000),
+      db.from('comments').select('video_id, published_at').in('video_id', ids).order('published_at', { ascending: false }).limit(2000),
+    ]);
+    for (const sn of (snaps.data ?? []) as { video_id: string; views: number | null }[]) {
+      if (!views.has(sn.video_id)) views.set(sn.video_id, sn.views ?? 0);
+    }
+    for (const cm of (comments.data ?? []) as { video_id: string; published_at: string }[]) {
+      if (!lastComment.has(cm.video_id)) lastComment.set(cm.video_id, cm.published_at);
+    }
+  }
+
+  const todo = candidates
+    .map((c) => ({ ...c, views: views.get(c.id) ?? 0 }))
+    .filter((c) => c.views >= 10_000 && !((lastComment.get(c.id) ?? '') >= sevenDaysAgo))
+    .sort((a, b) => {
+      const aP = a.phase !== null && a.phase <= 2 ? a.phase : 99;
+      const bP = b.phase !== null && b.phase <= 2 ? b.phase : 99;
+      return aP !== bP ? aP - bP : b.views - a.views;
+    });
+  console.log(`    [comments] ${candidates.length} vidéos rattachées, ${todo.length} à lire (≥ 10 000 vues, pas lues depuis 7 jours)`);
+
+  let commentQuota = 0;
+  try {
+    for (const video of todo) {
+      if (Date.now() >= deadlineMs) {
+        res.stoppedByTimeout = true;
+        break;
+      }
+      if (commentQuota >= budget.comments) {
+        res.stoppedByQuota = true;
+        break;
+      }
+      res.videosChecked++;
+      try {
+        const comments = await yt.getCommentThreads(video.id, 100, COMMENT_MAX_PAGES);
+        commentQuota += COMMENT_MAX_PAGES;
+        const rows = comments
+          .filter((c) => c.text.length >= MIN_COMMENT_LENGTH)
+          .map((c) => ({
+            id: c.id,
+            workspace_id: '00000000-0000-0000-0000-000000000001',
+            video_id: c.videoId,
+            text: c.text,
+            like_count: c.likeCount,
+            published_at: c.publishedAt,
+          }));
+        if (rows.length) {
+          const { error } = await db.from('comments').upsert(rows, { onConflict: 'id' });
+          if (!error) res.commentsImported += rows.length;
+        }
+      } catch (err) {
+        if (err instanceof QuotaSoftLimitReached) throw err;
+        // Commentaires désactivés sur la vidéo, vidéo supprimée… : on passe à la suivante.
+        console.error(`    [comments] ${video.id} : ${(err as Error).message}`);
+      }
+    }
+
+    // Purge des commentaires de plus de 90 jours déjà classés
+    const { data: purgeTargets } = await db
+      .from('comments')
+      .select('id, comment_labels(comment_id)')
+      .lt('published_at', ninetyDaysAgo)
+      .limit(5000);
+    const purgeIds = ((purgeTargets ?? []) as { id: string; comment_labels: { comment_id: string }[] | null }[])
+      .filter((c) => (c.comment_labels ?? []).length > 0)
+      .map((c) => c.id);
+    for (let k = 0; k < purgeIds.length; k += 200) {
+      const { error } = await db.from('comments').delete().in('id', purgeIds.slice(k, k + 200));
+      if (!error) res.commentsPurged += Math.min(200, purgeIds.length - k);
+    }
+  } catch (err) {
+    if (err instanceof QuotaSoftLimitReached) res.stoppedByQuota = true;
+    else throw err;
+  }
+
+  res.quotaUsed = yt.getQuotaUsed() - quotaStart;
+  return res;
 }

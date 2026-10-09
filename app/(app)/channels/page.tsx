@@ -24,7 +24,7 @@ interface Niche {
 }
 
 function formatDate(d: string | null) {
-  if (!d) return 'Jamais';
+  if (!d) return 'Prochaine collecte';
   return new Date(d).toLocaleString('fr-FR', {
     day: '2-digit',
     month: '2-digit',
