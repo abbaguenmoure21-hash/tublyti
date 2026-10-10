@@ -1,6 +1,9 @@
 import Link from 'next/link';
 import { Tv, ExternalLink } from 'lucide-react';
 
+// Données lues à chaque visite (jamais calculées pendant pnpm build).
+export const dynamic = 'force-dynamic';
+
 export const metadata = { title: 'Chaînes suivies' };
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';

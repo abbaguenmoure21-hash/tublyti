@@ -1,6 +1,9 @@
 import { ListChecks, AlertTriangle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
+// Données lues à chaque visite (jamais calculées pendant pnpm build).
+export const dynamic = 'force-dynamic';
+
 export const metadata = { title: 'Revue des sujets' };
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';

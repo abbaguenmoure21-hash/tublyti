@@ -8,6 +8,9 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { CheckCircle, AlertTriangle, Radio, Users, Video, Gauge } from 'lucide-react';
 
+// Données lues à chaque visite (jamais calculées pendant pnpm build).
+export const dynamic = 'force-dynamic';
+
 export const metadata = { title: 'Couverture & Quota' };
 
 interface NicheCoverage {
@@ -38,41 +41,30 @@ export default async function CoveragePage() {
     .from('niches')
     .select('id, name, target_channels, coverage_sufficient');
 
-  const coverageData: NicheCoverage[] = [];
-  for (const niche of niches ?? []) {
-    const [{ count: channelCount }, { count: candidateCount }] = await Promise.all([
-      db.from('channels').select('id', { count: 'exact', head: true }).eq('niche_id', niche.id),
-      db.from('candidate_channels').select('id', { count: 'exact', head: true }).eq('niche_id', niche.id).eq('status', 'accepted'),
-    ]);
-
-    // Count videos in last 90 days for channels in this niche
-    const cutoff90d = new Date(Date.now() - 90 * 86_400_000).toISOString();
-    const { data: nicheChannels } = await db
-      .from('channels')
-      .select('id')
-      .eq('niche_id', niche.id);
-    const channelIds = ((nicheChannels ?? []) as { id: string }[]).map((c) => c.id);
-
-    let videoCount = 0;
-    if (channelIds.length > 0) {
-      const { count } = await db
-        .from('videos')
-        .select('id', { count: 'exact', head: true })
-        .in('channel_id', channelIds)
-        .gte('published_at', cutoff90d);
-      videoCount = count ?? 0;
-    }
-
-    coverageData.push({
-      id: niche.id,
-      name: niche.name,
-      channelCount: (channelCount ?? 0) + (candidateCount ?? 0),
-      candidateCount: candidateCount ?? 0,
-      videoCount90d: videoCount,
-      targetChannels: niche.target_channels ?? 1500,
-      sufficient: niche.coverage_sufficient ?? false,
-    });
-  }
+  // Toutes les niches en parallèle (avant : une par une, avec de longues listes d'identifiants de chaînes).
+  const cutoff90d = new Date(Date.now() - 90 * 86_400_000).toISOString();
+  const coverageData: NicheCoverage[] = await Promise.all(
+    ((niches ?? []) as { id: string; name: string; target_channels: number | null; coverage_sufficient: boolean | null }[]).map(async (niche) => {
+      const [{ count: channelCount }, { count: candidateCount }, { count: videoCount }] = await Promise.all([
+        db.from('channels').select('id', { count: 'exact', head: true }).eq('niche_id', niche.id),
+        db.from('candidate_channels').select('id', { count: 'exact', head: true }).eq('niche_id', niche.id).eq('status', 'accepted'),
+        db
+          .from('videos')
+          .select('id, channels!inner(niche_id)', { count: 'exact', head: true })
+          .eq('channels.niche_id', niche.id)
+          .gte('published_at', cutoff90d),
+      ]);
+      return {
+        id: niche.id,
+        name: niche.name,
+        channelCount: (channelCount ?? 0) + (candidateCount ?? 0),
+        candidateCount: candidateCount ?? 0,
+        videoCount90d: videoCount ?? 0,
+        targetChannels: niche.target_channels ?? 1500,
+        sufficient: niche.coverage_sufficient ?? false,
+      };
+    }),
+  );
 
   // --- Quota usage (last 30 days from jobs table) ---
   const thirtyDaysAgo = new Date(Date.now() - 30 * 86_400_000).toISOString();

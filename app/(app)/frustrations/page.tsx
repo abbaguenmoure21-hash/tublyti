@@ -174,14 +174,27 @@ async function getSmallChannelOutliers(filterNiche: string, ids: string[]): Prom
 
   const { data, error } = await query
     .order('score', { ascending: false })
-    .limit(300);
+    .limit(600);
 
   if (error) return [];
 
   // Vues les plus récentes : une seule requête pour les 30 vidéos retenues (au lieu d'une par vidéo).
-  const kept = ((data ?? []) as Record<string, unknown>[])
-    .filter((row) => ((row.videos as unknown as { channels: { subscriber_count: number | null } }).channels?.subscriber_count ?? 0) <= 50_000)
-    .slice(0, 30);
+  // Les plus récentes d'abord (60 derniers jours), puis le reste de l'année ; 2 vidéos par chaîne au plus,
+  // pour que la liste change au fil des nuits au lieu de montrer toujours les mêmes records anciens.
+  const rows = ((data ?? []) as Record<string, unknown>[]).filter(
+    (row) => ((row.videos as unknown as { channels: { subscriber_count: number | null } }).channels?.subscriber_count ?? 0) <= 50_000,
+  );
+  const fresh = rows.filter((r) => Number(r.age_days) <= 60);
+  const older = rows.filter((r) => Number(r.age_days) > 60);
+  const perChannel = new Map<string, number>();
+  const kept: Record<string, unknown>[] = [];
+  for (const row of [...fresh, ...older]) {
+    const ch = (row.videos as unknown as { channels: { id: string } }).channels?.id ?? '';
+    if ((perChannel.get(ch) ?? 0) >= 2) continue;
+    perChannel.set(ch, (perChannel.get(ch) ?? 0) + 1);
+    kept.push(row);
+    if (kept.length >= 30) break;
+  }
   const latestViews = new Map<string, number>();
   if (kept.length) {
     const { data: snapRows } = await db
@@ -437,7 +450,7 @@ export default async function FrustrationsPage({
         <div className="space-y-6">
           <div className="flex items-center gap-3">
             <p className="text-[15px] font-medium text-muted-foreground">
-              Vidéos de chaînes <strong className="text-foreground font-bold">≤ 50 k abonnés</strong> qui surperforment la moyenne de leur chaîne. (Publiées il y a moins d'un an)
+              Vidéos de chaînes <strong className="text-foreground font-bold">≤ 50 k abonnés</strong> qui surperforment la moyenne de leur chaîne. Les vidéos des 60 derniers jours d'abord, puis le reste de l'année ; 2 par chaîne au plus. Mis à jour chaque nuit.
             </p>
           </div>
           {outlierVideos.length === 0 ? (

@@ -27,20 +27,31 @@ export async function computeChannelOutliers(
     .from('videos')
     .select('id, channel_id, published_at')
     .eq('channel_id', channelId)
-    .order('published_at', { ascending: false });
+    .order('published_at', { ascending: false })
+    .limit(300); // les 300 plus récentes suffisent (fenêtre d'un an + 10 vidéos de référence)
 
   if (videoErr) throw new Error(`Failed to fetch videos: ${videoErr.message}`);
   if (!videos || videos.length === 0) return { computed: 0, skipped: 0 };
 
-  // 2. Get all snapshots for these videos in one query
+  // 2. Snapshots de ces vidéos, par lots de 100 vidéos et par pages de 1 000 lignes.
+  // Avant : une seule requête, coupée à 1 000 lignes par Supabase et triée des plus anciennes
+  // aux plus récentes — les vues récentes n'étaient jamais lues et les scores restaient figés.
   const videoIds = videos.map((v: Record<string, unknown>) => v.id as string);
-  const { data: allSnapshots, error: snapErr } = await db
-    .from('video_snapshots')
-    .select('video_id, captured_at, views')
-    .in('video_id', videoIds)
-    .order('captured_at', { ascending: true });
-
-  if (snapErr) throw new Error(`Failed to fetch snapshots: ${snapErr.message}`);
+  const allSnapshots: { video_id: string; captured_at: string; views: number }[] = [];
+  for (let i = 0; i < videoIds.length; i += 100) {
+    const chunk = videoIds.slice(i, i + 100);
+    for (let from = 0; from < 20_000; from += 1000) {
+      const { data: page, error: snapErr } = await db
+        .from('video_snapshots')
+        .select('video_id, captured_at, views')
+        .in('video_id', chunk)
+        .order('captured_at', { ascending: true })
+        .range(from, from + 999);
+      if (snapErr) throw new Error(`Failed to fetch snapshots: ${snapErr.message}`);
+      allSnapshots.push(...((page ?? []) as { video_id: string; captured_at: string; views: number }[]));
+      if ((page ?? []).length < 1000) break;
+    }
+  }
 
   // Build snapshot map: video_id → VideoSnapshot[]
   const snapshotMap = new Map<string, VideoSnapshot[]>();
