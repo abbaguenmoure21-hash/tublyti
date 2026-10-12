@@ -148,6 +148,6 @@ export const TERMS = [
   { term: 'Favoris', def: 'Clique sur l’étoile d’un sujet pour le garder sous la main. Tes favoris ne sont visibles que par toi.' },
   { term: 'Alertes', def: 'Dans Réglages, choisis quand recevoir un e-mail : un sujet qui devient le bon moment, un favori qui change, un sujet qui se remplit vite.' },
   { term: 'Niche créée automatiquement', def: 'Quand plusieurs chaînes semblables ne correspondent à aucune thématique existante, TubLyTI en crée une. Tu peux la suivre comme les autres.' },
-  { term: 'Connexion à Claude', def: 'Un jeton d’accès (Réglages) permet de poser tes questions à Claude sur tes sujets. Il ne donne accès qu’à tes chaînes.' },
+  { term: 'Connexion à Claude', def: 'Un jeton d’accès (Réglages) permet de poser tes questions à Claude : tes sujets, les questions du public, mais aussi les statistiques de ta chaîne, tes revenus et la rétention de tes vidéos (si YouTube Analytics est connecté). Il ne donne accès qu’à tes chaînes, en lecture seule pour tes statistiques.' },
   { term: 'Afficher (barre latérale)', def: 'Choisis une de tes chaînes pour ne voir que ses sujets, partout dans l’app. « Toutes mes chaînes » pour tout voir.' },
 ];

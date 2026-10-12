@@ -13,6 +13,8 @@ const DAILY_LIMITS: Record<string, number> = {
   get_niche_dossier: 30,
   channel_outliers: 50,
   similar_channels: 50,
+  get_my_channel_stats: 40,
+  get_video_retention: 60,
   // Write tools — tighter
   generate_angles: 10,
   save_to_collection: 50,

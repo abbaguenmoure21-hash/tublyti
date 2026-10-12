@@ -7,6 +7,8 @@ import { checkRateLimit } from './rate-limit';
 import { canWrite, canSeeNiche, type McpTokenInfo } from './auth';
 import { listScopeNiches } from '@/lib/scope';
 import { escapeLike } from '@/lib/utils';
+import { getPublicStats } from '@/lib/youtube/public-stats';
+import { getChannelAnalytics, getVideoRetention, PERIODS, type Period } from '@/lib/youtube/analytics';
 
 // ── Constants ──────────────────────────────────────────────────────────
 
@@ -1174,6 +1176,191 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
       const text = `# Brief du jour — ${scoredAt}\n\nSujets en fenetre ideale (phase 2), tries par MGI :\n\n${lines.join('\n')}`;
 
       return { contents: [{ uri: 'tublyti://brief/today', text, mimeType: 'text/markdown' }] };
+    },
+  );
+
+  // ────────────────────────────────────────────────────────────────────
+  //  MA CHAÎNE (lecture seule, chaînes vérifiées du propriétaire du jeton)
+  // ────────────────────────────────────────────────────────────────────
+
+  type MyChannel = { id: string; title: string; handle: string | null; youtube_channel_id: string | null };
+
+  /** Chaînes vérifiées du compte qui a créé le jeton ; choisit celle demandée (nom, @pseudo, ID UC) ou la seule. */
+  async function pickMyChannel(query: string | undefined): Promise<{ channel?: MyChannel; error?: string }> {
+    if (!token.userId) return { error: 'Ce jeton n’est rattaché à aucun compte. Crée un nouveau jeton dans Reglages > Connexion a Claude.' };
+    const db = createServiceClient();
+    const { data, error } = await db
+      .from('user_channels')
+      .select('id, title, handle, youtube_channel_id')
+      .eq('user_id', token.userId)
+      .not('verified_at', 'is', null);
+    if (error) return { error: 'Impossible de lire tes chaines pour le moment.' };
+    const mine = (data ?? []) as MyChannel[];
+    if (!mine.length) return { error: 'Aucune chaine verifiee sur ce compte. Ajoute et verifie ta chaine dans Reglages > Mes chaines.' };
+    if (!query) {
+      if (mine.length === 1) return { channel: mine[0] };
+      return { error: `Plusieurs chaines : precise laquelle avec le parametre channel. Tes chaines : ${mine.map((c) => c.title).join(', ')}.` };
+    }
+    const q = query.trim().toLowerCase().replace(/^@/, '');
+    const hit = mine.find(
+      (c) => c.youtube_channel_id?.toLowerCase() === q || (c.handle ?? '').toLowerCase().replace(/^@/, '') === q || c.title.toLowerCase() === q,
+    ) ?? mine.find((c) => c.title.toLowerCase().includes(q));
+    return hit ? { channel: hit } : { error: `Chaine introuvable parmi les tiennes : ${mine.map((c) => c.title).join(', ')}.` };
+  }
+
+  const nf = (v: number) => Math.round(v).toLocaleString('fr-FR');
+  const money = (v: number) => `${v.toLocaleString('fr-FR', { maximumFractionDigits: 2 })} $`;
+  const secs = (s: number) => `${Math.floor(s / 60)} min ${String(Math.round(s % 60)).padStart(2, '0')}`;
+
+  // ── get_my_channel_stats ───────────────────────────────────────────
+
+  mcp.tool(
+    'get_my_channel_stats',
+    'Statistiques d\'une de MES chaines verifiees : chiffres publics (vues habituelles, interactions, rythme, meilleur jour, Shorts vs longues, videos qui ont decolle, revenus estimes) et, si YouTube Analytics est connecte, les chiffres prives (vues, duree regardee, abonnes, sources de trafic, pays, appareils, age, revenus reels, RPM, CPM, meilleures videos). Lecture seule.',
+    {
+      channel: z.string().optional().describe('Nom, @pseudo ou ID UC de la chaine (facultatif si une seule chaine)'),
+      period: z.enum(['7', '28', '90', '365']).optional().describe('Periode YouTube Analytics en jours (defaut 28)'),
+    },
+    async ({ channel, period }) => {
+      const blocked = await guard(token, 'get_my_channel_stats');
+      if (blocked) return fail(blocked);
+      const picked = await pickMyChannel(channel);
+      if (!picked.channel) return fail(picked.error ?? 'Chaine introuvable.');
+      const ch = picked.channel;
+      const db = createServiceClient();
+      const per = (period ?? '28') as Period;
+      const [pub, an] = await Promise.all([getPublicStats(db, ch.id), getChannelAnalytics(db, ch.id, per)]);
+      const out: string[] = [`# ${ch.title}${ch.handle ? ` (${ch.handle})` : ''}`];
+
+      if (pub) {
+        const c = pub.channel;
+        out.push(
+          '',
+          '## Chiffres publics',
+          `Abonnes : ${c.subscribers === null ? 'masques' : nf(c.subscribers)} | Vues totales : ${c.totalViews === null ? '—' : nf(c.totalViews)} | Videos : ${c.videoCount ?? '—'}${c.nicheName ? ` | Thematique : ${c.nicheName}` : ''}`,
+        );
+        if (pub.sample) {
+          out.push(
+            `Sur les ${pub.sample} dernieres videos lues :`,
+            `- Vues habituelles (mediane des longues) : ${nf(pub.medianViews)} ; moyenne ${nf(pub.averageViews)}`,
+            `- Interactions : ${pub.engagementRate.toFixed(2)} % (j'aime ${pub.likeRate.toFixed(2)} %, commentaires ${pub.commentRate.toFixed(2)} %)`,
+            `- Rythme : ${pub.uploadsPerWeek.toFixed(1)} video(s)/semaine${pub.daysSinceLast !== null ? `, derniere il y a ${pub.daysSinceLast} j` : ''}`,
+            `- Meilleur jour de publication : ${pub.bestWeekday ? `${pub.bestWeekday.day} (${nf(pub.bestWeekday.median)} vues habituelles)` : 'pas assez de videos'}`,
+            `- Videos longues : ${pub.long.count} (vues habituelles ${nf(pub.long.median)}) | Shorts : ${pub.shorts.count} (vues habituelles ${nf(pub.shorts.median)})`,
+          );
+          if (pub.estimate) {
+            out.push(`- Revenus estimes (vues longues x RPM de la thematique ${pub.estimate.rpmLow}-${pub.estimate.rpmHigh} $) : ${money(pub.estimate.low)} a ${money(pub.estimate.high)} — estimation seulement`);
+          }
+          if (pub.outliers.length) {
+            out.push('', 'Videos qui ont decolle (>= 2x les vues habituelles du format) :');
+            for (const v of pub.outliers) out.push(`- ${v.title} — ${nf(v.views)} vues (x${(v.ratio ?? 0).toFixed(1)}${v.isShort ? ', Short' : ''}) https://youtube.com/watch?v=${v.id}`);
+          }
+        }
+      }
+
+      out.push('', `## YouTube Analytics (${PERIODS.find((p) => p.key === per)?.label})`);
+      if (an.status === 'absent') {
+        out.push('Non connecte. Pour les chiffres prives et les revenus reels : TubLyTI > Mes videos > Ma chaine > « Connecter YouTube Analytics ».');
+      } else if (an.status === 'erreur') {
+        out.push(an.reason === 'acces-retire' ? 'Acces retire dans le compte Google : reconnecter depuis Ma chaine.' : 'YouTube Analytics ne repond pas pour le moment.');
+      } else {
+        const d = an.data;
+        const t = d.totals;
+        const subTotal = d.subscribed.subscribed + d.subscribed.notSubscribed;
+        out.push(
+          `Du ${d.startDate} au ${d.endDate} (chiffres consolides avec ~2 jours de retard)`,
+          `- Vues : ${nf(t.views)} | Heures regardees : ${nf(t.minutesWatched / 60)}`,
+          `- Duree moyenne regardee : ${secs(t.averageViewDuration)} (${t.averageViewPercentage.toFixed(0)} % de la video)`,
+          `- Abonnes : +${nf(t.subscribersGained)} / -${nf(t.subscribersLost)} (net ${nf(t.subscribersGained - t.subscribersLost)})`,
+          `- J'aime ${nf(t.likes)} | Commentaires ${nf(t.comments)} | Partages ${nf(t.shares)}`,
+          subTotal ? `- Vues venant d'abonnes : ${((d.subscribed.subscribed / subTotal) * 100).toFixed(0)} %` : '',
+        );
+        if (d.revenue) {
+          const r = d.revenue;
+          out.push(`- Revenus estimes : ${money(r.estimatedRevenue)} | RPM ${money(r.rpm)} | CPM ${money(r.cpm)} | Lectures monetisees ${nf(r.monetizedPlaybacks)}`);
+        } else if (d.revenueNote) {
+          out.push(`- Revenus : ${d.revenueNote}`);
+        }
+        const total = (rows: { views: number }[]) => rows.reduce((a, x) => a + x.views, 0) || 1;
+        if (d.traffic.length) out.push(`- Sources de trafic : ${d.traffic.slice(0, 6).map((x) => `${x.key} ${((x.views / total(d.traffic)) * 100).toFixed(0)} %`).join(', ')}`);
+        if (d.countries.length) out.push(`- Pays : ${d.countries.slice(0, 6).map((x) => `${x.key} ${((x.views / total(d.countries)) * 100).toFixed(0)} %`).join(', ')}`);
+        if (d.devices.length) out.push(`- Appareils : ${d.devices.map((x) => `${x.key} ${((x.views / total(d.devices)) * 100).toFixed(0)} %`).join(', ')}`);
+        if (d.demographics.length) out.push(`- Age (part des spectateurs connectes) : ${d.demographics.map((x) => `${x.age} ${(x.male + x.female + x.other).toFixed(0)} %`).join(', ')}`);
+        if (d.topVideos.length) {
+          out.push('', 'Meilleures videos de la periode (utilise get_video_retention pour voir ou les spectateurs decrochent) :');
+          for (const v of d.topVideos) {
+            out.push(`- ${v.title} — ${nf(v.views)} vues, duree moyenne ${secs(v.avgDuration)} (${v.avgPercent.toFixed(0)} %), +${nf(v.subscribers)} abonnes${v.revenue !== null ? `, ${money(v.revenue)}` : ''} [video ${v.id}]`);
+          }
+        }
+      }
+      return ok(out.filter((l) => l !== '').join('\n').replace(/\n## /g, '\n\n## '));
+    },
+  );
+
+  // ── get_video_retention ────────────────────────────────────────────
+
+  mcp.tool(
+    'get_video_retention',
+    'Courbe de retention d\'une video d\'une de MES chaines (YouTube Analytics doit etre connecte) : part des spectateurs encore presents au fil de la video, plus forte chute, comparaison avec les videos YouTube de meme duree. Lecture seule.',
+    {
+      video: z.string().describe('Lien YouTube ou ID de la video (11 caracteres)'),
+      channel: z.string().optional().describe('Nom, @pseudo ou ID UC de la chaine (facultatif si une seule chaine)'),
+    },
+    async ({ video, channel }) => {
+      const blocked = await guard(token, 'get_video_retention');
+      if (blocked) return fail(blocked);
+      const id = video.match(/(?:v=|youtu\.be\/|\/shorts\/|\/live\/)([\w-]{11})/)?.[1] ?? (/^[\w-]{11}$/.test(video.trim()) ? video.trim() : null);
+      if (!id) return fail('Lien ou ID de video invalide.');
+      const db = createServiceClient();
+
+      // La video doit appartenir a une des chaines verifiees du compte.
+      let ch: MyChannel | undefined;
+      if (channel) {
+        const picked = await pickMyChannel(channel);
+        if (!picked.channel) return fail(picked.error ?? 'Chaine introuvable.');
+        ch = picked.channel;
+      } else {
+        const { data: v } = await db.from('videos').select('channel_id').eq('id', id).maybeSingle();
+        const { data: mine } = await db
+          .from('user_channels')
+          .select('id, title, handle, youtube_channel_id')
+          .eq('user_id', token.userId ?? '00000000-0000-0000-0000-000000000000')
+          .not('verified_at', 'is', null);
+        const list = (mine ?? []) as MyChannel[];
+        ch = list.find((c) => c.youtube_channel_id && c.youtube_channel_id === v?.channel_id) ?? (list.length === 1 ? list[0] : undefined);
+        if (!ch) return fail(list.length ? 'Video introuvable sur tes chaines : precise le parametre channel.' : 'Aucune chaine verifiee sur ce compte.');
+      }
+
+      const res = await getVideoRetention(db, ch.id, id);
+      if (res.status === 'absent') return fail('YouTube Analytics n\'est pas connecte pour cette chaine (TubLyTI > Ma chaine > « Connecter YouTube Analytics »).');
+      if (res.status === 'erreur') {
+        return fail(
+          res.reason === 'vide'
+            ? 'YouTube n\'a pas encore assez de vues pour calculer la retention de cette video.'
+            : res.reason === 'acces-retire'
+              ? 'Acces YouTube Analytics retire : reconnecter depuis Ma chaine.'
+              : 'Retention indisponible (video d\'une autre chaine, ou YouTube ne repond pas).',
+        );
+      }
+      const pts = res.data.points;
+      const at = (r: number) => pts.reduce((b, p) => (Math.abs(p.at - r) < Math.abs(b.at - r) ? p : b), pts[0]).watch;
+      let drop = { at: 0, size: 0 };
+      for (let i = 1; i < pts.length; i++) {
+        const d = pts[i - 1].watch - pts[i].watch;
+        if (pts[i].at > 0.03 && d > drop.size) drop = { at: pts[i].at, size: d };
+      }
+      const rel = res.data.relativeAvg;
+      const lines = [
+        `# Retention — video ${id} (${ch.title})`,
+        `Spectateurs encore presents : ${[0.05, 0.1, 0.25, 0.5, 0.75, 0.95].map((r) => `${Math.round(r * 100)} % → ${(at(r) * 100).toFixed(0)} %`).join(' | ')}`,
+        drop.size > 0.03 ? `Plus forte chute : ${(drop.size * 100).toFixed(1)} points vers ${Math.round(drop.at * 100)} % de la video.` : 'Pas de chute brutale.',
+        rel === null
+          ? ''
+          : `Comparaison aux videos YouTube de meme duree : ${rel >= 0.6 ? 'meilleure que la plupart' : rel <= 0.4 ? 'moins bonne que la plupart' : 'dans la moyenne'} (score ${rel.toFixed(2)}, 0,5 = moyenne).`,
+        'Une valeur au-dessus de 100 % signifie que des spectateurs reviennent en arriere ou revoient ce passage.',
+        `https://youtube.com/watch?v=${id}`,
+      ];
+      return ok(lines.filter(Boolean).join('\n'));
     },
   );
 

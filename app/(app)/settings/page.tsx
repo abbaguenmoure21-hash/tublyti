@@ -173,7 +173,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
             id="claude"
             icon="sparkles"
             title="Connexion à Claude"
-            description="Pose tes questions à Claude sur tes sujets, par exemple « quels sujets choisir cette semaine ? »."
+            description="Pose tes questions à Claude sur tes sujets et ta chaîne, par exemple « quels sujets choisir cette semaine ? » ou « où les gens décrochent-ils sur ma dernière vidéo ? »."
           >
             <ol className="grid gap-2 sm:grid-cols-3">
               {[
