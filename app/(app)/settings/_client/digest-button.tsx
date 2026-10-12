@@ -9,8 +9,9 @@ import { sendDigestNow } from '@/lib/actions/digest';
 export function DigestButton({ email }: { email: string }) {
   const [pending, startTransition] = useTransition();
   return (
-    <div className="flex flex-col gap-3 rounded-xl border border-border bg-card px-4 py-4">
-      <p className="text-sm leading-relaxed text-muted-foreground">
+    <div className="flex flex-col gap-3 rounded-2xl bg-card px-4 py-4">
+      <p className="text-sm font-semibold">Résumé du dimanche</p>
+      <p className="-mt-2 text-sm leading-relaxed text-muted-foreground">
         Chaque dimanche, TubLyTI t’envoie à <strong className="text-foreground">{email}</strong> les meilleurs sujets de tes chaînes, ceux qui viennent de passer à « C’est le moment », les résultats de tes vidéos publiées et tes alertes de la semaine.
       </p>
       <button
