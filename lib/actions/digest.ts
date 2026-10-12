@@ -16,7 +16,7 @@ export async function sendDigestNow() {
     if (!(await isDbReady())) {
       if (user.role !== 'admin') return { error: 'Action indisponible pour le moment.' };
       const data = await buildDigestData(db);
-      const result = await sendDigestEmail(buildDigestHtml(data, process.env.NEXT_PUBLIC_APP_URL ?? 'https://tublyti.vercel.app'));
+      const result = await sendDigestEmail(buildDigestHtml(data, (process.env.NEXT_PUBLIC_APP_URL || 'https://tublyti.vercel.app').replace(/\/+$/, '')));
       return result.ok ? { success: true } : { error: result.error ?? 'Échec de l’envoi.' };
     }
     const result = await sendDigestToUser(db, { id: user.id, email: user.email, isAdmin: user.role === 'admin' });

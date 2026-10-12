@@ -3,7 +3,7 @@ import { buildDigestData } from '@/lib/services/digest';
 import { buildDigestHtml, sendDigestEmail } from '@/lib/email/digest-email';
 import { listScopeNiches, labelsByNiche } from '@/lib/scope';
 
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://tublyti.vercel.app';
+const APP_URL = (process.env.NEXT_PUBLIC_APP_URL || 'https://tublyti.vercel.app').replace(/\/+$/, '');
 
 async function columnExists(db: SupabaseClient, table: string): Promise<boolean> {
   const { error } = await db.from(table).select('user_id').limit(1);

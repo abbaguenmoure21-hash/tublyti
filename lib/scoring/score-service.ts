@@ -571,7 +571,7 @@ export async function runScore(
     });
 
     if (qualifiedIn72h >= 5 && topic.status === 'in_production') {
-      const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://tublyti.vercel.app';
+      const baseUrl = (process.env.NEXT_PUBLIC_APP_URL || 'https://tublyti.vercel.app').replace(/\/+$/, '');
       await alertSender.send({
         kind: 'burn_down',
         subject: `Sujet ${topic.label} : ${qualifiedIn72h} chaines ont publie en 72 h`,
@@ -596,7 +596,7 @@ export async function runScore(
       kind: 'silent_collection',
       subject: 'Collecte silencieuse depuis 36 h',
       body: 'Aucun snapshot video enregistre dans les 36 dernieres heures.',
-      actionUrl: `${process.env.NEXT_PUBLIC_APP_URL ?? 'https://tublyti.vercel.app'}/admin/jobs`,
+      actionUrl: `${(process.env.NEXT_PUBLIC_APP_URL || 'https://tublyti.vercel.app').replace(/\/+$/, '')}/admin/jobs`,
       actionLabel: 'Voir les jobs',
     });
     result.silentCollectionAlert = true;

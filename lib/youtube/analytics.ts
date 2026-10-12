@@ -265,3 +265,62 @@ export async function getChannelAnalytics(db: SupabaseClient, userChannelId: str
     return { status: 'erreur', reason };
   }
 }
+
+/* ---------- Rétention d'une vidéo ---------- */
+
+export interface RetentionData {
+  videoId: string;
+  /** 100 points : part de la vidéo écoulée (0 à 1) → part des spectateurs encore là (1 = 100 %). */
+  points: { at: number; watch: number; relative: number | null }[];
+  /** Moyenne de « relativeRetentionPerformance » : 0,5 = comme les vidéos YouTube de même durée. */
+  relativeAvg: number | null;
+}
+
+export type RetentionState =
+  | { status: 'absent' }
+  | { status: 'ok'; data: RetentionData }
+  | { status: 'erreur'; reason: 'acces-retire' | 'vide' | 'autre' };
+
+/**
+ * Courbe de rétention d'une vidéo (YouTube Analytics, dimension elapsedVideoTimeRatio), gardée 24 h en cache.
+ * Seulement pour une vidéo de la chaîne connectée (l'API refuse les autres).
+ */
+export async function getVideoRetention(db: SupabaseClient, userChannelId: string, videoId: string): Promise<RetentionState> {
+  const key = `ret:${videoId}`;
+  const { data: cached } = await db
+    .from('channel_analytics')
+    .select('data, fetched_at')
+    .eq('user_channel_id', userChannelId)
+    .eq('period', key)
+    .maybeSingle();
+  if (cached && Date.now() - new Date(cached.fetched_at as string).getTime() < 24 * 3_600_000) {
+    return { status: 'ok', data: cached.data as RetentionData };
+  }
+  const { data: tok } = await db.from('user_channel_tokens').select('refresh_token_enc').eq('user_channel_id', userChannelId).maybeSingle();
+  if (!tok) return { status: 'absent' };
+  try {
+    const token = await accessToken(decrypt(tok.refresh_token_enc as string));
+    const end = new Date(Date.now() - 86_400_000);
+    const r = await report(token, {
+      startDate: '2006-01-01',
+      endDate: iso(end),
+      dimensions: 'elapsedVideoTimeRatio',
+      metrics: 'audienceWatchRatio,relativeRetentionPerformance',
+      filters: `video==${videoId}`,
+      sort: 'elapsedVideoTimeRatio',
+    });
+    const rows = toObjects(r);
+    if (!rows.length) return { status: 'erreur', reason: 'vide' };
+    const points = rows.map((row) => ({
+      at: n(row.elapsedVideoTimeRatio),
+      watch: n(row.audienceWatchRatio),
+      relative: row.relativeRetentionPerformance === undefined ? null : n(row.relativeRetentionPerformance),
+    }));
+    const rel = points.map((p) => p.relative).filter((x): x is number => x !== null);
+    const data: RetentionData = { videoId, points, relativeAvg: rel.length ? rel.reduce((a, b) => a + b, 0) / rel.length : null };
+    await db.from('channel_analytics').upsert({ user_channel_id: userChannelId, period: key, data, fetched_at: new Date().toISOString() });
+    return { status: 'ok', data };
+  } catch (e) {
+    return { status: 'erreur', reason: (e as Error).message === 'acces-retire' ? 'acces-retire' : 'autre' };
+  }
+}

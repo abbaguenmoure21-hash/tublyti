@@ -52,7 +52,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
     ...catalogue.filter((n) => followed.includes(n.id)).map((n) => ({ id: n.id, name: n.name })),
   ];
   const nichesForAlerts = user.role === 'admin' ? catalogue.map((n) => ({ id: n.id, name: n.name })) : myNiches;
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://tublyti.vercel.app';
+  const appUrl = (process.env.NEXT_PUBLIC_APP_URL || 'https://tublyti.vercel.app').replace(/\/+$/, '');
 
   const verifiedCount = channels.filter((c) => c.status !== 'pending').length;
   const pendingCount = channels.filter((c) => c.status === 'pending').length;

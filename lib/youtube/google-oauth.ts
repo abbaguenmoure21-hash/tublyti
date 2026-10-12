@@ -20,7 +20,9 @@ export function googleEnabled(): boolean {
 }
 
 export function redirectUri(origin: string): string {
-  return `${process.env.NEXT_PUBLIC_APP_URL ?? origin}/api/youtube/callback`;
+  // Adresse publique si elle est renseignée (Vercel), sinon celle de la requête (localhost). Jamais de « / » final.
+  const base = (process.env.NEXT_PUBLIC_APP_URL?.trim() || origin).replace(/\/+$/, '');
+  return `${base}/api/youtube/callback`;
 }
 
 export function randomState(): string {

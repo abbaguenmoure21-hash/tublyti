@@ -5,7 +5,7 @@ import { createServiceClient } from '@/lib/supabase/server';
 import { getSessionUser } from '@/lib/auth/session';
 import { lookupChannel, latestVideos } from '@/lib/youtube/channel-lookup';
 import { decrypt } from '@/lib/crypto/tokens';
-import { getChannelAnalytics, type Period } from '@/lib/youtube/analytics';
+import { getChannelAnalytics, getVideoRetention, type Period } from '@/lib/youtube/analytics';
 
 const NOT_SIGNED = { error: 'Connecte-toi pour continuer.' } as const;
 
@@ -103,4 +103,13 @@ export async function disconnectAnalytics(id: string): Promise<{ error?: string;
   await db.from('channel_analytics').delete().eq('user_channel_id', id);
   revalidatePath('/my-channel');
   return { success: true };
+}
+
+/** Courbe de rétention d'une vidéo de la chaîne (chargée à la demande depuis Ma chaîne). */
+export async function loadRetention(id: string, videoId: string) {
+  const user = await getSessionUser();
+  if (!user) return { status: 'erreur' as const, reason: 'autre' as const };
+  const { db, row } = await ownVerified(user.id, id);
+  if (!row || !/^[\w-]{11}$/.test(videoId)) return { status: 'erreur' as const, reason: 'autre' as const };
+  return getVideoRetention(db, id, videoId);
 }

@@ -57,7 +57,7 @@ export class SupabaseJobRunner implements JobRunner {
         .single();
 
       const kind = job?.kind ?? 'unknown';
-      const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://tublyti.vercel.app';
+      const baseUrl = (process.env.NEXT_PUBLIC_APP_URL || 'https://tublyti.vercel.app').replace(/\/+$/, '');
 
       await this.alertSender.send({
         kind: 'cron_failed',

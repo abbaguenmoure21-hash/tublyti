@@ -53,7 +53,7 @@ export async function evaluateAlertRules(
 
   if (!rules || rules.length === 0) return result;
 
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://tublyti.vercel.app';
+  const baseUrl = (process.env.NEXT_PUBLIC_APP_URL || 'https://tublyti.vercel.app').replace(/\/+$/, '');
   const owners = new Map<string, Owner>();
 
   for (const rule of rules as AlertRule[]) {

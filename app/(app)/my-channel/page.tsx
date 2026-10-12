@@ -8,6 +8,7 @@ import { encryptionReady } from '@/lib/crypto/tokens';
 import { getChannelAnalytics, PERIODS, type AnalyticsData, type Period } from '@/lib/youtube/analytics';
 import { getPublicStats, type PublicStats, type PublicVideo } from '@/lib/youtube/public-stats';
 import { AnalyticsControls, DailyChart, MonthlyChart, RefreshPublicButton } from './_components/channel-charts';
+import { TopVideos } from './_components/top-videos';
 import { BarChart3, ExternalLink, Lock, Tv } from 'lucide-react';
 
 export const metadata = { title: 'Ma chaîne' };
@@ -184,7 +185,7 @@ function VideoRow({ v, rank }: { v: PublicVideo; rank?: number }) {
 
 /* ---------- sections ---------- */
 
-function AnalyticsBlock({ data, hasMonetary }: { data: AnalyticsData; hasMonetary: boolean }) {
+function AnalyticsBlock({ data, hasMonetary, channelId }: { data: AnalyticsData; hasMonetary: boolean; channelId: string }) {
   const t = data.totals;
   const subsNet = t.subscribersGained - t.subscribersLost;
   const engagement = t.views ? ((t.likes + t.comments + t.shares) / t.views) * 100 : 0;
@@ -233,38 +234,9 @@ function AnalyticsBlock({ data, hasMonetary }: { data: AnalyticsData; hasMonetar
       </Panel>
 
       <div className="overflow-hidden rounded-2xl bg-card">
-        <h3 className="border-b border-border px-4 py-3 text-[15px] font-semibold">Meilleures vidéos sur la période</h3>
+        <h3 className="border-b border-border px-4 py-3 text-[15px] font-semibold">Meilleures vidéos sur la période <span className="font-normal text-muted-foreground">· clique sur « Rétention » pour voir où les spectateurs décrochent</span></h3>
         {data.topVideos.length ? (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[640px] text-sm">
-              <thead>
-                <tr className="text-left text-[13px] text-muted-foreground">
-                  <th className="px-4 py-2 font-medium">Vidéo</th>
-                  <th className="px-3 py-2 text-right font-medium">Vues</th>
-                  <th className="px-3 py-2 text-right font-medium">Heures</th>
-                  <th className="px-3 py-2 text-right font-medium">Durée moy.</th>
-                  <th className="px-3 py-2 text-right font-medium">Regardé</th>
-                  <th className="px-3 py-2 text-right font-medium">Abonnés</th>
-                  {data.revenue && <th className="px-4 py-2 text-right font-medium">Revenus</th>}
-                </tr>
-              </thead>
-              <tbody>
-                {data.topVideos.map((v) => (
-                  <tr key={v.id} className="border-t border-muted">
-                    <td className="max-w-[320px] truncate px-4 py-2.5">
-                      <a href={`https://www.youtube.com/watch?v=${v.id}`} target="_blank" rel="noreferrer" className="hover:underline">{v.title}</a>
-                    </td>
-                    <td className="px-3 py-2.5 text-right tabular-nums">{nf.format(v.views)}</td>
-                    <td className="px-3 py-2.5 text-right tabular-nums">{nf.format(Math.round(v.minutes / 60))}</td>
-                    <td className="px-3 py-2.5 text-right tabular-nums">{duration(v.avgDuration)}</td>
-                    <td className="px-3 py-2.5 text-right tabular-nums">{pct(v.avgPercent, 0)}</td>
-                    <td className="px-3 py-2.5 text-right tabular-nums">+{nf.format(v.subscribers)}</td>
-                    {data.revenue && <td className="px-4 py-2.5 text-right tabular-nums">{v.revenue === null ? '—' : usd.format(v.revenue)}</td>}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <TopVideos channelId={channelId} rows={data.topVideos} hasRevenue={Boolean(data.revenue)} />
         ) : (
           <p className="px-4 py-6 text-sm text-muted-foreground">Aucune vue sur cette période.</p>
         )}
@@ -500,7 +472,7 @@ export default async function MyChannelPage({ searchParams }: { searchParams: Pr
         }
       >
         {analytics.status === 'ok' ? (
-          <AnalyticsBlock data={analytics.data} hasMonetary={analytics.hasMonetary} />
+          <AnalyticsBlock data={analytics.data} hasMonetary={analytics.hasMonetary} channelId={channelId} />
         ) : (
           <div className="flex flex-col items-start gap-3 rounded-2xl bg-card p-5 md:flex-row md:items-center">
             <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary-soft text-primary-ink">

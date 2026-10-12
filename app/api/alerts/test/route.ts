@@ -12,7 +12,7 @@ export async function POST(request: NextRequest) {
     ? new ResendAlertSender()
     : new ConsoleAlertSender();
 
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://tublyti.vercel.app';
+  const baseUrl = (process.env.NEXT_PUBLIC_APP_URL || 'https://tublyti.vercel.app').replace(/\/+$/, '');
 
   await sender.send({
     kind: 'test',
