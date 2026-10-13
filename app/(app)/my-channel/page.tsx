@@ -185,7 +185,7 @@ function VideoRow({ v, rank }: { v: PublicVideo; rank?: number }) {
 
 /* ---------- sections ---------- */
 
-function AnalyticsBlock({ data, hasMonetary, channelId, reach }: { data: AnalyticsData; hasMonetary: boolean; channelId: string; reach: Map<string, { impressions: number; ctr: number | null }> }) {
+function AnalyticsBlock({ data, hasMonetary, channelId, reach, reachNote }: { data: AnalyticsData; hasMonetary: boolean; channelId: string; reach: Map<string, { impressions: number; ctr: number | null }>; reachNote: string | null }) {
   const t = data.totals;
   const subsNet = t.subscribersGained - t.subscribersLost;
   const engagement = t.views ? ((t.likes + t.comments + t.shares) / t.views) * 100 : 0;
@@ -235,6 +235,7 @@ function AnalyticsBlock({ data, hasMonetary, channelId, reach }: { data: Analyti
 
       <div className="overflow-hidden rounded-2xl bg-card">
         <h3 className="border-b border-border px-4 py-3 text-[15px] font-semibold">Meilleures vidéos sur la période <span className="font-normal text-muted-foreground">· clique sur « Rétention » pour voir où les spectateurs décrochent · impressions et CTR depuis le début des rapports YouTube (30 jours avant la connexion)</span></h3>
+        {reachNote && <p className="border-b border-muted bg-muted/40 px-4 py-2.5 text-[13px] leading-relaxed text-muted-foreground">{reachNote}</p>}
         {data.topVideos.length ? (
           <TopVideos channelId={channelId} rows={data.topVideos.map((v) => ({ ...v, impressions: reach.get(v.id)?.impressions ?? null, ctr: reach.get(v.id)?.ctr ?? null }))} hasRevenue={Boolean(data.revenue)} />
         ) : (
@@ -431,6 +432,18 @@ export default async function MyChannelPage({ searchParams }: { searchParams: Pr
     }
     for (const [k, v] of acc) reach.set(k, { impressions: v.imp, ctr: v.imp ? v.clicks / v.imp : null });
   }
+  // Où en est le rapport quotidien des miniatures (affiché tant qu'aucun chiffre n'est arrivé).
+  let reachNote: string | null = null;
+  if (analytics.status === 'ok' && reach.size === 0) {
+    const { data: job, error: jobErr } = await db.from('reporting_jobs').select('created_at, last_sync_at, last_error').eq('user_channel_id', channelId).maybeSingle();
+    if (jobErr) reachNote = 'Impressions et CTR : il manque la migration 00027 dans Supabase.';
+    else if (!job) reachNote = 'Impressions et CTR : la demande de rapport n’a pas été enregistrée. Clique sur « Déconnecter » puis reconnecte YouTube Analytics.';
+    else if (job.last_error) reachNote = `Impressions et CTR : YouTube a répondu une erreur (${String(job.last_error).slice(0, 140)}).`;
+    else {
+      const ready = new Date(new Date(job.created_at as string).getTime() + 48 * 3_600_000);
+      reachNote = `Impressions et CTR : demande envoyée à YouTube le ${new Date(job.created_at as string).toLocaleDateString('fr-FR')}. YouTube livre le premier rapport d’ici le ${ready.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })} (avec les 30 jours précédents) ; il est importé la nuit suivante.`;
+    }
+  }
   if (!stats) return null;
   const c = stats.channel;
   const status = sp.analytics ? STATUS[sp.analytics] : null;
@@ -490,7 +503,7 @@ export default async function MyChannelPage({ searchParams }: { searchParams: Pr
         }
       >
         {analytics.status === 'ok' ? (
-          <AnalyticsBlock data={analytics.data} hasMonetary={analytics.hasMonetary} channelId={channelId} reach={reach} />
+          <AnalyticsBlock data={analytics.data} hasMonetary={analytics.hasMonetary} channelId={channelId} reach={reach} reachNote={reachNote} />
         ) : (
           <div className="flex flex-col items-start gap-3 rounded-2xl bg-card p-5 md:flex-row md:items-center">
             <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary-soft text-primary-ink">
