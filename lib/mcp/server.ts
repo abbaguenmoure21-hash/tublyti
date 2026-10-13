@@ -1397,7 +1397,28 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
       ]);
       const connected = new Set(((toks ?? []) as { user_channel_id: string }[]).map((t) => t.user_channel_id));
       const nicheName = new Map(((niches ?? []) as { id: string; name: string }[]).map((n) => [n.id, n.name]));
+      // Liste vide : on dit pourquoi, pour que l'outil appelant puisse guider l'utilisateur.
+      let reason: string | null = null;
+      if (!mine.length) {
+        if (!token.userId) {
+          reason = 'token_without_account';
+        } else {
+          const { count } = await db.from('user_channels').select('id', { count: 'exact', head: true }).eq('user_id', token.userId);
+          reason = count ? 'no_verified_channel' : 'no_channel';
+        }
+      }
       return json({
+        ...(reason
+          ? {
+              reason,
+              help:
+                reason === 'token_without_account'
+                  ? 'Ce jeton date d\'avant les comptes personnels et n\'est rattache a aucun compte. Cree un nouveau jeton dans TubLyTI > Reglages > Connexion a Claude (connecte avec le compte qui possede tes chaines) et remplace l\'ancien.'
+                  : reason === 'no_verified_channel'
+                    ? 'Le compte du jeton a des chaines, mais aucune n\'est verifiee. TubLyTI > Reglages > Mes chaines > Verifier.'
+                    : 'Le compte du jeton n\'a aucune chaine. Ajoute ta chaine dans TubLyTI > Reglages > Mes chaines, ou cree le jeton depuis le compte qui possede tes chaines.',
+            }
+          : {}),
         channels: mine.map((c) => ({
           channel_id: c.youtube_channel_id,
           name: c.title,

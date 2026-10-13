@@ -8,6 +8,11 @@ Lecture seule. Le jeton ne voit que les chaînes **vérifiées** de son proprié
 { "channels": [ { "channel_id": "UC…", "name": "…", "handle": "@…", "subscribers": 1234, "niche": "…", "analytics_connected": true } ] }
 ```
 
+Liste vide : la réponse ajoute `reason` et `help` :
+- `token_without_account` : jeton créé avant les comptes personnels, rattaché à aucun compte → créer un nouveau jeton dans Réglages › Connexion à Claude, connecté avec le compte qui possède les chaînes ;
+- `no_verified_channel` : le compte a des chaînes, aucune vérifiée → Réglages › Mes chaînes › Vérifier ;
+- `no_channel` : le compte du jeton n'a aucune chaîne (jeton créé depuis un autre compte).
+
 ## 2. `list_my_videos` — `channel?` (nom, @pseudo ou UC…), `limit?` (défaut 20, max 50)
 ```json
 { "channel_id": "UC…", "videos": [ { "video_id": "…", "title": "…", "published_at": "ISO", "duration_s": 540, "format": "long|short", "views": 1200, "likes": 40, "comments": 3, "url": "https://youtube.com/watch?v=…" } ] }
