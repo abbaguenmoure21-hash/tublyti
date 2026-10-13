@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSessionUser } from '@/lib/auth/session';
 import { createServiceClient } from '@/lib/supabase/server';
+import { ensureReachJob } from '@/lib/youtube/reporting';
 import { encrypt } from '@/lib/crypto/tokens';
 import {
   GOOGLE_CHANNELS_COOKIE,
@@ -152,5 +153,7 @@ async function connectAnalytics(
   // Google vient de prouver la propriété : la chaîne est vérifiée si elle ne l'était pas.
   if (!row.verified_at) await db.from('user_channels').update({ verified_at: new Date().toISOString() }).eq('id', row.id);
   await db.from('channel_analytics').delete().eq('user_channel_id', row.id);
+  // Impressions et CTR des miniatures : la tâche de rapport quotidien est créée tout de suite (premier fichier sous 48 h).
+  if (token.access_token) await ensureReachJob(db, row.id, token.access_token).catch(() => undefined);
   return go(scopes.some((sc) => sc.endsWith('yt-analytics-monetary.readonly')) ? 'ok' : 'ok-sans-revenus');
 }

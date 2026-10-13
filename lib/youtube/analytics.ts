@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { decrypt } from '@/lib/crypto/tokens';
+import { decrypt } from '../crypto/tokens';
 
 /**
  * Statistiques privées d'une chaîne via l'API YouTube Analytics (avec l'accord du client).
@@ -56,7 +56,7 @@ function iso(d: Date) {
   return d.toISOString().slice(0, 10);
 }
 
-async function accessToken(refresh: string): Promise<string> {
+export async function accessToken(refresh: string): Promise<string> {
   const res = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -322,5 +322,51 @@ export async function getVideoRetention(db: SupabaseClient, userChannelId: strin
     return { status: 'ok', data };
   } catch (e) {
     return { status: 'erreur', reason: (e as Error).message === 'acces-retire' ? 'acces-retire' : 'autre' };
+  }
+}
+
+/* ---------- Chiffres d'une vidéo (depuis sa publication) ---------- */
+
+export interface VideoTotals {
+  views: number;
+  minutesWatched: number;
+  averageViewDuration: number;
+  averageViewPercentage: number;
+  subscribersGained: number;
+  likes: number;
+  comments: number;
+  shares: number;
+}
+
+/** Totaux YouTube Analytics d'une vidéo de la chaîne connectée, depuis sa mise en ligne (cache 6 h). */
+export async function getVideoTotals(db: SupabaseClient, userChannelId: string, videoId: string): Promise<VideoTotals | null> {
+  const key = `vid:${videoId}`;
+  const { data: cached } = await db.from('channel_analytics').select('data, fetched_at').eq('user_channel_id', userChannelId).eq('period', key).maybeSingle();
+  if (cached && Date.now() - new Date(cached.fetched_at as string).getTime() < CACHE_HOURS * 3_600_000) return cached.data as VideoTotals;
+  const { data: tok } = await db.from('user_channel_tokens').select('refresh_token_enc').eq('user_channel_id', userChannelId).maybeSingle();
+  if (!tok) return null;
+  try {
+    const token = await accessToken(decrypt(tok.refresh_token_enc as string));
+    const r = await report(token, {
+      startDate: '2006-01-01',
+      endDate: iso(new Date()),
+      filters: `video==${videoId}`,
+      metrics: 'views,estimatedMinutesWatched,averageViewDuration,averageViewPercentage,subscribersGained,likes,comments,shares',
+    });
+    const t = toObjects(r)[0] ?? {};
+    const data: VideoTotals = {
+      views: n(t.views),
+      minutesWatched: n(t.estimatedMinutesWatched),
+      averageViewDuration: n(t.averageViewDuration),
+      averageViewPercentage: n(t.averageViewPercentage),
+      subscribersGained: n(t.subscribersGained),
+      likes: n(t.likes),
+      comments: n(t.comments),
+      shares: n(t.shares),
+    };
+    await db.from('channel_analytics').upsert({ user_channel_id: userChannelId, period: key, data, fetched_at: new Date().toISOString() });
+    return data;
+  } catch {
+    return null;
   }
 }

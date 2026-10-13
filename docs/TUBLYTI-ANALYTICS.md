@@ -1,0 +1,45 @@
+# Contrat TubLyTI Analytics (serveur MCP)
+
+Adresse : `https://tublyti.vercel.app/api/mcp` · authentification : jeton TubLyTI (Réglages › Connexion à Claude), en-tête `Authorization: Bearer <jeton>`.
+Lecture seule. Le jeton ne voit que les chaînes **vérifiées** de son propriétaire. Les quatre outils répondent en **JSON** (texte JSON dans le contenu MCP).
+
+## 1. `list_my_channels` — aucun paramètre
+```json
+{ "channels": [ { "channel_id": "UC…", "name": "…", "handle": "@…", "subscribers": 1234, "niche": "…", "analytics_connected": true } ] }
+```
+
+## 2. `list_my_videos` — `channel?` (nom, @pseudo ou UC…), `limit?` (défaut 20, max 50)
+```json
+{ "channel_id": "UC…", "videos": [ { "video_id": "…", "title": "…", "published_at": "ISO", "duration_s": 540, "format": "long|short", "views": 1200, "likes": 40, "comments": 3, "url": "https://youtube.com/watch?v=…" } ] }
+```
+Une vidéo apparaît après la collecte de nuit qui suit sa publication.
+
+## 3. `get_video_performance` — `video` (lien ou ID)
+```json
+{
+  "video_id": "…", "title": "…", "published_at": "ISO", "duration_s": 540, "analytics_connected": true,
+  "public": { "views": 1200, "likes": 40, "comments": 3, "as_of": "ISO" },
+  "analytics": { "views": 1180, "watch_time_minutes": 3400, "avg_view_duration_s": 172, "avg_view_percentage": 31.8, "subscribers_gained": 4, "likes": 40, "comments": 3, "shares": 2 },
+  "retention": {
+    "points": [ { "t_ratio": 0.01, "t_seconds": 5, "watch_ratio": 0.92 } ],
+    "relative_to_similar_videos": 0.47,
+    "biggest_drop": { "t_ratio": 0.12, "t_seconds": 65, "size": 0.08 }
+  },
+  "thumbnail": {
+    "impressions": 15400, "ctr": 0.0462,
+    "first_day": "2026-09-14", "last_day": "2026-10-13",
+    "daily": [ { "day": "2026-10-13", "impressions": 820, "ctr": 0.051 } ]
+  }
+}
+```
+- `analytics` vaut `null` si YouTube Analytics n'est pas connecté.
+- `retention` vaut `{ "unavailable": "analytics_not_connected" | "vide" | "acces-retire" | "autre" }` quand la courbe manque (« vide » : pas assez de vues).
+- `watch_ratio` peut dépasser 1 (relectures). `relative_to_similar_videos` : 0,5 = moyenne des vidéos YouTube de même durée.
+- **La phrase exacte où les spectateurs partent** : TubLyTI donne l'instant (`biggest_drop.t_seconds`) ; c'est l'outil qui possède le script ou la transcription qui fait la correspondance instant → phrase.
+- **CTR et impressions** (YouTube Reporting API, rapport `channel_reach_basic_a1`) : `ctr` est une **fraction** (0,0462 = 4,62 %), pondérée par les impressions sur toute la période disponible ; `impressions` est le total. Les fichiers arrivent une fois par jour (≈ 1 à 2 jours de retard) ; à la connexion, YouTube rattrape les 30 jours précédents.
+- Quand le CTR manque : `"thumbnail": { "impressions": null, "ctr": null, "unavailable": "analytics_not_connected" | "report_job_pending" | "no_data_yet" | "report_error" }`. `no_data_yet` : premier fichier attendu sous 48 h après la connexion.
+
+## 4. `get_video_retention` — `video`, `channel?`
+Résumé en texte de la courbe (pour une lecture humaine). Pour un programme, préférer `get_video_performance.retention`.
+
+Autres outils utiles : `get_my_channel_stats` (statistiques de la chaîne, texte), `list_today`, `get_topic_gap`, `list_frustrations`…

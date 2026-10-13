@@ -8,7 +8,8 @@ import { canWrite, canSeeNiche, type McpTokenInfo } from './auth';
 import { listScopeNiches } from '@/lib/scope';
 import { escapeLike } from '@/lib/utils';
 import { getPublicStats } from '@/lib/youtube/public-stats';
-import { getChannelAnalytics, getVideoRetention, PERIODS, type Period } from '@/lib/youtube/analytics';
+import { getVideoReach } from '@/lib/youtube/reporting';
+import { getChannelAnalytics, getVideoRetention, getVideoTotals, PERIODS, type Period } from '@/lib/youtube/analytics';
 
 // ── Constants ──────────────────────────────────────────────────────────
 
@@ -1361,6 +1362,182 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
         `https://youtube.com/watch?v=${id}`,
       ];
       return ok(lines.filter(Boolean).join('\n'));
+    },
+  );
+
+  // ── Contrat « analytics » pour les outils de production (JSON) ─────
+  // list_my_channels · list_my_videos · get_video_performance (+ get_video_retention ci-dessus).
+  // Réponses en JSON pour être lues par un programme ; lecture seule ; chaînes vérifiées du jeton uniquement.
+
+  const json = (v: unknown) => ok(JSON.stringify(v, null, 2));
+
+  async function myVerifiedChannels() {
+    if (!token.userId) return [] as (MyChannel & { niche_id: string | null; subscriber_count: number | null })[];
+    const { data } = await createServiceClient()
+      .from('user_channels')
+      .select('id, title, handle, youtube_channel_id, niche_id, subscriber_count')
+      .eq('user_id', token.userId)
+      .not('verified_at', 'is', null);
+    return (data ?? []) as (MyChannel & { niche_id: string | null; subscriber_count: number | null })[];
+  }
+
+  mcp.tool(
+    'list_my_channels',
+    'Liste MES chaines YouTube verifiees (JSON) : channel_id (UC…), nom, @pseudo, abonnes, thematique, analytics_connected (YouTube Analytics connecte ou non).',
+    {},
+    async () => {
+      const blocked = await guard(token, 'list_my_channels');
+      if (blocked) return fail(blocked);
+      const db = createServiceClient();
+      const mine = await myVerifiedChannels();
+      const ids = mine.map((c) => c.id);
+      const [{ data: toks }, { data: niches }] = await Promise.all([
+        ids.length ? db.from('user_channel_tokens').select('user_channel_id').in('user_channel_id', ids) : Promise.resolve({ data: [] }),
+        db.from('niches').select('id, name'),
+      ]);
+      const connected = new Set(((toks ?? []) as { user_channel_id: string }[]).map((t) => t.user_channel_id));
+      const nicheName = new Map(((niches ?? []) as { id: string; name: string }[]).map((n) => [n.id, n.name]));
+      return json({
+        channels: mine.map((c) => ({
+          channel_id: c.youtube_channel_id,
+          name: c.title,
+          handle: c.handle,
+          subscribers: c.subscriber_count,
+          niche: c.niche_id ? nicheName.get(c.niche_id) ?? null : null,
+          analytics_connected: connected.has(c.id),
+        })),
+      });
+    },
+  );
+
+  mcp.tool(
+    'list_my_videos',
+    'Liste les videos publiees d\'une de MES chaines (JSON), les plus recentes d\'abord : video_id, titre, date, duree, vues, j\'aime, commentaires, format (long/short).',
+    {
+      channel: z.string().optional().describe('Nom, @pseudo ou ID UC de la chaine (facultatif si une seule chaine)'),
+      limit: z.number().optional().describe('Nombre de videos (defaut 20, max 50)'),
+    },
+    async ({ channel, limit }) => {
+      const blocked = await guard(token, 'list_my_videos');
+      if (blocked) return fail(blocked);
+      const picked = await pickMyChannel(channel);
+      if (!picked.channel?.youtube_channel_id) return fail(picked.error ?? 'Chaine non reliee a YouTube.');
+      const db = createServiceClient();
+      const { data: vids } = await db
+        .from('videos')
+        .select('id, title, published_at, duration_s')
+        .eq('channel_id', picked.channel.youtube_channel_id)
+        .order('published_at', { ascending: false, nullsFirst: false })
+        .limit(Math.min(limit ?? 20, 50));
+      const list = (vids ?? []) as { id: string; title: string; published_at: string | null; duration_s: number | null }[];
+      const stats = new Map<string, { views: number; likes: number; comments: number }>();
+      if (list.length) {
+        const { data: snaps } = await db
+          .from('video_snapshots')
+          .select('video_id, views, likes, comments')
+          .in('video_id', list.map((v) => v.id))
+          .order('captured_at', { ascending: false })
+          .limit(2000);
+        for (const sn of (snaps ?? []) as { video_id: string; views: number; likes: number | null; comments: number | null }[]) {
+          if (!stats.has(sn.video_id)) stats.set(sn.video_id, { views: Number(sn.views) || 0, likes: Number(sn.likes) || 0, comments: Number(sn.comments) || 0 });
+        }
+      }
+      return json({
+        channel_id: picked.channel.youtube_channel_id,
+        videos: list.map((v) => ({
+          video_id: v.id,
+          title: v.title,
+          published_at: v.published_at,
+          duration_s: v.duration_s,
+          format: (v.duration_s ?? 0) > 0 && (v.duration_s ?? 0) <= 180 ? 'short' : 'long',
+          views: stats.get(v.id)?.views ?? null,
+          likes: stats.get(v.id)?.likes ?? null,
+          comments: stats.get(v.id)?.comments ?? null,
+          url: `https://youtube.com/watch?v=${v.id}`,
+        })),
+      });
+    },
+  );
+
+  mcp.tool(
+    'get_video_performance',
+    'Performance d\'une video d\'une de MES chaines (JSON) : vues, duree moyenne regardee, % vu, abonnes gagnes, interactions, courbe de retention (point par point, en secondes et en part de la video), plus forte chute, comparaison aux videos de meme duree, et CTR/impressions des miniatures quand ils sont disponibles. Necessite YouTube Analytics connecte pour les chiffres prives.',
+    {
+      video: z.string().describe('Lien YouTube ou ID de la video (11 caracteres)'),
+    },
+    async ({ video }) => {
+      const blocked = await guard(token, 'get_video_performance');
+      if (blocked) return fail(blocked);
+      const id = video.match(/(?:v=|youtu\.be\/|\/shorts\/|\/live\/)([\w-]{11})/)?.[1] ?? (/^[\w-]{11}$/.test(video.trim()) ? video.trim() : null);
+      if (!id) return fail('Lien ou ID de video invalide.');
+      const db = createServiceClient();
+      const { data: v } = await db.from('videos').select('id, title, published_at, duration_s, channel_id').eq('id', id).maybeSingle();
+      const mine = await myVerifiedChannels();
+      const ch = mine.find((c) => c.youtube_channel_id && c.youtube_channel_id === v?.channel_id);
+      if (!v || !ch) return fail('Video introuvable sur tes chaines verifiees (elle apparait apres la collecte de nuit qui suit sa publication).');
+
+      const [{ data: snap }, totals, ret, { data: tok }, reach, { data: job }] = await Promise.all([
+        db.from('video_snapshots').select('views, likes, comments, captured_at').eq('video_id', id).order('captured_at', { ascending: false }).limit(1).maybeSingle(),
+        getVideoTotals(db, ch.id, id),
+        getVideoRetention(db, ch.id, id),
+        db.from('user_channel_tokens').select('user_channel_id').eq('user_channel_id', ch.id).maybeSingle(),
+        getVideoReach(db, ch.id, id).catch(() => null),
+        db.from('reporting_jobs').select('created_at, last_sync_at, last_error').eq('user_channel_id', ch.id).maybeSingle(),
+      ]);
+      const lengthS = (v.duration_s as number | null) ?? null;
+      const points = ret.status === 'ok' ? ret.data.points : [];
+      let drop: { t_ratio: number; t_seconds: number | null; size: number } | null = null;
+      for (let i = 1; i < points.length; i++) {
+        const d = points[i - 1].watch - points[i].watch;
+        if (points[i].at > 0.03 && d > (drop?.size ?? 0.03)) drop = { t_ratio: points[i].at, t_seconds: lengthS ? Math.round(points[i].at * lengthS) : null, size: Number(d.toFixed(4)) };
+      }
+      return json({
+        video_id: id,
+        title: v.title,
+        published_at: v.published_at,
+        duration_s: lengthS,
+        analytics_connected: Boolean(tok),
+        public: snap ? { views: Number(snap.views) || 0, likes: Number(snap.likes) || 0, comments: Number(snap.comments) || 0, as_of: snap.captured_at } : null,
+        analytics: totals
+          ? {
+              views: totals.views,
+              watch_time_minutes: totals.minutesWatched,
+              avg_view_duration_s: totals.averageViewDuration,
+              avg_view_percentage: totals.averageViewPercentage,
+              subscribers_gained: totals.subscribersGained,
+              likes: totals.likes,
+              comments: totals.comments,
+              shares: totals.shares,
+            }
+          : null,
+        retention:
+          ret.status === 'ok'
+            ? {
+                points: points.map((p) => ({ t_ratio: p.at, t_seconds: lengthS ? Math.round(p.at * lengthS) : null, watch_ratio: p.watch })),
+                relative_to_similar_videos: ret.data.relativeAvg,
+                biggest_drop: drop,
+              }
+            : { unavailable: ret.status === 'absent' ? 'analytics_not_connected' : ret.reason },
+        thumbnail: reach
+          ? {
+              impressions: reach.impressions,
+              ctr: reach.ctr,
+              first_day: reach.first_day,
+              last_day: reach.last_day,
+              daily: reach.daily,
+            }
+          : {
+              impressions: null,
+              ctr: null,
+              unavailable: !tok
+                ? 'analytics_not_connected'
+                : !job
+                  ? 'report_job_pending'
+                  : (job as { last_error?: string | null }).last_error
+                    ? 'report_error'
+                    : 'no_data_yet',
+            },
+      });
     },
   );
 

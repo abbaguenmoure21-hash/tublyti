@@ -116,3 +116,7 @@ Toutes les niches comptent (actualité, cuisine, méditation, toute langue) : un
 - Sans IA : profil + titres transformés en vecteur, comparés au centre de chaque niche ; sans niche nette, la chaîne attend des chaînes semblables pour créer une niche.
 - Avec `CANDIDATE_AI_CLASSIFY=true` : Claude Haiku lit le profil et choisit une niche existante ou en propose une nouvelle (nom, catégorie, RPM). La niche proposée est créée dès que 2 chaînes la partagent, ou tout de suite pour une grosse chaîne. Coût ≈ 0,002 $ par chaîne classée, dans la limite d'`AI_BUDGET_USD`.
 - Reclasser les chaînes déjà ajoutées : `pnpm review-auto-channels --apply` puis `pnpm auto-validate --chaines --apply`.
+
+## Impressions et CTR des miniatures (migration 00027)
+
+À la connexion de YouTube Analytics, TubLyTI crée une tâche de rapport `channel_reach_basic_a1` (YouTube Reporting API, déjà couverte par l'accès `yt-analytics.readonly`). YouTube dépose un fichier par jour (premier fichier sous 48 h, 30 jours d'historique rattrapés). L'étape de nuit « Impressions et CTR des miniatures » (`reach`, sans quota Data API) les importe dans `video_reach_daily`. Affichage : colonnes Impressions et CTR du tableau « Meilleures vidéos » de Ma chaîne ; MCP : `get_video_performance.thumbnail`. Code : `lib/youtube/reporting.ts`.

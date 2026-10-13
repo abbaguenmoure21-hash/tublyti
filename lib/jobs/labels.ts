@@ -4,6 +4,7 @@ export function jobLabel(kind: string): string {
   const map: [string, string][] = [
     ['nightly', 'Collecte de nuit'],
     ['user-channels', 'Abonnés des chaînes clients'],
+    ['reach', 'Impressions et CTR des miniatures'],
     ['enrich-insufficient', 'Renfort des sujets émergents'],
     ['search-emerging', 'Recherche pour sujets émergents'],
     ['discover-topics', 'Nouveaux sujets'],

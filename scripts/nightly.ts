@@ -46,6 +46,7 @@ import { autoTriageCandidates } from '../lib/youtube/auto-triage';
 import { runAttachInsufficient, searchForEmergingTopics, type EmergingSearchResult } from '../lib/topics/enrich-insufficient';
 import { rejectStaleTopics } from '../lib/topics/reject-stale';
 import { updateUserChannelSubs } from '../lib/youtube/update-user-channels';
+import { syncReachReports } from '../lib/youtube/reporting';
 import { ResendAlertSender, ConsoleAlertSender } from '../lib/email/resend-alerts';
 import { SupabaseJobRunner } from '../lib/jobs/supabase-runner';
 
@@ -188,6 +189,16 @@ async function main() {
       }
     }
     return { quota: 0, items: enrichInsuffResult.videosAttached };
+  });
+
+  // ── Step 5a: REACH (impressions et CTR des miniatures, YouTube Reporting API — sans quota Data API) ──
+  console.log('\n========== REACH ==========');
+
+  await runStep(runner, deadline, 'reach', async () => {
+    const r = await syncReachReports(db, Math.min(Date.now() + 5 * 60_000, deadline));
+    console.log(`  Channels: ${r.channels}, New jobs: ${r.jobsCreated}, Files: ${r.files}, Rows: ${r.rows}${r.errors.length ? `, Errors: ${r.errors.join(' | ')}` : ''}`);
+    if (r.errors.length && r.rows === 0 && r.channels > 0 && r.errors.length === r.channels) throw new Error(r.errors[0]);
+    return { quota: 0, items: r.rows };
   });
 
   // ── Step 5b: COMMENTS (own window: up to COMMENTS_MIN minutes, quota budget « comments ») ──

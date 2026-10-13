@@ -15,6 +15,9 @@ const DAILY_LIMITS: Record<string, number> = {
   similar_channels: 50,
   get_my_channel_stats: 40,
   get_video_retention: 60,
+  list_my_channels: 100,
+  list_my_videos: 100,
+  get_video_performance: 200,
   // Write tools — tighter
   generate_angles: 10,
   save_to_collection: 50,

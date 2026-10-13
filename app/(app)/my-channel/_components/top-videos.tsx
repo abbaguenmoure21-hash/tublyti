@@ -25,6 +25,9 @@ export interface TopVideoRow {
   avgPercent: number;
   subscribers: number;
   revenue: number | null;
+  /** Impressions et taux de clic de la miniature (null tant que YouTube n'a pas livré de rapport). */
+  impressions?: number | null;
+  ctr?: number | null;
 }
 
 function RetentionTip({ active, payload, lengthS }: { active?: boolean; payload?: { payload: { at: number; watch: number } }[]; lengthS: number | null }) {
@@ -124,14 +127,16 @@ export function TopVideos({ channelId, rows, hasRevenue }: { channelId: string; 
       });
     }
   };
-  const cols = hasRevenue ? 8 : 7;
+  const cols = hasRevenue ? 10 : 9;
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[720px] text-sm">
+      <table className="w-full min-w-[880px] text-sm">
         <thead>
           <tr className="text-left text-[13px] text-muted-foreground">
             <th className="px-4 py-2 font-medium">Vidéo</th>
+            <th className="px-3 py-2 text-right font-medium" title="Nombre de fois où la miniature a été vue">Impressions</th>
+            <th className="px-3 py-2 text-right font-medium" title="Part des impressions qui ont donné un clic">CTR</th>
             <th className="px-3 py-2 text-right font-medium">Vues</th>
             <th className="px-3 py-2 text-right font-medium">Heures</th>
             <th className="px-3 py-2 text-right font-medium">Durée moy.</th>
@@ -152,6 +157,8 @@ export function TopVideos({ channelId, rows, hasRevenue }: { channelId: string; 
                   <td className="max-w-[300px] truncate px-4 py-2.5">
                     <a href={`https://www.youtube.com/watch?v=${v.id}`} target="_blank" rel="noreferrer" className="hover:underline">{v.title}</a>
                   </td>
+                  <td className="px-3 py-2.5 text-right tabular-nums text-muted-foreground">{v.impressions == null ? '—' : nf.format(v.impressions)}</td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">{v.ctr == null ? '—' : pct(v.ctr * 100, 1)}</td>
                   <td className="px-3 py-2.5 text-right tabular-nums">{nf.format(v.views)}</td>
                   <td className="px-3 py-2.5 text-right tabular-nums">{nf.format(Math.round(v.minutes / 60))}</td>
                   <td className="px-3 py-2.5 text-right tabular-nums">{duration(v.avgDuration)}</td>
