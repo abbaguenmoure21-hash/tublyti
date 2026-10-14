@@ -1,8 +1,10 @@
 import { redirect } from 'next/navigation';
+import { cookies } from 'next/headers';
 import { Toaster } from 'sonner';
 import { NuqsAdapter } from 'nuqs/adapters/next/app';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { Sidebar } from '@/components/app-shell/sidebar';
+import { SIDEBAR_COOKIE } from '@/components/app-shell/nav-config';
 import { ScopeGate } from '@/components/app-shell/scope-gate';
 import { MobileScope } from '@/components/app-shell/mobile-scope';
 import { SectionTabs } from '@/components/app-shell/section-tabs';
@@ -46,7 +48,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const user = await getSessionUser();
   if (!user) redirect('/login');
   const ready = await isDbReady();
-  const shell = await getShellData(user.id, ready);
+  const [shell, store] = await Promise.all([getShellData(user.id, ready), cookies()]);
+  const sidebarCollapsed = store.get(SIDEBAR_COOKIE)?.value === 'collapsed';
 
   return (
     <NuqsAdapter>
@@ -65,6 +68,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             dataFresh={shell.dataFresh}
             userLabel={user.displayName}
             isAdmin={user.role === 'admin'}
+            initialCollapsed={sidebarCollapsed}
           />
           <div className="flex min-w-0 flex-1 flex-col">
             {!ready && (

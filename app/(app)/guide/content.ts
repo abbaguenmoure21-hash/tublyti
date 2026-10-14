@@ -91,6 +91,10 @@ export const LABELS = [
 
 export const FAQ = [
   {
+    q: 'Comment analyser le contenu d’une vidéo (image, voix, texte) ?',
+    a: 'Clique sur « Analyser » (icône étincelles) à côté d’une vidéo : dans Ma chaîne ou dans « Vidéos déjà publiées sur ce sujet ». L’IA regarde les images, écoute la voix et la musique, lit le texte à l’écran, puis te donne l’accroche, la structure avec les horaires, le style de montage, la transcription et ce que tu peux reprendre. Pour tes propres vidéos, elle explique aussi ce qui se passe à chaque décrochage de ta rétention. Vidéos publiques uniquement, 60 minutes maximum ; une vidéo déjà analysée s’affiche tout de suite.',
+  },
+  {
     q: 'Pourquoi un sujet n’a pas de lettre de faisabilité ?',
     a: 'La lettre compare ta chaîne aux chaînes déjà présentes sur le sujet. Il faut une chaîne vérifiée dans la thématique du sujet et son nombre d’abonnés (mis à jour chaque nuit). Sans chaîne, la lettre est remplacée par un lien vers Réglages.',
   },

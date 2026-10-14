@@ -19,6 +19,7 @@ const SHORTCUT_SECTIONS = [
     items: [
       { keys: ['⌘', 'K'], label: 'Ouvrir la palette de commandes' },
       { keys: ['/'], label: 'Rechercher' },
+      { keys: ['⌘', 'B'], label: 'Réduire ou agrandir la barre latérale' },
       { keys: ['?'], label: 'Afficher les raccourcis' },
     ],
   },

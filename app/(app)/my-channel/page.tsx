@@ -9,9 +9,12 @@ import { getChannelAnalytics, PERIODS, type AnalyticsData, type Period } from '@
 import { getPublicStats, type PublicStats, type PublicVideo } from '@/lib/youtube/public-stats';
 import { AnalyticsControls, DailyChart, MonthlyChart, RefreshPublicButton } from './_components/channel-charts';
 import { TopVideos } from './_components/top-videos';
+import { AnalyzeVideoButton } from '@/components/tublyti/video-analysis';
 import { BarChart3, ExternalLink, Lock, Tv } from 'lucide-react';
 
 export const metadata = { title: 'Ma chaîne' };
+// L'analyse vidéo (Gemini) peut prendre jusqu'à 2-3 minutes.
+export const maxDuration = 300;
 
 const nf = new Intl.NumberFormat('fr-FR');
 const compact = new Intl.NumberFormat('fr-FR', { notation: 'compact', maximumFractionDigits: 1 });
@@ -153,7 +156,7 @@ function Segmented({ period }: { period: Period }) {
   );
 }
 
-function VideoRow({ v, rank }: { v: PublicVideo; rank?: number }) {
+function VideoRow({ v, rank, channelId }: { v: PublicVideo; rank?: number; channelId?: string }) {
   return (
     <li className="flex items-center gap-3 border-b border-muted px-4 py-3 last:border-b-0">
       {rank !== undefined && <span className="w-5 shrink-0 text-right text-sm tabular-nums text-muted-foreground">{rank}</span>}
@@ -171,6 +174,7 @@ function VideoRow({ v, rank }: { v: PublicVideo; rank?: number }) {
           {v.isShort ? 'Short' : duration(v.durationS)} · {ago(v.publishedAt)} · {nf.format(v.likes)} j’aime · {nf.format(v.comments)} commentaires
         </span>
       </div>
+      <AnalyzeVideoButton videoId={v.id} title={v.title} channelId={channelId} variant="icon" />
       <div className="flex shrink-0 flex-col items-end">
         <span className="text-sm font-semibold tabular-nums">{compact.format(v.views)}</span>
         {v.ratio !== null && (
@@ -294,7 +298,7 @@ function AnalyticsBlock({ data, hasMonetary, channelId, reach, reachNote }: { da
   );
 }
 
-function PublicBlock({ s, linked }: { s: PublicStats; linked: boolean }) {
+function PublicBlock({ s, linked, channelId }: { s: PublicStats; linked: boolean; channelId?: string }) {
   return (
     <div className="flex flex-col gap-4">
       {s.sample === 0 ? (
@@ -367,13 +371,13 @@ function PublicBlock({ s, linked }: { s: PublicStats; linked: boolean }) {
                 <h3 className="text-[15px] font-semibold">Tes vidéos qui ont décollé</h3>
                 <p className="text-xs text-muted-foreground">Au moins deux fois tes vues habituelles pour ce format : refais des sujets proches.</p>
               </div>
-              <ul>{s.outliers.map((v) => <VideoRow key={v.id} v={v} />)}</ul>
+              <ul>{s.outliers.map((v) => <VideoRow key={v.id} v={v} channelId={channelId} />)}</ul>
             </div>
           )}
 
           <div className="overflow-hidden rounded-2xl bg-card">
             <h3 className="border-b border-border px-4 py-3 text-[15px] font-semibold">Dernières vidéos</h3>
-            <ul>{s.recent.map((v, i) => <VideoRow key={v.id} v={v} rank={i + 1} />)}</ul>
+            <ul>{s.recent.map((v, i) => <VideoRow key={v.id} v={v} rank={i + 1} channelId={channelId} />)}</ul>
           </div>
         </>
       )}
@@ -536,7 +540,7 @@ export default async function MyChannelPage({ searchParams }: { searchParams: Pr
       </Section>
 
       <Section id="public-titre" title="Chiffres publics" subtitle={stats.sample ? `Calculés par TubLyTI sur tes ${stats.sample} dernières vidéos lues, sans accès à ton compte.` : 'Calculés par TubLyTI à partir de tes vidéos publiques, sans accès à ton compte.'}>
-        <PublicBlock s={stats} linked={c.youtubeId.startsWith('UC')} />
+        <PublicBlock s={stats} linked={c.youtubeId.startsWith('UC')} channelId={channelId} />
       </Section>
     </div>
   );

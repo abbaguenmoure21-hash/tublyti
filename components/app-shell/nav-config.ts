@@ -60,3 +60,6 @@ export const SECTION_TABS: Record<SpaceKey, { href: string; label: string; match
     { href: '/admin/attente', label: 'Liste d’attente', match: ['/admin/attente'] },
   ],
 };
+
+/** Cookie qui garde la barre latérale réduite ou ouverte (lu côté serveur, sans saut à l'affichage). */
+export const SIDEBAR_COOKIE = 'tly_sidebar';

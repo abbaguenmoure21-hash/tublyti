@@ -63,3 +63,25 @@ reconnu pour les jetons rattachés.
 
 Solution immédiate sans déploiement : créer un nouveau jeton dans Réglages
 (il est créé avec `user_id`) et le coller dans le Studio à la place de l'ancien.
+
+## analyze_video — contenu d'une vidéo (image, audio, texte)
+
+`analyze_video { video: "<lien ou ID>", force?: boolean }` → JSON :
+
+- `video_id`, `url`, `title`, `channel_title`, `duration_s`, `analyzed_at`, `model`, `cached`, `with_retention`
+- `analysis` :
+  - `summary`, `topic`, `language`, `audience`
+  - `format { style, visuals[], voice, voice_tone, music, on_screen_text, cuts_per_minute, pacing }`
+  - `hook { start_s, end_s, said, shown, promise, technique }`
+  - `chapters [{ start_s, end_s, title, summary }]`
+  - `retention_devices [{ at_s, technique, description }]`
+  - `cta [{ at_s, text }]`, `packaging { title_promise, delivered }`
+  - `why_it_works[]`, `weaknesses[]`, `how_to_adapt[]`
+  - `retention_notes [{ at_s, drop, what_happens, fix }]` — seulement pour une vidéo d'une de MES chaînes avec Analytics connecté
+  - `transcript [{ at_s, text }]`, `transcript_partial`
+
+Erreurs (isError, texte JSON `{ error, message }`) : `invalid`, `not_found`, `private` (privée/non répertoriée),
+`live`, `too_long` (> 60 min), `budget`, `busy` (analyse en cours, réessayer dans 1 min), `disabled` (pas de clé Gemini), `gemini`.
+
+Première analyse : 30 s à 2 min. Ensuite le résultat est en cache (instantané, sans coût). Limite : 15 appels / jour / jeton.
+Voie technique : Gemini lit le lien YouTube public directement (aucun téléchargement de la vidéo).

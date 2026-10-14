@@ -10,6 +10,7 @@ import { escapeLike } from '@/lib/utils';
 import { getPublicStats } from '@/lib/youtube/public-stats';
 import { getVideoReach } from '@/lib/youtube/reporting';
 import { getChannelAnalytics, getVideoRetention, getVideoTotals, PERIODS, type Period } from '@/lib/youtube/analytics';
+import { analyzeVideo, parseVideoId, retentionContextFrom, type RetentionContext } from '@/lib/video/analyze';
 
 // ── Constants ──────────────────────────────────────────────────────────
 
@@ -1565,6 +1566,49 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
   // ────────────────────────────────────────────────────────────────────
   //  PROMPT
   // ────────────────────────────────────────────────────────────────────
+
+  mcp.tool(
+    'analyze_video',
+    'Analyse le CONTENU d\'une video YouTube publique (JSON) : l\'IA regarde l\'image, ecoute l\'audio et lit le texte a l\'ecran. Renvoie resume, accroche (dit/montre/promesse/technique), structure par parties avec horaires, forme (style, visuels, voix, musique, rythme, coupes/min), relances d\'attention, appels a l\'action, pourquoi ca marche, points faibles, quoi reprendre, transcription. Pour une video d\'une de MES chaines avec Analytics connecte, explique aussi ce qui se passe a chaque decrochage de retention (retention_notes). Resultat garde en cache : une video deja analysee revient instantanement. Prend 30 s a 2 min la premiere fois.',
+    {
+      video: z.string().describe('Lien YouTube ou ID de la video (11 caracteres)'),
+      force: z.boolean().optional().describe('Refaire l\'analyse meme si elle existe deja (administrateur uniquement)'),
+    },
+    async ({ video, force }) => {
+      const blocked = await guard(token, 'analyze_video');
+      if (blocked) return fail(blocked);
+      const id = parseVideoId(video);
+      if (!id) return fail(JSON.stringify({ error: 'invalid', message: 'Lien ou ID de video invalide.' }));
+      const db = createServiceClient();
+
+      // Video d'une de mes chaines : on ajoute la courbe de retention.
+      let retention: RetentionContext | null = null;
+      const { data: v } = await db.from('videos').select('channel_id').eq('id', id).maybeSingle();
+      if (v?.channel_id) {
+        const ch = (await myVerifiedChannels()).find((c) => c.youtube_channel_id === v.channel_id);
+        if (ch) {
+          const ret = await getVideoRetention(db, ch.id, id).catch(() => null);
+          if (ret?.status === 'ok') retention = retentionContextFrom(ret.data.points);
+        }
+      }
+
+      const res = await analyzeVideo(db, id, { userId: token.userId, retention, force: Boolean(force && token.isAdmin) });
+      if (!res.ok) return fail(JSON.stringify({ error: res.reason, message: res.message }));
+      const r = res.row;
+      return json({
+        video_id: r.videoId,
+        url: `https://www.youtube.com/watch?v=${r.videoId}`,
+        title: r.title,
+        channel_title: r.channelTitle,
+        duration_s: r.durationS,
+        analyzed_at: r.updatedAt,
+        model: r.model,
+        cached: res.cached,
+        with_retention: Boolean(r.analysis?.retention_notes.length),
+        analysis: r.analysis,
+      });
+    },
+  );
 
   mcp.prompt(
     'plan_my_week',

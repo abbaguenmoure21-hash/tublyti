@@ -7,6 +7,7 @@ import { resolveScope } from '@/lib/scope';
 import { PhaseBadge, MgiScore, PHASE_LABELS } from '@/components/tublyti';
 import { getMgiBand, type ConfidenceResult } from '@/lib/scoring/mgi';
 import { OutlierBadge } from '@/components/tublyti/outlier-badge';
+import { AnalyzeVideoButton } from '@/components/tublyti/video-analysis';
 import { TopicActions } from './_components/topic-actions';
 import { TopicShortcuts } from './_components/topic-shortcuts';
 import { AngleSection } from './_components/angle-section';
@@ -14,6 +15,9 @@ import { DossierExport } from './_components/dossier-export';
 import { getFavoriteIds } from '@/lib/actions/collections';
 import { computeFeasibilityForUser, isNoChannelResult } from '@/lib/scoring/feasibility-for-user';
 import { getUserSubsByNiche } from '@/lib/scoring/user-subs';
+
+// L'analyse vidéo (Gemini) peut prendre jusqu'à 2-3 minutes.
+export const maxDuration = 300;
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params;
@@ -542,6 +546,7 @@ export default async function TopicPage({
                         </div>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
+                        <AnalyzeVideoButton videoId={c.id} title={c.title} variant="icon" />
                         {c.outlier && c.outlier.score >= 2 && (
                           <OutlierBadge
                             score={c.outlier.score}
