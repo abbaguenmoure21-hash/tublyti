@@ -48,3 +48,18 @@ Une vidéo apparaît après la collecte de nuit qui suit sa publication.
 Résumé en texte de la courbe (pour une lecture humaine). Pour un programme, préférer `get_video_performance.retention`.
 
 Autres outils utiles : `get_my_channel_stats` (statistiques de la chaîne, texte), `list_today`, `get_topic_gap`, `list_frustrations`…
+
+## Jeton ancien sans propriétaire (list_my_channels vide)
+
+Cause constatée : un jeton créé avant la migration 00019 a `api_tokens.user_id = null`.
+Le backfill de 00019 ne rattachait le jeton que si un profil avait `role = 'admin'` ;
+quand l'admin vient de `ADMIN_EMAILS`, le jeton restait orphelin, donc aucune chaîne.
+
+Correctif (`lib/mcp/auth.ts`) : au premier appel, le jeton orphelin est rattaché
+automatiquement à son propriétaire (profil admin unique, sinon adresse `ADMIN_EMAILS`,
+sinon le seul compte qui a une chaîne vérifiée), puis `user_id` est enregistré.
+Le jeton garde ses droits d'administrateur. Un admin via `ADMIN_EMAILS` est aussi
+reconnu pour les jetons rattachés.
+
+Solution immédiate sans déploiement : créer un nouveau jeton dans Réglages
+(il est créé avec `user_id`) et le coller dans le Studio à la place de l'ancien.

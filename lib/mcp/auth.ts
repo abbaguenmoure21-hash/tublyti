@@ -1,6 +1,54 @@
 import { createHash } from 'crypto';
 import { createServiceClient } from '@/lib/supabase/server';
 import { listScopeNiches } from '@/lib/scope';
+import { isAdminEmail } from '@/lib/auth/session';
+
+type Db = ReturnType<typeof createServiceClient>;
+
+/**
+ * Jeton ancien (créé avant 00019, user_id vide) : retrouve son propriétaire.
+ * Ordre : profil admin, adresse ADMIN_EMAILS, puis le seul compte qui a une chaîne connectée.
+ * Le jeton est ensuite rattaché une fois pour toutes (auto-réparation).
+ */
+async function resolveLegacyOwner(db: Db, tokenId: string): Promise<string | null> {
+  let owner: string | null = null;
+  try {
+    const { data: admins } = await db.from('profiles').select('user_id').eq('role', 'admin').limit(2);
+    if (admins && admins.length === 1) owner = admins[0].user_id as string;
+
+    if (!owner && (process.env.ADMIN_EMAILS ?? '').trim()) {
+      const { data } = await db.auth.admin.listUsers({ page: 1, perPage: 200 });
+      const match = (data?.users ?? []).filter((u: { id: string; email?: string }) => isAdminEmail(u.email));
+      if (match.length === 1) owner = match[0].id;
+    }
+
+    if (!owner) {
+      const { data: chans } = await db.from('user_channels').select('user_id').not('verified_at', 'is', null).limit(50);
+      const ids: string[] = Array.from(new Set(((chans ?? []) as { user_id: string | null }[]).map((c) => c.user_id).filter((v): v is string => Boolean(v))));
+      if (ids.length === 1) owner = ids[0];
+    }
+
+    if (owner) {
+      await db.from('api_tokens').update({ user_id: owner }).eq('id', tokenId).is('user_id', null);
+    }
+  } catch {
+    // Best effort : sans propriétaire, le jeton garde ses droits d'avant.
+  }
+  return owner;
+}
+
+/** Le compte est-il administrateur (profil ou ADMIN_EMAILS) ? */
+async function isAdminUser(db: Db, userId: string): Promise<boolean> {
+  const { data: profile } = await db.from('profiles').select('role').eq('user_id', userId).maybeSingle();
+  if (profile?.role === 'admin') return true;
+  if (!(process.env.ADMIN_EMAILS ?? '').trim()) return false;
+  try {
+    const { data } = await db.auth.admin.getUserById(userId);
+    return isAdminEmail(data?.user?.email);
+  } catch {
+    return false;
+  }
+}
 
 export interface McpTokenInfo {
   id: string;
@@ -40,12 +88,13 @@ export async function authenticateToken(rawToken: string): Promise<McpTokenInfo 
   // Mise à jour de la date d'utilisation (sans attendre)
   db.from('api_tokens').update({ last_used_at: new Date().toISOString() }).eq('id', token.id).then(() => {});
 
-  const userId = token.user_id ?? null;
+  const legacy = !token.user_id && !withOwner.error;
+  const userId = token.user_id ?? (legacy ? await resolveLegacyOwner(db, token.id) : null);
   let isAdmin = true;
   let nicheIds: string[] | null = null;
-  if (userId) {
-    const { data: profile } = await db.from('profiles').select('role').eq('user_id', userId).maybeSingle();
-    isAdmin = profile?.role === 'admin';
+  // Un jeton ancien rattaché automatiquement garde ses droits d'administrateur.
+  if (userId && !legacy) {
+    isAdmin = await isAdminUser(db, userId);
     if (!isAdmin) nicheIds = (await listScopeNiches(db, userId)).map((n) => n.id);
   }
 

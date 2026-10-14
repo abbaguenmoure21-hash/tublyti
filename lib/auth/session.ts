@@ -21,7 +21,7 @@ export const isDbReady = cache(async (): Promise<boolean> => {
 });
 
 /** Adresses toujours administratrices (variable ADMIN_EMAILS, séparées par des virgules). */
-function isAdminEmail(email: string | undefined): boolean {
+export function isAdminEmail(email: string | undefined): boolean {
   if (!email) return false;
   const list = (process.env.ADMIN_EMAILS ?? '').split(',').map((e) => e.trim().toLowerCase()).filter(Boolean);
   return list.includes(email.toLowerCase());
