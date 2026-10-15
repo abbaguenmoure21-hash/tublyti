@@ -25,9 +25,9 @@ jobs:
       SERPAPI_KEY: ${{ secrets.SERPAPI_KEY }}
       RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
       ALERT_EMAIL: ${{ secrets.ALERT_EMAIL }}
-      TOKEN_ENCRYPTION_KEY: ${{ secrets.TOKEN_ENCRYPTION_KEY }}
-      GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
-      GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
+      TOKEN_ENCRYPTION_KEY: ${{ secrets.TOKEN_ENCRYPTION_KEY || vars.TOKEN_ENCRYPTION_KEY }}
+      GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID || vars.GOOGLE_OAUTH_CLIENT_ID }}
+      GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET || vars.GOOGLE_OAUTH_CLIENT_SECRET }}
       EMBEDDING_PROVIDER: voyage
       EMBEDDING_MODEL: voyage-4-lite
       EMBEDDING_BASE_URL: https://ai.mongodb.com/v1
@@ -44,6 +44,14 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
+
+      # Diagnostic : indique seulement si chaque clé est présente (jamais sa valeur).
+      - name: Check secrets
+        run: |
+          for k in NEXT_PUBLIC_SUPABASE_URL SUPABASE_SERVICE_ROLE_KEY YOUTUBE_API_KEY TOKEN_ENCRYPTION_KEY GOOGLE_OAUTH_CLIENT_ID GOOGLE_OAUTH_CLIENT_SECRET; do
+            v="${!k}"
+            if [ -z "$v" ]; then echo "::warning::$k manquant dans les secrets GitHub Actions"; else echo "$k : présent (${#v} caractères)"; fi
+          done
 
       - name: Run nightly pipeline
         run: npx tsx scripts/nightly.ts

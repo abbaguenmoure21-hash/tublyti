@@ -1,0 +1,55 @@
+name: Reach sync
+
+# Import des impressions / CTR des miniatures seul (test rapide, sans relancer tout le pipeline).
+on:
+  workflow_dispatch: {}
+
+concurrency:
+  group: nightly-pipeline
+  cancel-in-progress: false
+
+jobs:
+  reach:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    env:
+      YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+      YT_QUOTA_SOFT_LIMIT: ${{ secrets.YT_QUOTA_SOFT_LIMIT }}
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      CANDIDATE_AI_CLASSIFY: ${{ vars.CANDIDATE_AI_CLASSIFY }}
+      VOYAGE_API_KEY: ${{ secrets.VOYAGE_API_KEY }}
+      SERPAPI_KEY: ${{ secrets.SERPAPI_KEY }}
+      RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+      ALERT_EMAIL: ${{ secrets.ALERT_EMAIL }}
+      TOKEN_ENCRYPTION_KEY: ${{ secrets.TOKEN_ENCRYPTION_KEY || vars.TOKEN_ENCRYPTION_KEY }}
+      GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID || vars.GOOGLE_OAUTH_CLIENT_ID }}
+      GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET || vars.GOOGLE_OAUTH_CLIENT_SECRET }}
+      EMBEDDING_PROVIDER: voyage
+      EMBEDDING_MODEL: voyage-4-lite
+      EMBEDDING_BASE_URL: https://ai.mongodb.com/v1
+      NIGHTLY_DEADLINE_MIN: '100'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Check secrets
+        run: |
+          for k in NEXT_PUBLIC_SUPABASE_URL SUPABASE_SERVICE_ROLE_KEY TOKEN_ENCRYPTION_KEY GOOGLE_OAUTH_CLIENT_ID GOOGLE_OAUTH_CLIENT_SECRET; do
+            v="${!k}"
+            if [ -z "$v" ]; then echo "::warning::$k manquant dans les secrets GitHub Actions"; else echo "$k : présent (${#v} caractères)"; fi
+          done
+
+      - name: Sync reach reports
+        run: npx tsx scripts/reach-sync.ts

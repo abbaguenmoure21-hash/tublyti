@@ -55,6 +55,12 @@ export interface ReachSyncResult {
 /** Étape de nuit : pour chaque chaîne connectée, crée la tâche si besoin puis importe les nouveaux fichiers. */
 export async function syncReachReports(db: SupabaseClient, deadlineMs: number): Promise<ReachSyncResult> {
   const res: ReachSyncResult = { channels: 0, jobsCreated: 0, files: 0, rows: 0, errors: [] };
+  const missing = ['TOKEN_ENCRYPTION_KEY', 'GOOGLE_OAUTH_CLIENT_ID', 'GOOGLE_OAUTH_CLIENT_SECRET'].filter((k) => !process.env[k]);
+  if (missing.length) {
+    throw new Error(
+      `${missing.join(', ')} absente(s) de l’environnement de la tâche de nuit : à ajouter dans GitHub → Settings → Secrets and variables → Actions → onglet Secrets (mêmes valeurs que sur Vercel).`,
+    );
+  }
   const { data: toks, error } = await db.from('user_channel_tokens').select('user_channel_id, refresh_token_enc');
   if (error) throw new Error(`user_channel_tokens : ${error.message}`);
 
@@ -62,7 +68,13 @@ export async function syncReachReports(db: SupabaseClient, deadlineMs: number): 
     if (Date.now() >= deadlineMs) break;
     res.channels++;
     try {
-      const token = await accessToken(decrypt(t.refresh_token_enc));
+      let refresh: string;
+      try {
+        refresh = decrypt(t.refresh_token_enc);
+      } catch {
+        throw new Error('TOKEN_ENCRYPTION_KEY de GitHub différente de celle de Vercel (jeton illisible) : copie exactement la valeur de Vercel, ou reconnecte YouTube Analytics.');
+      }
+      const token = await accessToken(refresh);
       const { data: before } = await db.from('reporting_jobs').select('job_id, last_report_created').eq('user_channel_id', t.user_channel_id).maybeSingle();
       const jobId = await ensureReachJob(db, t.user_channel_id, token);
       if (!before) res.jobsCreated++;
