@@ -147,3 +147,27 @@ export async function autoValidateTopics(db: SupabaseClient, opts: { dryRun?: bo
   }
   return res;
 }
+
+export type ProposedStatus = 'sensitive' | 'ready' | 'waiting';
+
+/**
+ * État d'un sujet proposé, avec les mêmes règles que la validation automatique (hors doublon) :
+ * - sensitive : à décider à la main ;
+ * - ready : remplit déjà les critères, sera publié automatiquement la nuit prochaine ;
+ * - waiting : manque de vidéos / de chaînes, le robot attend (fermé après 21 jours).
+ */
+export function proposedStatus(label: string, channelIds: string[]): { status: ProposedStatus; reason: string } {
+  if (isSensitiveTopic(label)) return { status: 'sensitive', reason: 'Sujet sensible : seule une décision manuelle peut le publier.' };
+  const counts = new Map<string, number>();
+  for (const c of channelIds) counts.set(c, (counts.get(c) ?? 0) + 1);
+  const share = channelIds.length ? Math.max(...counts.values()) / channelIds.length : 1;
+  if (channelIds.length >= MIN_VIDEOS && counts.size >= MIN_CHANNELS && share <= MAX_SHARE) {
+    return { status: 'ready', reason: 'Remplit déjà les critères : il sera publié automatiquement cette nuit.' };
+  }
+  const missing = [
+    channelIds.length < MIN_VIDEOS ? `${channelIds.length}/${MIN_VIDEOS} vidéos` : null,
+    counts.size < MIN_CHANNELS ? `${counts.size}/${MIN_CHANNELS} chaînes` : null,
+    share > MAX_SHARE && channelIds.length ? `une chaîne fait ${Math.round(share * 100)} % des vidéos (max ${Math.round(MAX_SHARE * 100)} %)` : null,
+  ].filter(Boolean);
+  return { status: 'waiting', reason: `En attente de données : ${missing.join(', ')}. Publié automatiquement dès que c’est atteint.` };
+}

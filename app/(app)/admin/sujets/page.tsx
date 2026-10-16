@@ -4,15 +4,16 @@ import { CheckCircle2 } from 'lucide-react';
 import { createServiceClient } from '@/lib/supabase/server';
 import { requireAdmin } from '@/lib/auth/session';
 import { nicheColor } from '@/lib/scope';
-import { isSensitiveTopic } from '@/lib/topics/sensitive';
+import { proposedStatus, type ProposedStatus } from '@/lib/topics/auto-validate';
 import { TriageDeck, type TriageCard } from './triage-deck';
 
 export const metadata: Metadata = { title: 'Sujets à valider · Console' };
 
 /** Console d'admin : les sujets proposés par la collecte, toutes niches confondues. */
-export default async function AdminSujetsPage({ searchParams }: { searchParams: Promise<{ niche?: string }> }) {
+export default async function AdminSujetsPage({ searchParams }: { searchParams: Promise<{ niche?: string; vue?: string }> }) {
   await requireAdmin();
-  const { niche } = await searchParams;
+  const { niche, vue } = await searchParams;
+  const view: 'decider' | 'attente' = vue === 'attente' ? 'attente' : 'decider';
   const db = createServiceClient();
 
   const { data: nicheRows } = await db.from('niches').select('id, name, category').order('name');
@@ -24,7 +25,7 @@ export default async function AdminSujetsPage({ searchParams }: { searchParams: 
     .select('id, label, niche_id, created_at, videos(id, title, channel_id, channels(title))')
     .eq('status', 'proposed')
     .order('created_at', { ascending: false })
-    .limit(60);
+    .limit(500);
   let activeQ = db.from('topics').select('id, label, niche_id').in('status', ['active', 'in_production']).order('label').limit(2000);
   if (niche) {
     proposedQ = proposedQ.eq('niche_id', niche);
@@ -32,16 +33,18 @@ export default async function AdminSujetsPage({ searchParams }: { searchParams: 
   }
   const [proposedRes, activeRes] = await Promise.all([proposedQ, activeQ]);
 
-  const cards: TriageCard[] = ((proposedRes.data ?? []) as unknown as {
+  type Row = {
     id: string;
     label: string;
     niche_id: string;
     videos: { id: string; title: string; channel_id: string; channels: { title: string } | null }[];
-  }[]).map((t) => {
+  };
+  const all: TriageCard[] = ((proposedRes.data ?? []) as unknown as Row[]).map((t) => {
     const byChannel = new Map<string, number>();
     for (const v of t.videos) byChannel.set(v.channel_id, (byChannel.get(v.channel_id) ?? 0) + 1);
     const topShare = t.videos.length ? Math.max(...byChannel.values()) / t.videos.length : 0;
     const n = nicheById.get(t.niche_id);
+    const st = proposedStatus(t.label, t.videos.map((v) => v.channel_id));
     return {
       id: t.id,
       label: t.label,
@@ -52,9 +55,23 @@ export default async function AdminSujetsPage({ searchParams }: { searchParams: 
       channelCount: byChannel.size,
       dominantShare: Math.round(topShare * 100),
       sampleTitles: t.videos.slice(0, 3).map((v) => ({ title: v.title, channel: v.channels?.title ?? '' })),
-      sensitive: isSensitiveTopic(t.label),
+      sensitive: st.status === 'sensitive',
+      status: st.status,
+      statusReason: st.reason,
     };
   });
+
+  // « À décider » : ce que le robot ne tranchera jamais seul (sujets sensibles).
+  // « En attente » : le robot les publie dès 5 vidéos de 3 chaînes ; tu peux trier en avance.
+  const order: Record<ProposedStatus, number> = { sensitive: 0, ready: 1, waiting: 2 };
+  const counts = {
+    decide: all.filter((c) => c.status === 'sensitive').length,
+    waiting: all.filter((c) => c.status !== 'sensitive').length,
+    ready: all.filter((c) => c.status === 'ready').length,
+  };
+  const cards = all
+    .filter((c) => (view === 'decider' ? c.status === 'sensitive' : c.status !== 'sensitive'))
+    .sort((a, b) => order[a.status] - order[b.status] || b.videoCount - a.videoCount);
 
   const mergeTargets = ((activeRes.data ?? []) as { id: string; label: string; niche_id: string }[]).map((t) => ({
     id: t.id,
@@ -62,7 +79,7 @@ export default async function AdminSujetsPage({ searchParams }: { searchParams: 
     nicheId: t.niche_id,
   }));
 
-  if (cards.length === 0) {
+  if (all.length === 0) {
     return (
       <div className="mx-auto flex max-w-xl flex-col items-center gap-4 px-6 py-24 text-center">
         <CheckCircle2 className="h-10 w-10 text-phase-2" aria-hidden="true" />
@@ -75,5 +92,5 @@ export default async function AdminSujetsPage({ searchParams }: { searchParams: 
     );
   }
 
-  return <TriageDeck cards={cards} mergeTargets={mergeTargets} />;
+  return <TriageDeck key={view} cards={cards} mergeTargets={mergeTargets} view={view} counts={counts} />;
 }

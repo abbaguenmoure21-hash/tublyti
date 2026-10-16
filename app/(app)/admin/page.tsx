@@ -3,6 +3,7 @@ import { ChevronRight } from 'lucide-react';
 import { createServiceClient } from '@/lib/supabase/server';
 import { requireAdmin } from '@/lib/auth/session';
 import { jobLabel } from '@/lib/jobs/labels';
+import { isSensitiveTopic } from '@/lib/topics/sensitive';
 
 export const metadata = { title: 'Console d’admin' };
 
@@ -20,7 +21,7 @@ export default async function AdminPage() {
   const db = createServiceClient();
   const weekAgo = new Date(Date.now() - 7 * 86_400_000).toISOString();
   const [proposed, candidates, channels, profiles, noChannel, waitlist, jobs, autoTopics, autoChannels] = await Promise.all([
-    db.from('topics').select('id', { count: 'exact', head: true }).eq('status', 'proposed'),
+    db.from('topics').select('id, label', { count: 'exact' }).eq('status', 'proposed').limit(2000),
     db.from('candidate_channels').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
     db.from('channels').select('id', { count: 'exact', head: true }),
     db.from('profiles').select('user_id', { count: 'exact', head: true }).eq('role', 'client'),
@@ -31,9 +32,12 @@ export default async function AdminPage() {
     db.from('candidate_channels').select('id', { count: 'exact', head: true }).in('status', ['accepted', 'followed']).gte('decided_at', weekAgo),
   ]);
 
+  const proposedRows = (proposed.data ?? []) as { id: string; label: string }[];
+  const sensitiveCount = proposedRows.filter((t) => isSensitiveTopic(t.label)).length;
+  const waitingCount = Math.max(0, (proposed.count ?? proposedRows.length) - sensitiveCount);
   const withChannel = new Set(((noChannel.data ?? []) as { user_id: string }[]).map((r) => r.user_id)).size;
   const todo = [
-    { n: proposed.count ?? 0, label: 'sujets proposés : publiés automatiquement dès 5 vidéos de 3 chaînes (sensibles : à la main)', href: '/admin/sujets' },
+    { n: sensitiveCount, label: `sujets sensibles à décider toi-même · ${waitingCount} autre${waitingCount > 1 ? 's' : ''} en attente du robot (publiés seuls dès 5 vidéos de 3 chaînes)`, href: '/admin/sujets' },
     { n: candidates.count ?? 0, label: 'chaînes candidates pas encore lues (niche et décision automatiques chaque nuit)', href: '/channels/candidates' },
     { n: waitlist.count ?? 0, label: 'inscriptions sur la liste d’attente', href: '/admin/attente' },
   ];
