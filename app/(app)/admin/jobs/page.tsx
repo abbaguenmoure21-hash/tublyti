@@ -45,7 +45,17 @@ function duration(start: string, end: string | null) {
   return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m${s % 60}s`;
 }
 
+const isSkipped = (job: Job) => Boolean(job.error?.startsWith('skipped'));
+
 function StatusBadge({ job }: { job: Job }) {
+  if (isSkipped(job)) {
+    return (
+      <Badge className="bg-muted text-muted-foreground" title="Étape sautée : plus de temps pour elle cette nuit. Elle reprend la nuit suivante.">
+        <Clock />
+        Sautée
+      </Badge>
+    );
+  }
   if (job.error) {
     return (
       <Badge variant="destructive">
@@ -159,7 +169,11 @@ export default async function JobsPage() {
                         <StatusBadge job={job} />
                       </td>
                       <td className="px-3 py-2.5 max-w-[200px]">
-                        {job.error ? (
+                        {isSkipped(job) ? (
+                          <span className="block truncate text-xs text-muted-foreground" title={job.error ?? ''}>
+                            Plus de temps cette nuit, reprend demain
+                          </span>
+                        ) : job.error ? (
                           <span
                             className="text-xs text-destructive truncate block"
                             title={job.error}

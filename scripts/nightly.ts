@@ -236,8 +236,12 @@ async function main() {
   console.log('\n========== SEARCH-EMERGING ==========');
 
   let emergingResult: EmergingSearchResult = { searchesPerformed: 0, videosFound: 0, videosAttached: 0, quotaUsed: 0 };
-  await runStep(runner, discoverEnd, 'search-emerging', async () => {
-    emergingResult = await searchForEmergingTopics(db, embedder, discoverEnd, yt.getQuotaUsed());
+  // Les recherches YouTube gardent au moins 4 min chacune, même si les étapes d'avant ont mangé la fenêtre « découverte »
+  // (sinon elles sautaient toutes les nuits où le regroupement des sujets prenait du temps).
+  const searchWindow = (min: number) => Math.min(lateEnd, Math.max(discoverEnd, Date.now() + min * 60_000));
+  const emergingEnd = searchWindow(4);
+  await runStep(runner, emergingEnd, 'search-emerging', async () => {
+    emergingResult = await searchForEmergingTopics(db, embedder, emergingEnd, yt.getQuotaUsed());
     console.log(`  Searches: ${emergingResult.searchesPerformed}, Found: ${emergingResult.videosFound}, Attached: ${emergingResult.videosAttached}, Candidate channels: ${emergingResult.channelsProposed ?? 0}`);
     console.log(`  Quota: ${emergingResult.quotaUsed}`);
     return { quota: emergingResult.quotaUsed, items: emergingResult.videosAttached + (emergingResult.channelsProposed ?? 0) };
@@ -246,8 +250,9 @@ async function main() {
   // ── Step 9: SEARCH ──────────────────────────────────────────────
   console.log('\n========== SEARCH ==========');
 
-  await runStep(runner, discoverEnd, 'search', async () => {
-    const search = await runYouTubeSearch(db, discoverEnd, yt.getQuotaUsed());
+  const searchEnd = searchWindow(4);
+  await runStep(runner, searchEnd, 'search', async () => {
+    const search = await runYouTubeSearch(db, searchEnd, yt.getQuotaUsed());
     console.log(`  Searches: ${search.searchesPerformed}, Discovered: ${search.videosDiscovered}`);
     return { quota: 0, items: search.videosDiscovered };
   });
