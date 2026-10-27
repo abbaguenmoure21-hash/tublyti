@@ -439,6 +439,8 @@ export async function runScore(
   }
 
   const scored: ScoredTopic[] = [];
+  // Écritures groupées : une requête par lot au lieu de deux par sujet (17 min → quelques secondes).
+  const insufficientRows: Record<string, unknown>[] = [];
 
   for (const c of computed) {
     const topic = topics[c.topicIndex];
@@ -458,7 +460,7 @@ export async function runScore(
     });
 
     if (confidence.level === 'insufficient') {
-      await db.from('topic_scores').upsert(
+      insufficientRows.push(
         {
           topic_id: topic.id,
           scored_at: today,
@@ -473,7 +475,6 @@ export async function runScore(
           feasibility_grade: null,
           feasibility_reason: null,
         },
-        { onConflict: 'topic_id,scored_at' },
       );
       result.topicsSkipped++;
       continue;
@@ -528,14 +529,15 @@ export async function runScore(
 
   // ── Pass 3: Write scores to DB ──────────────────────────────────
   const cutoff72h = new Date(Date.now() - 72 * 3_600_000).toISOString();
+  const scoreRows: Record<string, unknown>[] = [];
+  const idsByPhase = new Map<ScoredTopic["phase"], string[]>();
 
   for (const s of scored) {
     const topic = topics[s.topicIndex];
     const nicheRawValues = rawMgiByNiche.get(topic.niche_id) ?? [s.rawMgi];
     const mgi = computePercentile(s.rawMgi, nicheRawValues);
 
-    await db.from('topic_scores').upsert(
-      {
+    scoreRows.push({
         topic_id: topic.id,
         scored_at: today,
         demand: s.demand,
@@ -549,11 +551,8 @@ export async function runScore(
         feasibility_grade: s.feasibility.grade,
         feasibility_reason: s.feasibility.reason,
         competitor_subs: s.competitorSubs,
-      },
-      { onConflict: 'topic_id,scored_at' },
-    );
-
-    await db.from('topics').update({ phase: s.phase }).eq('id', topic.id);
+    });
+    idsByPhase.set(s.phase, [...(idsByPhase.get(s.phase) ?? []), topic.id]);
     result.topicsScored++;
 
     const videos = videosByTopic.get(topic.id) ?? [];
@@ -580,6 +579,21 @@ export async function runScore(
         actionLabel: 'Voir la fiche sujet',
       });
       result.burnDownAlerts++;
+    }
+  }
+
+  // Écriture des scores et des phases par lots.
+  const BATCH = 500;
+  for (const rows of [insufficientRows, scoreRows]) {
+    for (let i = 0; i < rows.length; i += BATCH) {
+      const { error } = await db.from('topic_scores').upsert(rows.slice(i, i + BATCH), { onConflict: 'topic_id,scored_at' });
+      if (error) throw new Error(`topic_scores : ${error.message}`);
+    }
+  }
+  for (const [phase, ids] of idsByPhase) {
+    for (let i = 0; i < ids.length; i += 200) {
+      const { error } = await db.from('topics').update({ phase }).in('id', ids.slice(i, i + 200));
+      if (error) throw new Error(`topics.phase : ${error.message}`);
     }
   }
 

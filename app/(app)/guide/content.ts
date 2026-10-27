@@ -91,6 +91,10 @@ export const LABELS = [
 
 export const FAQ = [
   {
+    q: 'Comment fonctionne « Avant de publier » ?',
+    a: 'Mes vidéos → Avant de publier. Écris jusqu’à 3 titres, ajoute ta miniature et ton script (au moins l’accroche). TubLyTI compare chaque titre aux vidéos de ta niche aux titres les plus proches et regarde combien elles ont fait par rapport aux vues habituelles de leur chaîne ; Gemini note la miniature face aux miniatures gagnantes de la niche et le script (accroche, relances, passages où l’on décroche). Tu obtiens une note, des corrections et une probabilité (chances de faire ×2 ou ×10 tes vues habituelles). Ce n’est jamais une garantie : après publication, la vidéo est suivie et mesurée à 7 jours, et les prédictions suivantes se recalent sur tes résultats réels.',
+  },
+  {
     q: 'Comment analyser le contenu d’une vidéo (image, voix, texte) ?',
     a: 'Clique sur « Analyser » (icône étincelles) à côté d’une vidéo : dans Ma chaîne ou dans « Vidéos déjà publiées sur ce sujet ». L’IA regarde les images, écoute la voix et la musique, lit le texte à l’écran, puis te donne l’accroche, la structure avec les horaires, le style de montage, la transcription et ce que tu peux reprendre. Pour tes propres vidéos, elle explique aussi ce qui se passe à chaque décrochage de ta rétention. Vidéos publiques uniquement, 60 minutes maximum ; une vidéo déjà analysée s’affiche tout de suite.',
   },

@@ -228,6 +228,7 @@ export async function autoTriageCandidates(
   db: SupabaseClient,
   embedder: EmbeddingProvider | null,
   limit = 100,
+  deadline?: number,
 ): Promise<TriageResult> {
   const result: TriageResult = {
     processed: 0, accepted: 0, rejected: 0, manual: 0,
@@ -238,7 +239,7 @@ export async function autoTriageCandidates(
   // L'ancienne règle (titre de la chaîne comparé au nom de la niche) ne sert plus que sans fournisseur d'embeddings réel.
   if (embedder && !(embedder instanceof FakeEmbeddingProvider)) {
     try {
-      const r = await classifyCandidates(db, embedder, { limit });
+      const r = await classifyCandidates(db, embedder, { limit, deadline });
       console.log(`  Seuils calibrés : accepter ≥ ${(r.calibration.acceptSim * 100).toFixed(0)} %, refuser < ${(r.calibration.rejectSim * 100).toFixed(0)} % (${r.calibration.sample} chaînes de référence)`);
       if (r.niches) {
         for (const n of r.niches.created) console.log(`  Nouvelle niche : ${n.name} (${n.channels.length} chaînes)`);

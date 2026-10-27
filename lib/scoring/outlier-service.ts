@@ -132,11 +132,23 @@ export async function computeAllOutliers(
   let totalComputed = 0;
   let totalSkipped = 0;
 
-  for (const ch of channels ?? []) {
-    const result = await computeChannelOutliers(db, ch.id as string);
-    totalComputed += result.computed;
-    totalSkipped += result.skipped;
+  // 6 chaînes en parallèle (avant : une par une, la moitié du temps du calcul du potentiel).
+  const ids = (channels ?? []).map((c) => c.id as string);
+  const CONCURRENCY = Number(process.env.OUTLIER_CONCURRENCY ?? 6);
+  let next = 0;
+  async function worker() {
+    while (next < ids.length) {
+      const id = ids[next++];
+      try {
+        const result = await computeChannelOutliers(db, id);
+        totalComputed += result.computed;
+        totalSkipped += result.skipped;
+      } catch (e) {
+        console.error(`  Outliers ${id}: ${e instanceof Error ? e.message : e}`);
+      }
+    }
   }
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, ids.length) }, worker));
 
   return { computed: totalComputed, skipped: totalSkipped };
 }

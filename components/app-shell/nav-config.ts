@@ -14,7 +14,7 @@ export interface NavSpace {
 /** Les 3 espaces client de l'app (ERGONOMIE.md). */
 export const SPACES: NavSpace[] = [
   { key: 'sujets', href: '/sujets', label: 'Sujets', icon: Sparkles, match: ['/sujets', '/today', '/dashboard', '/topics', '/frustrations', '/bienvenue'] },
-  { key: 'videos', href: '/pipeline', label: 'Mes vidéos', icon: Clapperboard, match: ['/pipeline', '/my-channel', '/videos'] },
+  { key: 'videos', href: '/pipeline', label: 'Mes vidéos', icon: Clapperboard, match: ['/pipeline', '/my-channel', '/videos', '/preflight'] },
   { key: 'veille', href: '/activity', label: 'Veille', icon: Radar, match: ['/activity', '/veille'] },
 ];
 
@@ -46,6 +46,7 @@ export const SECTION_TABS: Record<SpaceKey, { href: string; label: string; match
   videos: [
     { href: '/pipeline', label: 'Tableau', match: ['/pipeline'] },
     { href: '/my-channel', label: 'Ma chaîne', match: ['/my-channel'] },
+    { href: '/preflight', label: 'Avant de publier', match: ['/preflight'] },
   ],
   veille: [{ href: '/activity', label: 'À voir cette semaine', match: ['/activity'] }],
   admin: [

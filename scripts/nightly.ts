@@ -290,7 +290,8 @@ async function main() {
   console.log('\n========== AUTO-TRIAGE ==========');
 
   await runStep(runner, deadline, 'auto-triage', async () => {
-    const triage = await autoTriageCandidates(db, embedder);
+    // 8 min maximum : le reste des candidates passe la nuit suivante (avant : jusqu'à 12-15 min).
+    const triage = await autoTriageCandidates(db, embedder, 100, Math.min(deadline, Date.now() + parseInt(process.env.TRIAGE_MIN ?? '8', 10) * 60_000));
     console.log(`  Processed: ${triage.processed}, Accepted: ${triage.accepted}, Rejected: ${triage.rejected}, Manual: ${triage.manual}`);
     console.log(`  Enriched: ${triage.enriched}, Promoted: ${triage.promoted}`);
     return { quota: triage.quotaUsed, items: triage.processed };
@@ -345,7 +346,8 @@ async function main() {
   console.log('\n========== REJECT-STALE ==========');
 
   let rejectResult = { rejected: 0, protected: 0 };
-  await runStep(runner, deadline, 'reject-stale', async () => {
+  // Étape rapide (moins d'une seconde) : toujours exécutée, même si le temps est écoulé.
+  await runStep(runner, deadline + 10 * 60_000, 'reject-stale', async () => {
     const r = await rejectStaleTopics(db);
     rejectResult = r;
     console.log(`  Rejected: ${r.rejected}, Protected: ${r.protected}`);
@@ -358,7 +360,8 @@ async function main() {
   // ── Step 17: AGGREGATE (compress old snapshots into weekly) ────
   console.log('\n========== AGGREGATE ==========');
 
-  await runStep(runner, deadline, 'aggregate', async () => {
+  // Étape rapide (moins d'une seconde) : toujours exécutée, même si le temps est écoulé.
+  await runStep(runner, deadline + 10 * 60_000, 'aggregate', async () => {
     const cutoff = new Date(Date.now() - 30 * 86_400_000).toISOString();
     let aggregated = 0;
     let deleted = 0;
