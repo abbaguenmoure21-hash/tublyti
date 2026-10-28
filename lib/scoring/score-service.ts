@@ -6,6 +6,7 @@ import {
   computeSupplyQ,
   computeConfidence,
   computePercentile,
+  MIN_TOPICS_FOR_RANK,
   type TopicYTDemand,
 } from './mgi';
 import { computePhase } from './phase';
@@ -38,6 +39,15 @@ interface ActiveTopic {
 
 const PAGE_SIZE = 1000;
 
+/**
+ * Fails loudly on a read error: a timeout on `comments` must not become "0 comments"
+ * and be saved as a true (lower) MGI. The job is then marked as failed.
+ */
+function must<T>(res: { data: T | null; error: { message: string } | null }, what: string): T | null {
+  if (res.error) throw new Error(`Lecture ${what} impossible : ${res.error.message}`);
+  return res.data;
+}
+
 async function fetchAllRows<T>(
   db: SupabaseClient,
   table: string,
@@ -49,8 +59,10 @@ async function fetchAllRows<T>(
   while (true) {
     let query: unknown = db.from(table).select(columns);
     if (filterFn) query = filterFn(query as ReturnType<SupabaseClient['from']>);
-    const { data } = await (query as ReturnType<ReturnType<SupabaseClient['from']>['select']>)
-      .range(offset, offset + PAGE_SIZE - 1);
+    const data = must(
+      await (query as ReturnType<ReturnType<SupabaseClient['from']>['select']>).range(offset, offset + PAGE_SIZE - 1),
+      table,
+    );
     if (!data || data.length === 0) break;
     rows.push(...(data as T[]));
     if (data.length < PAGE_SIZE) break;
@@ -76,10 +88,13 @@ export async function runScore(
   const today = new Date().toISOString().slice(0, 10);
 
   // ── Load active topics with niche info ──────────────────────────
-  const { data: topicsRaw } = await db
-    .from('topics')
-    .select('id, label, niche_id, status, niches!inner(rpm_coefficient, owner_channel)')
-    .in('status', ['active', 'in_production']);
+  const topicsRaw = must(
+    await db
+      .from('topics')
+      .select('id, label, niche_id, status, niches!inner(rpm_coefficient, owner_channel)')
+      .in('status', ['active', 'in_production']),
+    'topics',
+  );
 
   if (!topicsRaw || topicsRaw.length === 0) return result;
 
@@ -117,11 +132,15 @@ export async function runScore(
     const batch = topicIds.slice(i, i + IN_BATCH_TOPIC);
     let offset = 0;
     while (true) {
-      const { data } = await db
-        .from('videos')
-        .select('id, topic_id, channel_id, published_at, duration_s, is_qualified')
-        .in('topic_id', batch)
-        .range(offset, offset + PAGE_SIZE - 1);
+      const data = must(
+        await db
+          .from('videos')
+          .select('id, topic_id, channel_id, published_at, duration_s, is_qualified')
+          .in('topic_id', batch)
+          .order('id')
+          .range(offset, offset + PAGE_SIZE - 1),
+        'videos',
+      );
       if (!data || data.length === 0) break;
       allVideos.push(...(data as TopicVideo[]));
       if (data.length < PAGE_SIZE) break;
@@ -142,10 +161,7 @@ export async function runScore(
   const channelSubs = new Map<string, number>();
   for (let i = 0; i < channelIds.length; i += IN_BATCH_TOPIC) {
     const batch = channelIds.slice(i, i + IN_BATCH_TOPIC);
-    const { data: channels } = await db
-      .from('channels')
-      .select('id, subscriber_count')
-      .in('id', batch);
+    const channels = must(await db.from('channels').select('id, subscriber_count').in('id', batch), 'channels');
     for (const ch of channels ?? []) {
       channelSubs.set(ch.id, Number(ch.subscriber_count) || 0);
     }
@@ -156,17 +172,24 @@ export async function runScore(
     .filter((v) => v.published_at >= cutoff30d)
     .map((v) => v.id);
 
+  // Only the latest snapshot is used: read the last 7 days, newest first (not the whole history).
+  const snapSince = new Date(Date.now() - 7 * 86_400_000).toISOString();
   const viewsByVideo = new Map<string, number>();
   for (let i = 0; i < recentVideoIds.length; i += IN_BATCH_TOPIC) {
     const batch = recentVideoIds.slice(i, i + IN_BATCH_TOPIC);
     let offset = 0;
     while (true) {
-      const { data: snaps } = await db
-        .from('video_snapshots')
-        .select('video_id, views')
-        .in('video_id', batch)
-        .order('captured_at', { ascending: false })
-        .range(offset, offset + PAGE_SIZE - 1);
+      const snaps = must(
+        await db
+          .from('video_snapshots')
+          .select('video_id, views')
+          .in('video_id', batch)
+          .gte('captured_at', snapSince)
+          .order('captured_at', { ascending: false })
+          .order('video_id')
+          .range(offset, offset + PAGE_SIZE - 1),
+        'video_snapshots',
+      );
       if (!snaps || snaps.length === 0) break;
       for (const s of snaps) {
         if (!viewsByVideo.has(s.video_id)) {
@@ -185,11 +208,15 @@ export async function runScore(
     const batch = allVideoIds.slice(i, i + IN_BATCH_TOPIC);
     let offset = 0;
     while (true) {
-      const { data: outliers } = await db
-        .from('video_outliers')
-        .select('video_id, score, age_days')
-        .in('video_id', batch)
-        .range(offset, offset + PAGE_SIZE - 1);
+      const outliers = must(
+        await db
+          .from('video_outliers')
+          .select('video_id, score, age_days')
+          .in('video_id', batch)
+          .order('video_id')
+          .range(offset, offset + PAGE_SIZE - 1),
+        'video_outliers',
+      );
       if (!outliers || outliers.length === 0) break;
       for (const o of outliers) {
         outlierByVideo.set(o.video_id, { score: Number(o.score), ageDays: Number(o.age_days) });
@@ -213,11 +240,15 @@ export async function runScore(
       const batch = vidIdArr.slice(i, i + IN_BATCH);
       let offset = 0;
       while (true) {
-        const { data } = await db
-          .from('comments')
-          .select('id, video_id, like_count')
-          .in('video_id', batch)
-          .range(offset, offset + PAGE_SIZE - 1);
+        const data = must(
+          await db
+            .from('comments')
+            .select('id, video_id, like_count')
+            .in('video_id', batch)
+            .order('id')
+            .range(offset, offset + PAGE_SIZE - 1),
+          'comments',
+        );
         if (!data || data.length === 0) break;
         comments.push(...(data as CommentRow[]));
         if (data.length < PAGE_SIZE) break;
@@ -254,11 +285,15 @@ export async function runScore(
       const batch = commentIds.slice(i, i + IN_BATCH);
       let offset = 0;
       while (true) {
-        const { data } = await db
-          .from('comment_labels')
-          .select('comment_id, label, confidence')
-          .in('comment_id', batch)
-          .range(offset, offset + PAGE_SIZE - 1);
+        const data = must(
+          await db
+            .from('comment_labels')
+            .select('comment_id, label, confidence')
+            .in('comment_id', batch)
+            .order('comment_id')
+            .range(offset, offset + PAGE_SIZE - 1),
+          'comment_labels',
+        );
         if (!data || data.length === 0) break;
         labels.push(...(data as LabelRow[]));
         if (data.length < PAGE_SIZE) break;
@@ -390,10 +425,10 @@ export async function runScore(
   const ownerChannelIds = [...new Set(topics.map((t) => t.owner_channel).filter(Boolean))] as string[];
   const ownerSubsByChannel = new Map<string, number>();
   if (ownerChannelIds.length > 0) {
-    const { data: ownerChannels } = await db
-      .from('channels')
-      .select('title, subscriber_count')
-      .in('title', ownerChannelIds);
+    const ownerChannels = must(
+      await db.from('channels').select('title, subscriber_count').in('title', ownerChannelIds),
+      'channels (propriétaires)',
+    );
     for (const ch of ownerChannels ?? []) {
       ownerSubsByChannel.set(ch.title, Number(ch.subscriber_count) || 0);
     }
@@ -402,15 +437,30 @@ export async function runScore(
   // ── Previous phases for alert evaluation ────────────────────────
   const previousPhaseByTopic = new Map<string, number>();
   {
-    const { data: prevScores } = await db
-      .from('topic_scores')
-      .select('topic_id, phase')
-      .in('topic_id', topicIds)
-      .lt('scored_at', today)
-      .order('scored_at', { ascending: false });
-    for (const s of prevScores ?? []) {
-      if (!previousPhaseByTopic.has(s.topic_id)) {
-        previousPhaseByTopic.set(s.topic_id, s.phase as number);
+    // Last score before today, in batches of 200 topics (URL length) over the last 14 days,
+    // paginated (the 1 000-row cap used to drop most topics, so phase alerts never fired).
+    const since = new Date(Date.now() - 14 * 86_400_000).toISOString().slice(0, 10);
+    for (let i = 0; i < topicIds.length; i += IN_BATCH_TOPIC) {
+      const batch = topicIds.slice(i, i + IN_BATCH_TOPIC);
+      for (let offset = 0; ; offset += PAGE_SIZE) {
+        const prevScores = must(
+          await db
+            .from('topic_scores')
+            .select('topic_id, phase, scored_at')
+            .in('topic_id', batch)
+            .lt('scored_at', today)
+            .gte('scored_at', since)
+            .order('scored_at', { ascending: false })
+            .order('topic_id')
+            .range(offset, offset + PAGE_SIZE - 1),
+          'topic_scores (veille)',
+        ) ?? [];
+        for (const s of prevScores) {
+          if (!previousPhaseByTopic.has(s.topic_id) && s.phase !== null) {
+            previousPhaseByTopic.set(s.topic_id, s.phase as number);
+          }
+        }
+        if (prevScores.length < PAGE_SIZE) break;
       }
     }
   }
@@ -535,7 +585,15 @@ export async function runScore(
   for (const s of scored) {
     const topic = topics[s.topicIndex];
     const nicheRawValues = rawMgiByNiche.get(topic.niche_id) ?? [s.rawMgi];
-    const mgi = computePercentile(s.rawMgi, nicheRawValues);
+    // A rank among fewer than 3 topics means nothing (a lone topic always got 50).
+    const tooFew = nicheRawValues.length < MIN_TOPICS_FOR_RANK;
+    const mgi = tooFew ? null : computePercentile(s.rawMgi, nicheRawValues);
+    if (tooFew) {
+      s.confidence = {
+        level: 'insufficient',
+        reason: `${nicheRawValues.length} sujet${nicheRawValues.length > 1 ? 's' : ''} comparable${nicheRawValues.length > 1 ? 's' : ''} dans la niche (min ${MIN_TOPICS_FOR_RANK})`,
+      };
+    }
 
     scoreRows.push({
         topic_id: topic.id,
@@ -599,13 +657,14 @@ export async function runScore(
 
   // ── Silent collection detection ──────────────────────────────
   const thirtySixHoursAgo = new Date(Date.now() - 36 * 3_600_000).toISOString();
-  const { data: recentSnap } = await db
+  const { data: recentSnap, error: recentSnapErr } = await db
     .from('video_snapshots')
     .select('video_id')
     .gte('captured_at', thirtySixHoursAgo)
     .limit(1);
 
-  if (!recentSnap || recentSnap.length === 0) {
+  // A read error is not "no snapshot": no false alert.
+  if (!recentSnapErr && (!recentSnap || recentSnap.length === 0)) {
     await alertSender.send({
       kind: 'silent_collection',
       subject: 'Collecte silencieuse depuis 36 h',

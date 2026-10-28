@@ -16,14 +16,26 @@ export function computeMGI(inputs: MGIInputs): number {
 
 /**
  * Compute percentile rank (0–100) of `value` among `allValues`.
+ * Ties get the mid-rank (average rank of the tied group): 5 equal values → 50 each,
+ * instead of 0 for all (which pushed whole niches with zero demand to "Très faible").
+ * Distinct values keep the same scale as before (min → 0, max → 100).
  * Single-element array → 50 (median by convention).
  */
 export function computePercentile(value: number, allValues: number[]): number {
   if (allValues.length <= 1) return 50;
-  const sorted = [...allValues].sort((a, b) => a - b);
-  const below = sorted.filter((v) => v < value).length;
-  return (below / (sorted.length - 1)) * 100;
+  let below = 0;
+  let equal = 0;
+  for (const v of allValues) {
+    if (v < value) below++;
+    else if (v === value) equal++;
+  }
+  // value absent from the list: behaves as before (rank = number of values below).
+  const rank = equal > 0 ? below + (equal - 1) / 2 : below;
+  return Math.min(100, (rank / (allValues.length - 1)) * 100);
 }
+
+/** Below this number of scoreable topics in a niche, a within-niche rank means nothing. */
+export const MIN_TOPICS_FOR_RANK = 3;
 
 // ── YouTube-based Demand ──────────────────────────────────────────────
 
@@ -104,8 +116,9 @@ export interface ConfidenceResult {
  * Confidence = how much we trust the MGI score.
  * - insufficient: < 5 videos → MGI = null
  * - low: 5–9 videos or < 20 comments
- * - medium: 10–19 videos or no outlier data
- * - high: >= 20 videos, >= 50 comments, has outlier data
+ * - points: videos (>=20: 2, >=10: 1), comments (>=50: 2, >=20: 1), outlier data (1)
+ * - high: >= 4 points (e.g. 20 videos + 50 comments, even without outlier data)
+ * - medium: 2–3 points ; low: 0–1 point
  */
 export function computeConfidence(inputs: ConfidenceInputs): ConfidenceResult {
   const { videoCount, commentCount, hasOutlierData } = inputs;

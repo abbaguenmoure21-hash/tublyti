@@ -66,6 +66,16 @@ describe('computePercentile', () => {
   it('returns 50 for empty array', () => {
     expect(computePercentile(10, [])).toBe(50);
   });
+
+  it('gives the mid-rank to ties (5 equal values -> 50 each)', () => {
+    expect(computePercentile(0, [0, 0, 0, 0, 0])).toBe(50);
+  });
+
+  it('ties share their average rank', () => {
+    // ranks 0,1,2 for the three zeros -> 1 -> 25 ; 40 is the max -> 100
+    expect(computePercentile(0, [0, 0, 0, 10, 40])).toBe(25);
+    expect(computePercentile(40, [0, 0, 0, 10, 40])).toBe(100);
+  });
 });
 
 // ── computeYTDemand ─────────────────────────────────────────────────
