@@ -72,7 +72,7 @@ export default async function UtilisateursPage() {
                 <td className="px-4 py-3 text-muted-foreground">{u.channels.length ? u.channels.join(', ') : <span className="text-phase-1-ink">Aucune chaîne</span>}</td>
                 <td className="px-4 py-3 tabular-nums">{u.videos}</td>
                 <td className="px-4 py-3 tabular-nums text-muted-foreground">{u.lastSignIn ? new Date(u.lastSignIn).toLocaleDateString('fr-FR') : 'Jamais'}</td>
-                <td className="px-4 py-3"><RoleSelect userId={u.id} role={u.role} self={u.id === me.id} /></td>
+                <td className="px-4 py-3"><RoleSelect userId={u.id} role={u.role} self={u.id === me.id} email={u.email} /></td>
               </tr>
             ))}
           </tbody>
