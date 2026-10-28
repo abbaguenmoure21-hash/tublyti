@@ -141,7 +141,11 @@ export async function runClassify(
   }
 
   // Update pending batches list
-  await db.from('settings').upsert({ key: 'pending_batches', value: stillPending });
+  const { error: pendingUpdateError } = await db.from('settings').upsert({ key: 'pending_batches', value: stillPending });
+  if (pendingUpdateError) {
+    // Not fatal: already-retrieved batches will simply be retrieved again next run.
+    console.error('[classify] pending_batches update failed', pendingUpdateError.message);
+  }
 
   if (isTimedOut()) return result;
 
@@ -211,10 +215,17 @@ export async function runClassify(
 
   // Store batch_id for retrieval
   stillPending.push(batch.id);
-  await db.from('settings').upsert({ key: 'pending_batches', value: stillPending });
+  const { error: pendingError } = await db.from('settings').upsert({ key: 'pending_batches', value: stillPending });
+  if (pendingError) {
+    // The batch is already created (and billed): fail loudly with its id so it can be recovered.
+    throw new Error(`classify: batch ${batch.id} submitted but not recorded in pending_batches: ${pendingError.message}`);
+  }
 
   // Update monthly spend
-  await db.from('settings').upsert({ key: mk, value: currentSpend + cost });
+  const { error: spendError } = await db.from('settings').upsert({ key: mk, value: currentSpend + cost });
+  if (spendError) {
+    throw new Error(`classify: batch ${batch.id} recorded but monthly AI spend not updated (+$${cost.toFixed(4)}): ${spendError.message}`);
+  }
 
   result.batchSubmitted = true;
   result.commentsSubmitted = unlabeled.length;
