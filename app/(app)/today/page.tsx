@@ -71,17 +71,15 @@ export default async function TodayPage() {
   const lastVisit = cookieStore.get('tublyti-last-visit')?.value ?? null;
   const lastVisitDate = lastVisit ? new Date(lastVisit) : null;
 
-  const [scoredAt, jobsResult, channelsResult] = await Promise.all([
+  const [scoredAt, jobsResult, nichesResult] = await Promise.all([
     getLatestScoreDate(db),
     db
       .from('jobs')
       .select('kind, started_at, finished_at, error')
       .order('started_at', { ascending: false })
       .limit(15),
-    db
-      .from('channels')
-      .select('id, title, niche_id, niches(id, name)')
-      .order('title'),
+    // Niches only: reading the whole channel catalogue for this was capped at 1,000 rows.
+    db.from('niches').select('id, name').order('name'),
   ]);
 
   // Determine cron status
@@ -101,41 +99,31 @@ export default async function TodayPage() {
     ? new Date(scoreJob.finished_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
     : '';
 
-  // Build unique niches from channels
-  const channels = (channelsResult.data ?? []) as unknown as {
-    id: string;
-    title: string;
-    niche_id: string;
-    niches: { id: string; name: string } | null;
-  }[];
+  const nicheMap = new Map<string, { id: string; name: string }>();
+  for (const n of (nichesResult.data ?? []) as { id: string; name: string }[]) nicheMap.set(n.id, n);
 
-  const nicheMap = new Map<string, { id: string; name: string; channelId: string; channelTitle: string }>();
-  for (const ch of channels) {
-    if (ch.niches && !nicheMap.has(ch.niche_id)) {
-      nicheMap.set(ch.niche_id, {
-        id: ch.niches.id,
-        name: ch.niches.name,
-        channelId: ch.id,
-        channelTitle: ch.title ?? ch.id,
-      });
-    }
+  // Get all topic scores for latest date (paginated: PostgREST caps each response at 1,000 rows)
+  const allScores: Record<string, unknown>[] = [];
+  for (let from = 0; from < 20_000; from += 1000) {
+    const { data: page } = await db
+      .from('topic_scores')
+      .select(
+        `mgi, demand, frustration, supply_q, monetization, phase, feasibility_grade,
+         topics!inner(id, label, status, niche_id)`,
+      )
+      .eq('scored_at', scoredAt)
+      .in('topics.status', ['active', 'in_production'])
+      .order('mgi', { ascending: false })
+      .order('topic_id', { ascending: true })
+      .range(from, from + 999);
+    allScores.push(...((page ?? []) as Record<string, unknown>[]));
+    if ((page ?? []).length < 1000) break;
   }
-
-  // Get all topic scores for latest date
-  const { data: allScores } = await db
-    .from('topic_scores')
-    .select(
-      `mgi, demand, frustration, supply_q, monetization, phase, feasibility_grade,
-       topics!inner(id, label, status, niche_id)`,
-    )
-    .eq('scored_at', scoredAt)
-    .in('topics.status', ['active', 'in_production'])
-    .order('mgi', { ascending: false });
 
   // Group scores by niche, pick top 3 (phase 2 first, then MGI × feasibility)
   // Exclude sensitive topics from tops (they stay visible elsewhere with a badge)
   const scoresByNiche = new Map<string, { topicId: string; label: string; mgi: number; phase: number; feasibilityGrade: FeasibilityGrade | null }[]>();
-  for (const s of allScores ?? []) {
+  for (const s of allScores) {
     const topic = s.topics as unknown as { id: string; label: string; status: string; niche_id: string };
     if (isSensitiveTopic(topic.label)) continue;
     const nicheId = topic.niche_id;
@@ -238,7 +226,7 @@ export default async function TodayPage() {
   }
 
   // KPI stats
-  const allTopicScores = allScores ?? [];
+  const allTopicScores = allScores;
   const idealCount = allTopicScores.filter((s: Record<string, unknown>) => s.phase === 2).length;
   const totalTracked = allTopicScores.length;
 
