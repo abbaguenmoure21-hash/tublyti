@@ -7,6 +7,7 @@ import { evaluateBeforePublish, startVideoUpload, videoUploadState } from '@/lib
 import type { PreflightResult } from '@/lib/preflight/engine';
 import type { TitleScore } from '@/lib/preflight/titles';
 import { HOOK_TYPES } from '@/lib/preflight/hook-types';
+import { scrollBehavior } from '@/lib/scroll';
 
 const nf = new Intl.NumberFormat('fr-FR');
 const pct = (x: number) => `${Math.round(x * 100)} %`;
@@ -85,7 +86,7 @@ export function PreflightForm({ userChannelId, aiEnabled }: { userChannelId: str
       if (video?.status === 'ready') setVideo(null); // le fichier est effacé chez Gemini après l'analyse
       if (!res.ok) return setError(res.message);
       setResult(res.result);
-      setTimeout(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+      setTimeout(() => resultRef.current?.scrollIntoView({ behavior: scrollBehavior(), block: 'start' }), 50);
     });
   }
 

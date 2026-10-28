@@ -7,6 +7,7 @@ import { PhaseBadge } from '@/components/tublyti/phase-badge';
 import { SectionNav } from '@/components/app-shell/section-nav';
 import { PageSection } from '@/components/app-shell/page-section';
 import { FAQ, FEASIBILITY, LABELS, OUTLIERS, PHASES, POTENTIAL, ROUTINE, SHORTCUTS, SPACES, TERMS } from './content';
+import { scrollBehavior } from '@/lib/scroll';
 
 const NAV = [
   { id: 'demarrer', label: 'Bien démarrer', icon: 'rocket' },
@@ -99,7 +100,7 @@ export function GuideView() {
 
   const jump = (anchor: string) => {
     setQ('');
-    requestAnimationFrame(() => document.getElementById(anchor)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+    requestAnimationFrame(() => document.getElementById(anchor)?.scrollIntoView({ behavior: scrollBehavior(), block: 'start' }));
   };
 
   return (

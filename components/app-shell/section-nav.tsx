@@ -18,6 +18,7 @@ import {
   Keyboard,
   type LucideIcon,
 } from 'lucide-react';
+import { scrollBehavior } from '@/lib/scroll';
 
 /** Icônes disponibles (les composants ne peuvent pas passer du serveur au client : on passe un nom). */
 const ICONS: Record<string, LucideIcon> = {
@@ -75,7 +76,7 @@ export function SectionNav({ items, label }: { items: SectionNavItem[]; label: s
     e.preventDefault();
     const el = document.getElementById(id);
     if (!el) return;
-    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    el.scrollIntoView({ behavior: scrollBehavior(), block: 'start' });
     history.replaceState(null, '', `#${id}`);
     setActive(id);
   };
