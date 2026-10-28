@@ -10,6 +10,8 @@ const VIEW_RATIO_THRESHOLD = 0.2;
 
 const MIN_COMMENT_LENGTH = 15;
 const COMMENT_MAX_PAGES = 5;
+// Parallel RSS readers (no quota; same model as thumb-watch).
+const RSS_CONCURRENCY = 8;
 
 export interface CollectResult {
   channelsUpdated: number;
@@ -171,93 +173,98 @@ export async function runCollect(
         .range(from, to),
     );
 
-    for (const channel of updatedChannels) {
-      if (isTimedOut()) {
-        result.stoppedByTimeout = true;
-        break;
-      }
+    // 2a. RSS in parallel (0 quota, network-bound): RSS_CONCURRENCY readers instead of one channel after the other.
+    const channelById = new Map(updatedChannels.map((c) => [c.id, c]));
+    const sourceOf = new Map<string, 'rss' | 'api'>(); // videoId → how it was found
+    const videoChannel = new Map<string, string>(); // videoId → followed channel
+    const rssFailed: typeof updatedChannels = [];
+    {
+      let next = 0;
+      const worker = async () => {
+        while (next < updatedChannels.length) {
+          if (isTimedOut()) { result.stoppedByTimeout = true; return; }
+          const channel = updatedChannels[next++]!;
+          try {
+            const entries = await fetchRSSVideos(channel.id);
+            if (entries.length === 0) { rssFailed.push(channel); continue; }
+            for (const e of entries) {
+              sourceOf.set(e.videoId, 'rss');
+              videoChannel.set(e.videoId, channel.id);
+            }
+          } catch {
+            rssFailed.push(channel); // RSS failed — API fallback below
+          }
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(RSS_CONCURRENCY, updatedChannels.length) }, worker));
+    }
 
-      let videoIds: string[] = [];
-      let usedRSS = false;
-
-      // Try RSS first (0 quota units)
+    // 2b. API fallback (playlistItems.list, 1 unit) for channels whose feed failed.
+    for (const channel of rssFailed) {
+      if (isTimedOut()) { result.stoppedByTimeout = true; break; }
+      if (!channel.uploads_playlist_id) continue;
+      if (trackingQuota >= budget.tracking) { result.stoppedByQuota = true; break; }
       try {
-        const rssEntries = await fetchRSSVideos(channel.id);
-        if (rssEntries.length > 0) {
-          videoIds = rssEntries.map((e) => e.videoId);
-          usedRSS = true;
+        const ids = await yt.getPlaylistItems(channel.uploads_playlist_id, 50);
+        trackingQuota += 1;
+        for (const id of ids) {
+          if (!sourceOf.has(id)) sourceOf.set(id, 'api');
+          videoChannel.set(id, channel.id);
         }
-      } catch {
-        // RSS failed — fall through to API
-      }
-
-      // Fallback to playlistItems.list (1 quota unit)
-      if (!usedRSS && channel.uploads_playlist_id) {
-        if (trackingQuota >= budget.tracking) {
-          result.stoppedByQuota = true;
-          break;
-        }
-        try {
-          videoIds = await yt.getPlaylistItems(channel.uploads_playlist_id, 50);
-          trackingQuota += 1;
-        } catch (err) {
-          if (err instanceof QuotaSoftLimitReached) throw err;
-          console.error(`Skipping channel ${channel.id}: ${(err as Error).message}`);
-          continue;
-        }
-      }
-
-      if (videoIds.length === 0) continue;
-
-      // Check which videos are already known
-      const { data: existing, error: existingErr } = await db
-        .from('videos')
-        .select('id')
-        .in('id', videoIds);
-      if (existingErr) throw new Error(`collect, vidéos connues : ${existingErr.message}`);
-      const existingIds = new Set((existing ?? []).map((v) => v.id));
-      const newIds = videoIds.filter((id) => !existingIds.has(id));
-
-      if (newIds.length === 0) continue;
-
-      // Fetch video details via API (need duration, thumbnails)
-      if (trackingQuota >= budget.tracking) {
-        result.stoppedByQuota = true;
-        break;
-      }
-      const videos = await yt.getVideos(newIds);
-      trackingQuota += Math.ceil(newIds.length / 50);
-
-      // One upsert for all the new videos of the channel.
-      const videoRows = videos.map((video) => ({
-        id: video.id,
-        workspace_id: '00000000-0000-0000-0000-000000000001',
-        channel_id: video.channelId,
-        title: video.title,
-        published_at: video.publishedAt,
-        duration_s: video.durationSeconds,
-        thumbnail_url: video.thumbnailUrl,
-        is_qualified:
-          video.durationSeconds >= DURATION_THRESHOLD &&
-          (channel.subscriber_count ?? 0) >= SUBSCRIBER_THRESHOLD,
-      }));
-      if (videoRows.length > 0) {
-        const { error: upErr } = await db.from('videos').upsert(videoRows);
-        if (upErr) {
-          console.error(`    [collect] videos upsert (${channel.id}): ${upErr.message}`);
-        } else {
-          result.videosDiscovered += videoRows.length;
-          if (usedRSS) result.videosFromRSS += videoRows.length;
-          else result.videosFromAPI += videoRows.length;
-        }
-      }
-
-      // Record new_upload events
-      if (newIds.length > 0) {
-        const recorded = await recordNewUploads(db, newIds);
-        result.eventsRecorded += recorded;
+      } catch (err) {
+        if (err instanceof QuotaSoftLimitReached) throw err;
+        console.error(`Skipping channel ${channel.id}: ${(err as Error).message}`);
       }
     }
+
+    // 2c. Unknown videos of all channels together, details by 50 (was one videos.list per channel, often for 1-2 videos).
+    const candidateIds = [...videoChannel.keys()];
+    const newIds: string[] = [];
+    for (let i = 0; i < candidateIds.length; i += 150) {
+      const chunk = candidateIds.slice(i, i + 150);
+      const { data: existing, error: existingErr } = await db.from('videos').select('id').in('id', chunk);
+      if (existingErr) throw new Error(`collect, vidéos connues : ${existingErr.message}`);
+      const known = new Set((existing ?? []).map((v) => v.id as string));
+      for (const id of chunk) if (!known.has(id)) newIds.push(id);
+    }
+
+    for (let i = 0; i < newIds.length; i += 50) {
+      if (isTimedOut()) { result.stoppedByTimeout = true; break; }
+      if (trackingQuota >= budget.tracking) { result.stoppedByQuota = true; break; }
+      const batch = newIds.slice(i, i + 50);
+      const videos = await yt.getVideos(batch);
+      trackingQuota += 1;
+
+      const videoRows = videos.map((video) => {
+        const followed = channelById.get(videoChannel.get(video.id) ?? video.channelId);
+        return {
+          id: video.id,
+          workspace_id: '00000000-0000-0000-0000-000000000001',
+          channel_id: video.channelId,
+          title: video.title,
+          published_at: video.publishedAt,
+          duration_s: video.durationSeconds,
+          thumbnail_url: video.thumbnailUrl,
+          is_qualified:
+            video.durationSeconds >= DURATION_THRESHOLD &&
+            (followed?.subscriber_count ?? 0) >= SUBSCRIBER_THRESHOLD,
+        };
+      });
+      if (videoRows.length === 0) continue;
+      const { error: upErr } = await db.from('videos').upsert(videoRows);
+      if (upErr) {
+        console.error(`    [collect] videos upsert: ${upErr.message}`);
+        continue;
+      }
+      result.videosDiscovered += videoRows.length;
+      for (const r of videoRows) {
+        if (sourceOf.get(r.id) === 'api') result.videosFromAPI++;
+        else result.videosFromRSS++;
+      }
+      // Record new_upload events (only for rows actually written: video_events references videos)
+      result.eventsRecorded += await recordNewUploads(db, videoRows.map((r) => r.id));
+    }
+    console.log(`    [collect] ${updatedChannels.length} channels, RSS failed ${rssFailed.length}, ${newIds.length} new videos`);
 
     logStep('video-discovery', t2);
 
