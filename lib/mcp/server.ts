@@ -14,7 +14,7 @@ import { analyzeVideo, parseVideoId, retentionContextFrom, type RetentionContext
 import { linkSaturation, topicSaturation } from '@/lib/saturation';
 import { compareKeywords } from '@/lib/keywords';
 import { getLatestSnapshots } from '@/lib/youtube/latest-snapshots';
-import { isMissingFunction, markRpcMissing, rpcKnownMissing } from '@/lib/supabase/rpc-fallback';
+import { isMissingFunction, markRpcMissing, readAllPages, rpcKnownMissing } from '@/lib/supabase/rpc-fallback';
 
 // ── Constants ──────────────────────────────────────────────────────────
 
@@ -150,19 +150,25 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
       // Client : ses propres chaines. Administrateur : les chaines du catalogue.
       const channels = token.userId && !token.isAdmin
         ? (await listScopeNiches(db, token.userId)).map((n) => ({ id: n.id, title: n.label, niche_id: n.id, niches: { id: n.id, name: n.nicheName } }))
-        : (await db.from('channels').select('id, title, niche_id, niches(id, name)').order('title')).data;
+        : (await readAllPages<Record<string, unknown>>((from, to) => db.from('channels').select('id, title, niche_id, niches(id, name)').order('title').order('id').range(from, to))).data;
 
       if (!channels?.length) return ok('Aucune chaine configuree. Ajoute ta chaine dans Reglages > Mes chaines.');
 
-      const { data: allScores } = await inScope(
-        db
-          .from('topic_scores')
-          .select('mgi, demand, frustration, supply_q, phase, topic_id, topics!inner(id, label, status, niche_id)')
-          .eq('scored_at', scoredAt)
-          .in('topics.status', ['active', 'in_production']),
-        'topics.niche_id',
-        token,
-      ).order('mgi', { ascending: false });
+      // Paginated: all topic scores of the day exceed the 1,000-row cap on a large catalogue.
+      const { data: allScores } = await readAllPages<Record<string, unknown>>((from, to) =>
+        inScope(
+          db
+            .from('topic_scores')
+            .select('mgi, demand, frustration, supply_q, phase, topic_id, topics!inner(id, label, status, niche_id)')
+            .eq('scored_at', scoredAt)
+            .in('topics.status', ['active', 'in_production']),
+          'topics.niche_id',
+          token,
+        )
+          .order('mgi', { ascending: false })
+          .order('topic_id', { ascending: true })
+          .range(from, to),
+      );
 
       const scoresByNiche = new Map<string, { topicId: string; label: string; mgi: number; phase: number }[]>();
       for (const s of allScores ?? []) {
