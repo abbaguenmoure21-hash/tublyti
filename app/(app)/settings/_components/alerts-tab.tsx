@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useTransition, useEffect } from 'react';
+import { useState, useTransition, useEffect, useRef } from 'react';
 import { toast } from 'sonner';
 import {
   Plus,
@@ -56,7 +56,7 @@ const RULE_TYPES: { value: AlertRuleType; label: string; description: string }[]
   {
     value: 'video_outlier',
     label: 'Une vidéo surperforme',
-    description: 'Une vidéo fait N fois la moyenne de sa chaîne, sur une chaîne de moins de K abonnés.',
+    description: 'Préviens-moi quand une vidéo fait bien plus de vues que d’habitude sur sa chaîne, même petite.',
   },
   {
     value: 'window_closing',
@@ -89,7 +89,10 @@ export function AlertsTab({
   const [isPending, startTransition] = useTransition();
   const [showForm, setShowForm] = useState(false);
   const [events, setEvents] = useState<Record<string, unknown>[]>([]);
-  const [eventsLoaded, setEventsLoaded] = useState(false);
+  const [eventsState, setEventsState] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [eventsAttempt, setEventsAttempt] = useState(0);
+  // Deletions wait a few seconds so the toast can offer « Annuler ».
+  const pendingDeletes = useRef(new Map<string, ReturnType<typeof setTimeout>>());
 
   // New rule form state
   const [newType, setNewType] = useState<AlertRuleType>('phase_change');
@@ -102,15 +105,38 @@ export function AlertsTab({
   const [newMinQualified, setNewMinQualified] = useState(5);
   const [previewCount, setPreviewCount] = useState<number | null>(null);
 
-  // Load events
+  // Load events (loading / error / ready, with a retry)
   useEffect(() => {
-    if (!eventsLoaded) {
-      getAlertEvents(20).then((res) => {
+    let cancelled = false;
+    getAlertEvents(20)
+      .then((res) => {
+        if (cancelled) return;
+        if (res.error) {
+          setEventsState('error');
+          return;
+        }
         setEvents(res.data);
-        setEventsLoaded(true);
+        setEventsState('ready');
+      })
+      .catch(() => {
+        if (!cancelled) setEventsState('error');
       });
-    }
-  }, [eventsLoaded]);
+    return () => {
+      cancelled = true;
+    };
+  }, [eventsAttempt]);
+
+  // Flush pending deletions if the user leaves the page before the delay ends.
+  useEffect(() => {
+    const map = pendingDeletes.current;
+    return () => {
+      map.forEach((timer, id) => {
+        clearTimeout(timer);
+        void deleteAlertRule(id);
+      });
+      map.clear();
+    };
+  }, []);
 
   // Preview trigger count when form changes
   useEffect(() => {
@@ -146,7 +172,7 @@ export function AlertsTab({
       if (result.error) {
         toast.error(result.error);
       } else {
-        toast.success('Règle créée.');
+        toast.success('Alerte créée.');
         setRules((prev) => [result.data, ...prev]);
         setShowForm(false);
         resetForm();
@@ -177,15 +203,36 @@ export function AlertsTab({
     });
   }
 
-  function handleDelete(id: string) {
-    startTransition(async () => {
-      const result = await deleteAlertRule(id);
+  function handleDelete(rule: AlertRuleData) {
+    const index = rules.findIndex((r) => r.id === rule.id);
+    setRules((prev) => prev.filter((r) => r.id !== rule.id));
+    const restore = () =>
+      setRules((prev) => {
+        if (prev.some((r) => r.id === rule.id)) return prev;
+        const next = [...prev];
+        next.splice(Math.max(0, Math.min(index, next.length)), 0, rule);
+        return next;
+      });
+    const timer = setTimeout(async () => {
+      pendingDeletes.current.delete(rule.id);
+      const result = await deleteAlertRule(rule.id);
       if (result.error) {
         toast.error(result.error);
-      } else {
-        toast.success('Règle supprimée.');
-        setRules((prev) => prev.filter((r) => r.id !== id));
+        restore();
       }
+    }, 5000);
+    pendingDeletes.current.set(rule.id, timer);
+    toast(`Alerte « ${rule.label} » supprimée.`, {
+      duration: 5000,
+      action: {
+        label: 'Annuler',
+        onClick: () => {
+          const t = pendingDeletes.current.get(rule.id);
+          if (t) clearTimeout(t);
+          pendingDeletes.current.delete(rule.id);
+          restore();
+        },
+      },
     });
   }
 
@@ -200,7 +247,7 @@ export function AlertsTab({
   return (
     <div className="space-y-6">
       {/* Rules */}
-      <section className="bg-card border border-border rounded-[10px] shadow-[0_1px_2px_rgba(20,24,34,0.06)]">
+      <section className="elev-1 rounded-xl bg-card">
         <div className="px-5 py-3.5 border-b border-border flex items-center justify-between">
           <div>
             <h3 className="text-[15px] font-semibold">Mes alertes</h3>
@@ -211,7 +258,7 @@ export function AlertsTab({
           <button
             type="button"
             onClick={() => setShowForm(!showForm)}
-            className="h-8 px-3 rounded-md bg-primary text-primary-foreground text-[12px] font-medium hover:bg-primary/90 transition-colors cursor-pointer flex items-center gap-1"
+            className="h-9 px-3 rounded-md bg-primary text-primary-foreground text-[12px] font-medium hover:bg-primary/90 transition-colors cursor-pointer flex items-center gap-1"
           >
             <Plus className="w-3 h-3" />
             Nouvelle alerte
@@ -220,11 +267,12 @@ export function AlertsTab({
 
         {/* New rule form */}
         {showForm && (
-          <div className="px-5 py-4 border-b border-border bg-muted/30 space-y-3">
+          <div className="px-5 py-4 border-b border-border space-y-3">
             {/* Rule type */}
             <div>
-              <label className="text-[12px] font-medium text-muted-foreground">Type</label>
+              <label htmlFor="alert-type" className="text-[12px] font-medium text-muted-foreground">Quand me prévenir ?</label>
               <select
+                id="alert-type"
                 value={newType}
                 onChange={(e) => setNewType(e.target.value as AlertRuleType)}
                 className="mt-1 w-full h-9 px-2.5 border border-border rounded-md bg-card text-[13px] text-foreground"
@@ -241,13 +289,14 @@ export function AlertsTab({
             {/* Type-specific params */}
             {newType === 'phase_change' && (
               <div>
-                <label className="text-[12px] font-medium text-muted-foreground">Niche (optionnel)</label>
+                <label htmlFor="alert-niche" className="text-[12px] font-medium text-muted-foreground">Thématique (facultatif)</label>
                 <select
+                  id="alert-niche"
                   value={newNicheId}
                   onChange={(e) => setNewNicheId(e.target.value)}
                   className="mt-1 w-full h-9 px-2.5 border border-border rounded-md bg-card text-[13px] text-foreground"
                 >
-                  <option value="">Toutes les niches</option>
+                  <option value="">Toutes mes thématiques</option>
                   {niches.map((n) => (
                     <option key={n.id} value={n.id}>{n.name}</option>
                   ))}
@@ -257,13 +306,14 @@ export function AlertsTab({
 
             {newType === 'collection_phase_change' && (
               <div>
-                <label className="text-[12px] font-medium text-muted-foreground">Collection (optionnel)</label>
+                <label htmlFor="alert-collection" className="text-[12px] font-medium text-muted-foreground">Liste de favoris (facultatif)</label>
                 <select
+                  id="alert-collection"
                   value={newCollectionId}
                   onChange={(e) => setNewCollectionId(e.target.value)}
                   className="mt-1 w-full h-9 px-2.5 border border-border rounded-md bg-card text-[13px] text-foreground"
                 >
-                  <option value="">Toutes les collections</option>
+                  <option value="">Tous mes favoris</option>
                   {collections.map((c) => (
                     <option key={c.id} value={c.id}>{c.name}</option>
                   ))}
@@ -272,10 +322,11 @@ export function AlertsTab({
             )}
 
             {newType === 'video_outlier' && (
-              <div className="flex gap-3">
+              <div className="flex flex-col gap-3 sm:flex-row">
                 <div className="flex-1">
-                  <label className="text-[12px] font-medium text-muted-foreground">Multiplicateur min.</label>
+                  <label htmlFor="alert-multiplier" className="text-[12px] font-medium text-muted-foreground">Vues au moins N fois l’habitude de la chaîne</label>
                   <input
+                    id="alert-multiplier"
                     type="number"
                     min={2}
                     max={50}
@@ -285,8 +336,9 @@ export function AlertsTab({
                   />
                 </div>
                 <div className="flex-1">
-                  <label className="text-[12px] font-medium text-muted-foreground">Abonnés max.</label>
+                  <label htmlFor="alert-max-subs" className="text-[12px] font-medium text-muted-foreground">Chaînes de moins de N abonnés</label>
                   <input
+                    id="alert-max-subs"
                     type="number"
                     min={1000}
                     step={1000}
@@ -300,8 +352,9 @@ export function AlertsTab({
 
             {newType === 'window_closing' && (
               <div>
-                <label className="text-[12px] font-medium text-muted-foreground">Vidéos qualifiées min. en 72 h</label>
+                <label htmlFor="alert-min-videos" className="text-[12px] font-medium text-muted-foreground">Au moins N vidéos de qualité en 3 jours</label>
                 <input
+                  id="alert-min-videos"
                   type="number"
                   min={2}
                   max={20}
@@ -314,8 +367,9 @@ export function AlertsTab({
 
             {/* Label */}
             <div>
-              <label className="text-[12px] font-medium text-muted-foreground">Nom (optionnel)</label>
+              <label htmlFor="alert-name" className="text-[12px] font-medium text-muted-foreground">Nom (facultatif)</label>
               <input
+                id="alert-name"
                 type="text"
                 value={newLabel}
                 onChange={(e) => setNewLabel(e.target.value)}
@@ -325,21 +379,21 @@ export function AlertsTab({
             </div>
 
             {/* Instant email toggle */}
-            <label className="flex items-center gap-2 cursor-pointer">
+            <label className="flex items-start gap-2 cursor-pointer">
               <input
                 type="checkbox"
                 checked={newInstant}
                 onChange={(e) => setNewInstant(e.target.checked)}
-                className="rounded border-border"
+                className="mt-0.5 rounded border-border"
               />
-              <Mail className="w-3.5 h-3.5 text-muted-foreground" />
-              <span className="text-[13px]">E-mail immédiat</span>
+              <Mail className="mt-0.5 w-3.5 h-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+              <span className="text-[13px]">M’envoyer un e-mail tout de suite (sinon : dans le résumé du dimanche)</span>
             </label>
 
             {/* Preview */}
             {previewCount !== null && (
               <p className="text-[12px] text-muted-foreground italic">
-                Cette règle se serait déclenchée {previewCount} fois le mois dernier.
+                Cette alerte t’aurait prévenu {previewCount} fois le mois dernier.
               </p>
             )}
 
@@ -349,14 +403,14 @@ export function AlertsTab({
                 type="button"
                 onClick={handleCreate}
                 disabled={isPending}
-                className="h-8 px-3 rounded-md bg-primary text-primary-foreground text-[12px] font-medium hover:bg-primary/90 transition-colors disabled:opacity-50 cursor-pointer"
+                className="h-9 px-3 rounded-md bg-primary text-primary-foreground text-[13px] font-medium hover:bg-primary/90 transition-colors disabled:opacity-50 cursor-pointer"
               >
                 Créer
               </button>
               <button
                 type="button"
                 onClick={() => { setShowForm(false); resetForm(); }}
-                className="h-8 px-3 rounded-md border border-border bg-card text-[12px] font-medium text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                className="h-9 px-3 rounded-md border border-border bg-card text-[13px] font-medium text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
               >
                 Annuler
               </button>
@@ -383,7 +437,7 @@ export function AlertsTab({
                   </span>
                   <span className="text-[13px] font-medium truncate">{rule.label}</span>
                   {rule.instant_email && (
-                    <span title="E-mail immédiat"><Mail className="w-3 h-3 text-muted-foreground shrink-0" /></span>
+                    <span title="E-mail tout de suite"><Mail className="w-3 h-3 text-muted-foreground shrink-0" aria-label="E-mail tout de suite" /></span>
                   )}
                 </div>
               </div>
@@ -392,17 +446,20 @@ export function AlertsTab({
                 onClick={() => handleToggle(rule.id, !rule.enabled)}
                 disabled={isPending}
                 title={rule.enabled ? 'Suspendre' : 'Activer'}
-                className="w-7 h-7 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted flex items-center justify-center cursor-pointer"
+                aria-label={rule.enabled ? `Suspendre l’alerte ${rule.label}` : `Activer l’alerte ${rule.label}`}
+                className="w-10 h-10 sm:w-8 sm:h-8 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted flex items-center justify-center cursor-pointer"
               >
-                {rule.enabled ? <Power className="w-3.5 h-3.5" /> : <PowerOff className="w-3.5 h-3.5" />}
+                {rule.enabled ? <Power className="w-3.5 h-3.5" aria-hidden="true" /> : <PowerOff className="w-3.5 h-3.5" aria-hidden="true" />}
               </button>
               <button
                 type="button"
-                onClick={() => handleDelete(rule.id)}
+                onClick={() => handleDelete(rule)}
                 disabled={isPending}
-                className="w-7 h-7 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 flex items-center justify-center cursor-pointer"
+                title="Supprimer"
+                aria-label={`Supprimer l’alerte ${rule.label}`}
+                className="w-10 h-10 sm:w-8 sm:h-8 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 flex items-center justify-center cursor-pointer"
               >
-                <Trash2 className="w-3.5 h-3.5" />
+                <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
               </button>
             </div>
           ))}
@@ -410,7 +467,7 @@ export function AlertsTab({
       </section>
 
       {/* Recent events */}
-      <section className="bg-card border border-border rounded-[10px] shadow-[0_1px_2px_rgba(20,24,34,0.06)]">
+      <section className="elev-1 rounded-xl bg-card">
         <div className="px-5 py-3.5 border-b border-border flex items-center justify-between">
           <div>
             <h2 className="text-[15px] font-semibold">Historique</h2>
@@ -432,12 +489,34 @@ export function AlertsTab({
         </div>
 
         <div className="divide-y divide-border">
-          {events.length === 0 && (
+          {eventsState === 'loading' && (
+            <div className="space-y-2 px-5 py-4" aria-busy="true" aria-label="Chargement de l’historique">
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="h-5 animate-pulse rounded bg-muted" />
+              ))}
+            </div>
+          )}
+          {eventsState === 'error' && (
+            <div className="flex flex-col items-center gap-2 px-5 py-8 text-center text-[13px] text-muted-foreground" role="alert">
+              Impossible de charger l’historique.
+              <button
+                type="button"
+                onClick={() => {
+                  setEventsState('loading');
+                  setEventsAttempt((n) => n + 1);
+                }}
+                className="h-9 cursor-pointer rounded-md border border-border bg-card px-3 text-[13px] font-medium text-foreground hover:bg-muted"
+              >
+                Réessayer
+              </button>
+            </div>
+          )}
+          {eventsState === 'ready' && events.length === 0 && (
             <div className="px-5 py-8 text-center text-[13px] text-muted-foreground">
               Aucune alerte déclenchée pour le moment.
             </div>
           )}
-          {events.map((event) => {
+          {eventsState === 'ready' && events.map((event) => {
             const ruleInfo = event.alert_rules as { label: string; rule_type: string } | undefined;
             const payload = event.payload as Record<string, unknown>;
             const read = event.read as boolean;
