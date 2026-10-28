@@ -368,19 +368,19 @@ export default async function TopicPage({
 
       <div className="flex flex-1 flex-col gap-5 px-4 pb-12 pt-3 md:px-8">
         {/* Title row */}
-        <div className="flex items-start justify-between gap-6">
-          <div className="flex flex-col gap-2.5">
-            <div className="flex items-center gap-2.5">
+        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between md:gap-6">
+          <div className="flex min-w-0 flex-col gap-2.5">
+            <div className="flex flex-wrap items-center gap-2.5">
               <PhaseBadge phase={phase} />
               <span className="text-[13px] text-muted-foreground">
                 {niche?.name ? `${niche.name} · ` : ''}repéré il y a {daysSinceCreated} jour{daysSinceCreated !== 1 ? 's' : ''}
               </span>
             </div>
-            <h1 className="text-[28px] font-semibold leading-tight tracking-[-0.02em] md:text-[32px]">
+            <h1 className="break-words text-[28px] font-semibold leading-tight tracking-[-0.02em] md:text-[32px]">
               {topic.label}
             </h1>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 md:shrink-0 md:justify-end">
             <DossierExport topicId={id} />
             <TopicActions
               topicId={id}
@@ -488,7 +488,7 @@ export default async function TopicPage({
         {saturation && <TopicSaturationCard s={saturation} />}
 
         {/* Two-column layout */}
-        <div className="flex gap-4 items-start">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:gap-4">
           {/* Left column */}
           <div className="flex-1 min-w-0 flex flex-col gap-5">
             <SignalSection signals={signals} />
@@ -509,7 +509,7 @@ export default async function TopicPage({
                 frustrationList.slice(0, 8).map((f) => (
                   <div key={f.commentId} className="px-5 py-4 border-b border-[--glass-border] flex flex-col gap-2.5 last:border-0 hover:bg-[--bg-surface-1]/30 transition-colors">
                     <p className="line-clamp-4 text-[15px] leading-relaxed text-foreground">« {f.text} »</p>
-                    <div className="flex items-center gap-2.5 text-[12px] text-muted-foreground">
+                    <div className="flex flex-wrap items-center gap-2.5 text-[12px] text-muted-foreground">
                       <span className="inline-flex h-6 shrink-0 items-center rounded-md bg-muted px-2 font-medium text-muted-foreground">
                         {LABEL_NAMES[f.label] ?? f.label}
                       </span>
@@ -532,7 +532,7 @@ export default async function TopicPage({
           </div>
 
           {/* Right column */}
-          <div className="w-[400px] shrink-0 flex flex-col gap-5">
+          <div className="flex w-full min-w-0 flex-col gap-5 lg:w-[400px] lg:shrink-0">
             <AngleSection
               topicId={id}
               angles={angles ?? []}
@@ -665,9 +665,9 @@ function SignalSection({ signals }: { signals: Record<string, { date: string; va
 
   return (
     <section className="bento-card px-5 py-4 flex flex-col gap-3">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-headline">Signaux sur 90 jours</h2>
-        <div className="flex gap-4 text-[12px] font-semibold uppercase tracking-wider text-muted-foreground">
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-[12px] font-semibold uppercase tracking-wider text-muted-foreground">
           {activeSources.map((source) => (
             <span key={source} className="flex items-center gap-1.5">
               <span className="w-3 h-[3px] rounded-sm" style={{ backgroundColor: SIGNAL_COLORS[source] }} />
