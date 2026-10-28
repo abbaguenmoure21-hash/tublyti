@@ -1,4 +1,3 @@
-'use client';
 
 import { getMgiBand, type ConfidenceResult } from '@/lib/scoring/mgi';
 

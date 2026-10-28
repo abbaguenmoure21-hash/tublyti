@@ -1,4 +1,3 @@
-'use client';
 
 import { getOutlierBadge } from '@/lib/scoring/outlier';
 
