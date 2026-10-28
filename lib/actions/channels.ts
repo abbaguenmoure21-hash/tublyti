@@ -68,9 +68,26 @@ export async function deleteChannel(channelId: string) {
   const { error } = await db.from('channels').delete().eq('id', channelId);
 
   if (error) {
-    return { error: error.message };
+    // 23503 = foreign key violation: videos still point to this channel.
+    if (error.code === '23503') {
+      return { error: 'Cette chaîne a encore des vidéos dans le catalogue : elle ne peut pas être supprimée.' };
+    }
+    return { error: 'La suppression a échoué. Réessaie dans un instant.' };
   }
 
   revalidatePath('/channels');
   return { success: true };
+}
+
+/** What a deletion would remove, shown in the confirmation dialog. */
+export async function getChannelImpact(channelId: string): Promise<{ videos: number } | { error: string }> {
+  await assertAdmin();
+  if (!channelId) return { error: 'Chaîne introuvable.' };
+  const db = createServiceClient();
+  const { count, error } = await db
+    .from('videos')
+    .select('id', { count: 'exact', head: true })
+    .eq('channel_id', channelId);
+  if (error) return { error: 'Impossible de compter les vidéos de cette chaîne.' };
+  return { videos: count ?? 0 };
 }
