@@ -86,7 +86,7 @@ export default async function PipelinePage({
     return topic.id;
   }))];
 
-  let scoreMap: Record<string, number> = {};
+  const scoreMap: Record<string, number> = {};
   if (topicIds.length > 0) {
     const { data: scores } = await db
       .from('topic_scores')
@@ -109,8 +109,8 @@ export default async function PipelinePage({
     .filter((a: Record<string, unknown>) => a.status === 'published' && a.video_id)
     .map((a: Record<string, unknown>) => a.video_id as string);
 
-  let videoPublishDates: Record<string, string> = {};
-  let videoPerformance: Record<string, number | null> = {};
+  const videoPublishDates: Record<string, string> = {};
+  const videoPerformance: Record<string, number | null> = {};
 
   if (publishedAngleIds.length > 0) {
     // Get video publish dates

@@ -81,7 +81,7 @@ export async function runCollect(
 
   const budget = await loadQuotaBudget(db, 8000);
   let trackingQuota = 0;
-  let commentQuota = 0;
+  const commentQuota = 0;
 
   const logStep = (name: string, t0: number) =>
     console.log(`    [collect] ${name} done in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

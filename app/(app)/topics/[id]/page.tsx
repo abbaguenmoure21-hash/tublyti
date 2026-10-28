@@ -173,7 +173,7 @@ export default async function TopicPage({
 
   // Get latest views
   const videoIds = (videos ?? []).map((v: Record<string, unknown>) => v.id as string);
-  let videoViews: Record<string, number> = {};
+  const videoViews: Record<string, number> = {};
   if (videoIds.length > 0) {
     const { data: snaps } = await db
       .from('video_snapshots')
@@ -191,7 +191,7 @@ export default async function TopicPage({
   }
 
   // Fetch outlier scores for these videos
-  let videoOutliers: Record<string, { score: number; ageDays: number; method: string; baseline: number }> = {};
+  const videoOutliers: Record<string, { score: number; ageDays: number; method: string; baseline: number }> = {};
   if (videoIds.length > 0) {
     const { data: outliers } = await db
       .from('video_outliers')
