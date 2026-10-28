@@ -97,12 +97,46 @@ async function main() {
     if (pub === undefined || Math.abs(s.at - (pub + HORIZON_DAYS * DAY)) > 3 * DAY) return;
     near.set(videoId, [...(near.get(videoId) ?? []), s]);
   };
-  const snaps = await all<{ video_id: string; captured_at: string; views: number }>(db, 'video_snapshots', 'video_id, captured_at, views', ['video_id', 'captured_at']);
-  for (const r of snaps) keepNear(r.video_id, { at: new Date(r.captured_at).getTime(), views: Number(r.views) || 0 });
-  const weekly = await all<{ video_id: string; week_start: string; views: number }>(db, 'video_stats_weekly', 'video_id, week_start, views', ['video_id', 'week_start']);
+  // Never the whole snapshot table: videos sorted by publication date, in chunks of 50 whose
+  // publication dates are close, and only the rows inside [first pub + 4 d, last pub + 10 d].
   const weeklyById = new Map<string, { week_start: string; views: number }[]>();
-  for (const w of weekly) weeklyById.set(w.video_id, [...(weeklyById.get(w.video_id) ?? []), w]);
-  console.log(`  ${vids.length} vidéos longues, ${snaps.length} relevés, ${weekly.length} relevés hebdo, ${scores.length} notes de sujets`);
+  let snapCount = 0;
+  let weeklyCount = 0;
+  const byPub = [...vids].sort((a, b) => a.published_at!.localeCompare(b.published_at!));
+  const chunks: (typeof vids)[] = [];
+  for (let i = 0; i < byPub.length; i += 50) chunks.push(byPub.slice(i, i + 50));
+  const loadChunk = async (chunk: typeof vids) => {
+    const ids = chunk.map((v) => v.id);
+    const first = pubById.get(chunk[0].id)!;
+    const last = pubById.get(chunk[chunk.length - 1].id)!;
+    const from = new Date(first + (HORIZON_DAYS - 3) * DAY).toISOString();
+    const to = new Date(last + (HORIZON_DAYS + 3) * DAY).toISOString();
+    const rows = await all<{ video_id: string; captured_at: string; views: number }>(
+      db,
+      'video_snapshots',
+      'video_id, captured_at, views',
+      ['video_id', 'captured_at'],
+      (q) => q.in('video_id', ids).gte('captured_at', from).lte('captured_at', to),
+    );
+    snapCount += rows.length;
+    for (const r of rows) keepNear(r.video_id, { at: new Date(r.captured_at).getTime(), views: Number(r.views) || 0 });
+    const wk = await all<{ video_id: string; week_start: string; views: number }>(
+      db,
+      'video_stats_weekly',
+      'video_id, week_start, views',
+      ['video_id', 'week_start'],
+      (q) =>
+        q
+          .in('video_id', ids)
+          .gte('week_start', new Date(first - 7 * DAY).toISOString().slice(0, 10))
+          .lte('week_start', new Date(last + (HORIZON_DAYS + 3) * DAY).toISOString().slice(0, 10)),
+    );
+    weeklyCount += wk.length;
+    for (const w of wk) weeklyById.set(w.video_id, [...(weeklyById.get(w.video_id) ?? []), w]);
+  };
+  // 4 requests in flight at most.
+  for (let i = 0; i < chunks.length; i += 4) await Promise.all(chunks.slice(i, i + 4).map(loadChunk));
+  console.log(`  ${vids.length} vidéos longues, ${snapCount} relevés autour du 7e jour, ${weeklyCount} relevés hebdo, ${scores.length} notes de sujets`);
 
   const views7 = new Map<string, number | null>();
   let fromWeekly = 0;
