@@ -18,7 +18,7 @@ import { ThemeChoice } from './_client/theme-choice';
 import Link from 'next/link';
 import { SectionNav } from '@/components/app-shell/section-nav';
 import { PageSection } from '@/components/app-shell/page-section';
-import { AlertTriangle, ArrowRight, CheckCircle2 } from 'lucide-react';
+import { AlertTriangle, ArrowRight, Bell, CheckCircle2 } from 'lucide-react';
 
 export const metadata: Metadata = { title: 'Réglages' };
 
@@ -62,11 +62,11 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   // La prochaine chose utile à faire, affichée en haut de la page.
   const next =
     channels.length === 0
-      ? { text: 'Ajoute ta première chaîne pour voir les sujets de ta niche.', href: '#chaines', cta: 'Ajouter ma chaîne' }
+      ? { text: 'Ajoute ta première chaîne pour voir les sujets de ta thématique.', href: '#chaines', cta: 'Ajouter ma chaîne', blocking: true }
       : pendingCount > 0
-        ? { text: `${pendingCount === 1 ? 'Une chaîne attend' : `${pendingCount} chaînes attendent`} ta vérification : sans elle, aucune donnée ne s’affiche.`, href: '#chaines', cta: 'Vérifier' }
+        ? { text: `${pendingCount === 1 ? 'Une chaîne attend' : `${pendingCount} chaînes attendent`} ta vérification : sans elle, aucune donnée ne s’affiche.`, href: '#chaines', cta: 'Vérifier', blocking: true }
         : activeRules === 0 && tools
-          ? { text: 'Active une alerte pour être prévenu quand un sujet devient le bon moment.', href: '#alertes', cta: 'Choisir mes alertes' }
+          ? { text: 'Active une alerte pour être prévenu quand un sujet devient le bon moment.', href: '#alertes', cta: 'Choisir mes alertes', blocking: false }
           : null;
 
   const nav = [
@@ -88,7 +88,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
     <div className="mx-auto w-full max-w-[1080px] px-4 py-6 md:px-8 md:py-8">
       <header className="mb-6 flex flex-col gap-1.5">
         <h1 className="text-[28px] font-semibold tracking-[-0.02em] md:text-[32px]">Réglages</h1>
-        <p className="text-[15px] text-muted-foreground">Tes chaînes décident des sujets que TubLyTI te montre. Tout se règle ici, et chaque changement s’enregistre tout seul.</p>
+        <p className="text-[15px] text-muted-foreground">Tes chaînes décident des sujets que TubLyTI te montre. Tout se règle ici. Les thématiques et l’apparence s’enregistrent toutes seules.</p>
       </header>
 
       <div className="grid gap-6 lg:grid-cols-[230px_minmax(0,1fr)] lg:gap-10">
@@ -108,8 +108,15 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
               ))}
             </dl>
             {next ? (
-              <a href={next.href} className="flex items-center gap-3 rounded-2xl bg-[color-mix(in_oklch,var(--warning)_12%,var(--card))] px-4 py-3 text-sm transition-colors hover:bg-[color-mix(in_oklch,var(--warning)_18%,var(--card))]">
-                <AlertTriangle className="h-4 w-4 shrink-0 text-[var(--warning)]" aria-hidden="true" />
+              <a
+                href={next.href}
+                className={`flex items-center gap-3 rounded-2xl px-4 py-3 text-sm transition-colors ${next.blocking ? 'bg-warning/10 hover:bg-warning/15' : 'bg-primary-soft text-primary-ink hover:bg-primary-soft/80'}`}
+              >
+                {next.blocking ? (
+                  <AlertTriangle className="h-4 w-4 shrink-0 text-warning" aria-hidden="true" />
+                ) : (
+                  <Bell className="h-4 w-4 shrink-0" aria-hidden="true" />
+                )}
                 <span className="flex-1">{next.text}</span>
                 <span className="inline-flex shrink-0 items-center gap-1 font-medium text-primary">
                   {next.cta} <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
@@ -117,7 +124,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
               </a>
             ) : (
               <p className="flex items-center gap-2 rounded-2xl bg-card px-4 py-3 text-sm text-muted-foreground">
-                <CheckCircle2 className="h-4 w-4 shrink-0 text-[var(--success,var(--primary))]" aria-hidden="true" />
+                <CheckCircle2 className="h-4 w-4 shrink-0 text-success" aria-hidden="true" />
                 Ton compte est prêt. Les données se mettent à jour chaque nuit.
               </p>
             )}
@@ -127,7 +134,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
             id="chaines"
             icon="tv"
             title="Mes chaînes"
-            helpHref="/guide#faq"
+            helpHref="/guide#faq-verification"
             description="Colle le lien de ta chaîne, choisis sa thématique, puis prouve qu’elle est à toi. Chaque chaîne vérifiée apparaît dans « Afficher », dans la barre de gauche."
           >
             <MyChannels channels={channels} catalogue={catalogue} googleEnabled={googleEnabled()} googleChannels={await readGoogleChannels()} googleStatus={googleStatus} returnTo="settings" autoVerifyId={sp.verifier ?? null} />
@@ -173,6 +180,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
             id="claude"
             icon="sparkles"
             title="Connexion à Claude"
+            helpHref="/guide#faq-claude"
             description="Pose tes questions à Claude sur tes sujets et ta chaîne, par exemple « quels sujets choisir cette semaine ? » ou « où les gens décrochent-ils sur ma dernière vidéo ? »."
           >
             <ol className="grid gap-2 sm:grid-cols-3">
