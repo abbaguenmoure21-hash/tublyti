@@ -85,7 +85,7 @@ export function KeywordCompare({ userChannelId }: { userChannelId: string }) {
             {pending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <BarChart3 className="h-4 w-4" aria-hidden="true" />}
             Comparer
           </button>
-          {err && <span className="text-[13px] text-destructive">{err}</span>}
+          {err && <span role="alert" className="text-[13px] text-destructive">{err}</span>}
         </div>
 
         {res && (

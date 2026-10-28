@@ -78,6 +78,31 @@ export function PreflightForm({ userChannelId, aiEnabled }: { userChannelId: str
   const [pending, start] = useTransition();
   const fileRef = useRef<HTMLInputElement>(null);
   const resultRef = useRef<HTMLDivElement>(null);
+  const [announce, setAnnounce] = useState('');
+  const [elapsed, setElapsed] = useState(0);
+  const busyVideo = video?.status === 'uploading' || video?.status === 'processing';
+
+  // Elapsed time while evaluating (1 to 3 min with a video).
+  useEffect(() => {
+    if (!pending) return;
+    const t0 = Date.now();
+    const t = window.setInterval(() => setElapsed(Math.round((Date.now() - t0) / 1000)), 1000);
+    return () => {
+      window.clearInterval(t);
+      setElapsed(0);
+    };
+  }, [pending]);
+
+  // Leaving the page loses the upload and the evaluation: ask first.
+  useEffect(() => {
+    if (!pending && !busyVideo) return;
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [pending, busyVideo]);
 
   async function onFile(f: File | undefined) {
     if (!f) return;
@@ -88,6 +113,7 @@ export function PreflightForm({ userChannelId, aiEnabled }: { userChannelId: str
 
   function submit() {
     setError(null);
+    setAnnounce('Évaluation en cours.');
     start(async () => {
       const res = await evaluateBeforePublish({
         userChannelId,
@@ -101,13 +127,20 @@ export function PreflightForm({ userChannelId, aiEnabled }: { userChannelId: str
         // Keep the uploaded video when the engine never received it (daily limit, invalid input…).
         if (res.videoUsed && video?.status === 'ready') {
           setVideo(null);
+          setAnnounce('');
           return setError(`${res.message} La vidéo a été effacée après l’essai : renvoie-la pour réessayer.`);
         }
+        setAnnounce('');
         return setError(res.message);
       }
       if (video?.status === 'ready') setVideo(null); // the file is deleted after the analysis
       setResult(res.result);
-      setTimeout(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+      const v = res.result.verdict === 'ready' ? 'prête à publier' : res.result.verdict === 'improve' ? 'à améliorer' : 'à retravailler';
+      setAnnounce(`Évaluation terminée : note ${res.result.overall} sur 100, ${v}.`);
+      setTimeout(() => {
+        resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        resultRef.current?.focus({ preventScroll: true });
+      }, 50);
     });
   }
 
@@ -120,7 +153,7 @@ export function PreflightForm({ userChannelId, aiEnabled }: { userChannelId: str
           <h2 id="pf-form" className="text-lg font-semibold">Ta prochaine vidéo</h2>
 
           <div className="flex flex-col gap-2">
-            <span className="text-[13px] font-medium">Titre{titles.length > 1 ? 's à comparer' : ''}</span>
+            <span id="pf-title-label" className="text-[13px] font-medium">Titre{titles.length > 1 ? 's à comparer' : ''}</span>
             {titles.map((t, i) => (
               <div key={i} className="flex items-center gap-2">
                 <input
@@ -128,9 +161,14 @@ export function PreflightForm({ userChannelId, aiEnabled }: { userChannelId: str
                   onChange={(e) => setTitles((xs) => xs.map((x, j) => (j === i ? e.target.value : x)))}
                   placeholder={i === 0 ? 'Ex. : Why Nobody Talks About the Richest Village in Africa' : `Variante ${i + 1}`}
                   maxLength={150}
+                  aria-label={titles.length > 1 ? `Titre ${i + 1}` : 'Titre'}
+                  aria-describedby={`pf-title-count-${i}`}
                   className="h-11 w-full rounded-[10px] border border-input bg-background px-3 text-[15px] outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
                 />
-                <span className="w-9 shrink-0 text-right text-[12px] tabular-nums text-muted-foreground">{t.length}</span>
+                <span id={`pf-title-count-${i}`} className="w-9 shrink-0 text-right text-[12px] tabular-nums text-muted-foreground">
+                  {t.length}
+                  <span className="sr-only"> caractères sur 70 conseillés</span>
+                </span>
                 {titles.length > 1 && (
                   <button type="button" onClick={() => setTitles((xs) => xs.filter((_, j) => j !== i))} aria-label="Retirer cette variante" className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted">
                     <X className="h-4 w-4" aria-hidden="true" />
@@ -223,15 +261,27 @@ export function PreflightForm({ userChannelId, aiEnabled }: { userChannelId: str
             className="elev-1 inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-primary px-5 text-[15px] font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
           >
             {pending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Sparkles className="h-4 w-4" aria-hidden="true" />}
-            {pending ? (video?.status === 'ready' ? 'Évaluation en cours… (1 à 3 min avec la vidéo)' : 'Évaluation en cours… (15 à 40 s)') : video?.status === 'uploading' || video?.status === 'processing' ? 'Attends la fin de l’envoi de la vidéo…' : 'Évaluer avant de publier'}
+            {pending
+              ? `${video?.status === 'ready' ? 'Évaluation en cours… (1 à 3 min avec la vidéo)' : 'Évaluation en cours… (15 à 40 s)'}${elapsed >= 5 ? ` · ${clock(elapsed)} écoulées` : ''}`
+              : busyVideo
+                ? 'Attends la fin de l’envoi de la vidéo…'
+                : 'Évaluer avant de publier'}
           </button>
-          {error && <p className="text-[13px] text-destructive">{error}</p>}
+          {pending && <span className="text-[12px] text-muted-foreground">Garde cette page ouverte.</span>}
+          <p role="alert" className="text-[13px] text-destructive empty:hidden">{error ?? ''}</p>
         </div>
       </div>
 
+      <p role="status" className="sr-only">{announce}</p>
+
       {result && (
-        <div ref={resultRef}>
-          <ResultView r={result} />
+        <div ref={resultRef} tabIndex={-1} aria-label="Résultat de l’évaluation" aria-busy={pending || undefined} className="flex flex-col gap-2 outline-none">
+          {(pending || error) && (
+            <p className="text-[13px] font-medium text-muted-foreground">{pending ? 'Ancienne évaluation : la nouvelle arrive.' : 'Résultat précédent (la dernière évaluation a échoué).'}</p>
+          )}
+          <div className={pending || error ? 'opacity-50 transition-opacity' : 'transition-opacity'}>
+            <ResultView r={result} />
+          </div>
         </div>
       )}
     </section>
@@ -242,7 +292,7 @@ function ResultView({ r }: { r: PreflightResult }) {
   const p = r.prediction;
   const verdict = r.verdict === 'ready' ? 'Prête à publier' : r.verdict === 'improve' ? 'À améliorer avant de publier' : 'À retravailler';
   return (
-    <div className="flex flex-col gap-6" aria-live="polite">
+    <div className="flex flex-col gap-6">
       {/* Synthèse */}
       <div className="elev-1 grid gap-5 rounded-[22px] bg-card p-5 md:grid-cols-[180px_1fr] md:p-6">
         <div className="flex flex-col items-start gap-1">
@@ -294,8 +344,8 @@ function ResultView({ r }: { r: PreflightResult }) {
       {/* Titres */}
       <section className="flex flex-col gap-3">
         <h3 className="text-[15px] font-semibold">Titre{r.titles.length > 1 ? 's' : ''}</h3>
-        {r.titles.map((t) => (
-          <TitleCard key={t.title} t={t} best={r.titles.length > 1 && t.title === r.bestTitle} />
+        {r.titles.map((t, i) => (
+          <TitleCard key={i} t={t} best={r.titles.length > 1 && t.title === r.bestTitle} />
         ))}
       </section>
 
@@ -629,12 +679,13 @@ function VideoUploader({ state, onChange: setState, aiEnabled }: { state: Upload
             </>
           )}
           {state.status === 'processing' && (
-            <span className="flex items-center gap-2 text-[12px] text-muted-foreground"><Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> L’IA prépare ta vidéo…</span>
+            <span role="status" className="flex items-center gap-2 text-[12px] text-muted-foreground"><Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> L’IA prépare ta vidéo…</span>
           )}
           {state.status === 'ready' && (
-            <span className="flex items-center gap-2 text-[12px] text-foreground"><Check className="h-3.5 w-3.5 text-success" aria-hidden="true" /> Prête à être analysée{state.durationS ? ` · ${Math.floor(state.durationS / 60)} min ${String(state.durationS % 60).padStart(2, '0')}` : ''}</span>
+            <span role="status" className="flex items-center gap-2 text-[12px] text-foreground"><Check className="h-3.5 w-3.5 text-success" aria-hidden="true" /> Prête à être analysée{state.durationS ? ` · ${Math.floor(state.durationS / 60)} min ${String(state.durationS % 60).padStart(2, '0')}` : ''}</span>
           )}
-          {state.status === 'error' && <span className="text-[12px] text-destructive">{state.error}</span>}
+          {state.status === 'error' && <span role="alert" className="text-[12px] text-destructive">{state.error}</span>}
+
         </div>
       )}
       <input ref={ref} type="file" accept="video/mp4,video/quicktime,video/webm,video/*" className="hidden" onChange={(e) => void pick(e.target.files?.[0])} />
