@@ -47,13 +47,28 @@ const r1 = (x: number) => Math.round(x * 10) / 10;
 const fmt = (x: number) => `×${x.toLocaleString('fr-FR', { maximumFractionDigits: 1 })}`;
 
 export async function topicSaturation(db: SupabaseClient, topicId: string): Promise<TopicSaturation> {
-  const { data: vids } = await db.from('videos').select('id, channel_id, published_at').eq('topic_id', topicId).not('published_at', 'is', null).limit(3000);
-  const list = (vids ?? []) as { id: string; channel_id: string; published_at: string }[];
+  // Only the last 120 days feed the stats (older videos only count toward the "< 5 videos" check):
+  // one query with the outlier scores embedded, plus an exact count, instead of 1 + N serial reads.
+  const since120 = new Date(Date.now() - 120 * DAY).toISOString();
+  const [{ count: totalCount }, { data: vids }] = await Promise.all([
+    db.from('videos').select('id', { count: 'exact', head: true }).eq('topic_id', topicId).not('published_at', 'is', null),
+    db
+      .from('videos')
+      .select('id, channel_id, published_at, video_outliers(score, age_days)')
+      .eq('topic_id', topicId)
+      .gte('published_at', since120)
+      .order('published_at', { ascending: false })
+      .limit(1000),
+  ]);
+  type OutlierRow = { score: number; age_days: number };
+  const rows = (vids ?? []) as unknown as { id: string; channel_id: string; published_at: string; video_outliers: OutlierRow | OutlierRow[] | null }[];
+  const list = rows.map(({ id, channel_id, published_at }) => ({ id, channel_id, published_at }));
   const scores = new Map<string, { score: number; age: number }>();
-  for (let i = 0; i < list.length; i += 200) {
-    const { data } = await db.from('video_outliers').select('video_id, score, age_days').in('video_id', list.slice(i, i + 200).map((v) => v.id));
-    for (const o of (data ?? []) as { video_id: string; score: number; age_days: number }[]) scores.set(o.video_id, { score: Number(o.score), age: o.age_days });
+  for (const r of rows) {
+    const o = Array.isArray(r.video_outliers) ? r.video_outliers[0] : r.video_outliers;
+    if (o) scores.set(r.id, { score: Number(o.score), age: o.age_days });
   }
+  const total = totalCount ?? list.length;
 
   const now = Date.now();
   const recent = list.filter((v) => now - new Date(v.published_at).getTime() <= 30 * DAY);
@@ -81,8 +96,8 @@ export async function topicSaturation(db: SupabaseClient, topicId: string): Prom
     winRateNow: winRate === null ? null : Math.round(winRate * 100) / 100,
   };
 
-  if (list.length < 5) {
-    return { level: 'unknown', score: null, reasons: [`Seulement ${list.length} vidéo${list.length > 1 ? 's' : ''} rattachée${list.length > 1 ? 's' : ''} à ce sujet.`], advice: 'Trop tôt pour juger : un sujet peu couvert est souvent une opportunité, vérifie la demande.', stats };
+  if (total < 5) {
+    return { level: 'unknown', score: null, reasons: [`Seulement ${total} vidéo${total > 1 ? 's' : ''} rattachée${total > 1 ? 's' : ''} à ce sujet.`], advice: 'Trop tôt pour juger : un sujet peu couvert est souvent une opportunité, vérifie la demande.', stats };
   }
 
   // 1. Pression de l'offre : combien de chaînes différentes ont publié ce mois-ci.
