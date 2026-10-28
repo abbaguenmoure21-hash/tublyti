@@ -65,23 +65,25 @@ export async function loadChannelHistory(db: SupabaseClient, ytChannelId: string
         const pub = new Date(v.published_at).getTime();
         const from = new Date(pub + (HORIZON_DAYS - 2) * DAY).toISOString();
         const to = new Date(pub + (HORIZON_DAYS + 2) * DAY).toISOString();
-        const { data: snaps } = await db
+        const { data: snaps, error: snapErr } = await db
           .from('video_snapshots')
           .select('captured_at, views')
           .eq('video_id', v.id)
           .gte('captured_at', from)
           .lte('captured_at', to);
+        if (snapErr) throw new Error(`Lecture des relevés impossible : ${snapErr.message}`);
         let points: Snap[] = ((snaps ?? []) as { captured_at: string; views: number }[]).map((r) => ({
           at: new Date(r.captured_at).getTime(),
           views: Number(r.views) || 0,
         }));
         if (!points.length) {
-          const { data: weekly } = await db
+          const { data: weekly, error: wErr } = await db
             .from('video_stats_weekly')
             .select('week_start, views')
             .eq('video_id', v.id)
             .gte('week_start', new Date(pub - 7 * DAY).toISOString().slice(0, 10))
             .lte('week_start', new Date(pub + (HORIZON_DAYS + 2) * DAY).toISOString().slice(0, 10));
+          if (wErr) throw new Error(`Lecture des relevés hebdo impossible : ${wErr.message}`);
           points = weeklyToSnaps((weekly ?? []) as { week_start: string; views: number }[]);
         }
         return { id: v.id, publishedMs: pub, views7d: viewsAt(points, pub, HORIZON_DAYS) };

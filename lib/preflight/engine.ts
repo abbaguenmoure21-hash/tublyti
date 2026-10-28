@@ -167,6 +167,44 @@ export async function getCalibration(db: SupabaseClient, userId: string, userCha
   return calibrationFrom(rows);
 }
 
+// ── Probabilités sans modèle ─────────────────────────────────────────
+
+/** Standard normal CDF (Abramowitz-Stegun 26.2.17, error < 1e-7). */
+function normCdf(x: number): number {
+  const t = 1 / (1 + 0.2316419 * Math.abs(x));
+  const d = 0.3989422804014327 * Math.exp((-x * x) / 2);
+  const p = d * t * (0.31938153 + t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + t * 1.330274429))));
+  return x >= 0 ? 1 - p : p;
+}
+
+/** Inverse of normCdf (bisection, plenty for a few calls). */
+function normInv(p: number): number {
+  let lo = -8;
+  let hi = 8;
+  for (let i = 0; i < 60; i++) {
+    const mid = (lo + hi) / 2;
+    if (normCdf(mid) < p) lo = mid;
+    else hi = mid;
+  }
+  return (lo + hi) / 2;
+}
+
+/**
+ * P(log score + delta > threshold), assuming log scores ~ Normal(mu, sigma) where sigma is
+ * the one that reproduces the base probability pBase = P(log score > threshold).
+ * Always a probability (monotone in delta), whatever the size of delta.
+ */
+export function shiftedProb(pBase: number, mu: number, threshold: number, delta: number): number {
+  const p = Math.min(0.999, Math.max(0.001, pBase));
+  const z = normInv(1 - p);
+  let sigma = Math.abs(z) > 0.05 ? (threshold - mu) / z : NaN;
+  if (!Number.isFinite(sigma) || sigma <= 0.2 || sigma > 3) sigma = 1;
+  // Keep the base exactly when delta = 0, then move along the fitted normal.
+  const zBase = (threshold - mu) / sigma;
+  const offset = normInv(1 - p) - zBase;
+  return 1 - normCdf((threshold - mu - delta) / sigma + offset);
+}
+
 // ── Évaluation ───────────────────────────────────────────────────────
 
 export async function runPreflight(db: SupabaseClient, input: PreflightInput): Promise<{ id: string | null; result: PreflightResult }> {
@@ -206,9 +244,9 @@ export async function runPreflight(db: SupabaseClient, input: PreflightInput): P
     if (input.video) {
       const vf = input.video;
       tasks.push(
-        // Duration read server-side from Google (the browser value is only a fallback).
+        // Duration read server-side from Google only; unknown -> budget estimated at the cap.
         fileState(vf.name)
-          .then((st) => scoreVideoFile(db, { uri: vf.uri, mimeType: vf.mimeType }, best.title, st.durationS ?? vf.durationS ?? null))
+          .then((st) => scoreVideoFile(db, { uri: vf.uri, mimeType: vf.mimeType }, best.title, st.durationS ?? null))
           .then((r) => void (video = r))
           .catch((e) => void errors.push(`Vidéo : ${(e as Error).message.slice(0, 160)}`))
           .finally(() => deleteFile(vf.name)),
@@ -237,36 +275,44 @@ export async function runPreflight(db: SupabaseClient, input: PreflightInput): P
   const durationS = vd?.durationS ?? input.video?.durationS ?? (sc ? Math.round(sc.est_minutes * 60) : null);
   let modelPart: PreflightResult['model'] = null;
   let logCore: number;
-  if (model) {
-    const ctx = await plannedContext(db, {
-      ytChannelId: input.ytChannelId ?? null,
-      title: best.title,
-      durationS,
-      publishAt,
-      neighborIds: best.neighborIds,
-      fallbackBaseline: input.baselineViews ?? null,
-    });
-    const mp = predictWithModel(model, ctx);
+  // The model is trained on channels with a measured 7-day history only: for a channel without
+  // one, its "usual views" would follow another definition, so we use the title neighbours instead.
+  const ctx = model
+    ? await plannedContext(db, {
+        ytChannelId: input.ytChannelId ?? null,
+        title: best.title,
+        durationS,
+        publishAt,
+        neighborIds: best.neighborIds,
+        fallbackBaseline: null,
+      })
+    : null;
+  const useModel = model && ctx && ctx.baselineViews !== null ? model : null;
+  if (useModel && ctx) {
+    const mp = predictWithModel(useModel, ctx);
     const knnDelta = best.multiple !== null ? Math.log(best.multiple) - prior.logMean : 0;
     logCore = mp.logPred + 0.6 * knnDelta;
     modelPart = { trainedAt: mp.trainedAt, n: mp.n, metrics: mp.metrics, drivers: mp.drivers, topicPhase: ctx.topicPhase, topicRecent7d: ctx.topicRecent7d };
   } else {
     logCore = Math.log(best.multiple ?? 1);
   }
+  // Quality adjustment only when something was actually scored (no 0.5 default).
   const quality = [th?.score, sc?.score, vd?.score].filter((x): x is number => typeof x === 'number');
-  const q = quality.length ? quality.reduce((a, b) => a + b, 0) / quality.length / 100 : 0.5;
-  const logRaw = logCore + Math.log(0.7 + 0.6 * q);
+  const qualityLog = quality.length ? Math.log(0.7 + (0.6 * quality.reduce((a, b) => a + b, 0)) / quality.length / 100) : 0;
+  const logRaw = logCore + qualityLog;
   const logFinal = logRaw + Math.log(calibration.factor);
   const multiple = Math.round(Math.exp(logFinal) * 100) / 100;
   let p2x: number;
   let p10x: number;
-  if (model) {
-    p2x = probAbove(model, logFinal, Math.log(2));
-    p10x = probAbove(model, logFinal, Math.log(10));
+  if (useModel) {
+    p2x = probAbove(useModel, logFinal, Math.log(2));
+    p10x = probAbove(useModel, logFinal, Math.log(10));
   } else {
-    const adj = (0.7 + 0.6 * q) * Math.sqrt(calibration.factor);
-    p2x = (best.p2x ?? prior.p2x) * adj;
-    p10x = (best.p10x ?? prior.p10x) * adj;
+    // No model: shift the niche / neighbours distribution in log space (not p × factor).
+    const mu = best.multiple !== null ? Math.log(best.multiple) : prior.logMean;
+    const delta = qualityLog + Math.log(calibration.factor);
+    p2x = shiftedProb(best.p2x ?? prior.p2x, mu, Math.log(2), delta);
+    p10x = shiftedProb(best.p10x ?? prior.p10x, mu, Math.log(10), delta);
   }
   p2x = Math.min(0.95, Math.max(0.01, p2x));
   p10x = Math.min(0.5, Math.max(0.002, p10x));
@@ -288,8 +334,8 @@ export async function runPreflight(db: SupabaseClient, input: PreflightInput): P
       baselineViews,
       calibration: { factor: calibration.factor, n: calibration.n },
       multipleRaw: Math.round(Math.exp(logRaw) * 1000) / 1000,
-      basis: model
-        ? `Modèle entraîné sur ${nf(model.n)} vidéos suivies par TubLyTI, plus la ressemblance du titre avec les gagnants de ta niche.`
+      basis: useModel
+        ? `Modèle entraîné sur ${nf(useModel.n)} vidéos suivies par TubLyTI, plus la ressemblance du titre avec les gagnants de ta niche.`
         : best.multiple === null
           ? 'Pas encore assez de vidéos comparables dans la niche : estimation sur la moyenne de la niche.'
           : `Basé sur les vidéos de la niche aux titres les plus proches (poids de preuve ${best.evidence}). Le modèle complet s’activera après son premier entraînement.`,
