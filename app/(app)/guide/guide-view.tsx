@@ -1,12 +1,12 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { ArrowRight, Search, X } from 'lucide-react';
 import { PhaseBadge } from '@/components/tublyti/phase-badge';
 import { SectionNav } from '@/components/app-shell/section-nav';
 import { PageSection } from '@/components/app-shell/page-section';
-import { FAQ, FEASIBILITY, LABELS, OUTLIERS, PHASES, POTENTIAL, ROUTINE, SHORTCUTS, SPACES, TERMS } from './content';
+import { FAQ, FAQ_GROUPS, FEASIBILITY, LABELS, OUTLIERS, PHASES, POTENTIAL, ROUTINE, SHORTCUTS, SPACES, TERMS } from './content';
 
 const NAV = [
   { id: 'demarrer', label: 'Bien démarrer', icon: 'rocket' },
@@ -21,7 +21,16 @@ const NAV = [
   { id: 'raccourcis', label: 'Raccourcis clavier', icon: 'keyboard' },
 ];
 
-const POPULAR = ['Faisabilité', 'Potentiel', 'Bonne vidéo', 'RPM', 'Chaîne vérifiée', 'Pas encore mesuré'];
+const POPULAR = ['Faisabilité', 'Potentiel', 'Bonne vidéo', 'Revenus', 'Chaîne vérifiée', 'Pas encore mesuré'];
+
+/** Stable anchor for a lexicon term (e.g. « Chaîne vérifiée » → terme-chaine-verifiee). */
+const termId = (term: string) =>
+  `terme-${term
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')}`;
 
 /** Tout le contenu à plat, pour la recherche. */
 type Entry = { section: string; anchor: string; title: string; text: string };
@@ -33,8 +42,8 @@ const INDEX: Entry[] = [
   ...POTENTIAL.map((p) => ({ section: 'Potentiel', anchor: 'potentiel', title: `Potentiel ${p.label.toLowerCase()}`, text: `De ${p.range}.` })),
   ...OUTLIERS.map((o) => ({ section: 'Surperformance', anchor: 'surperformance', title: o.badge, text: o.text })),
   ...LABELS.map((l) => ({ section: 'Questions du public', anchor: 'questions', title: l.name, text: l.text })),
-  ...TERMS.map((t) => ({ section: 'Lexique', anchor: 'lexique', title: t.term, text: t.def })),
-  ...FAQ.map((f) => ({ section: 'Questions fréquentes', anchor: 'faq', title: f.q, text: f.a })),
+  ...TERMS.map((t) => ({ section: 'Lexique', anchor: termId(t.term), title: t.term, text: t.def })),
+  ...FAQ.map((f) => ({ section: 'Questions fréquentes', anchor: `faq-${f.id}`, title: f.q, text: f.a })),
   ...SHORTCUTS.map(([k, v]) => ({ section: 'Raccourcis clavier', anchor: 'raccourcis', title: v, text: `Touche ${k}` })),
 ];
 
@@ -97,10 +106,32 @@ export function GuideView() {
   const searching = q.trim().length > 1;
   const terms = useMemo(() => [...TERMS].sort((a, b) => a.term.localeCompare(b.term, 'fr')), []);
 
+  /** Scroll to an entry, open it if it is a FAQ answer, and flash it briefly. */
+  const reveal = (anchor: string) => {
+    const el = document.getElementById(anchor);
+    if (!el) return;
+    if (el instanceof HTMLDetailsElement) el.open = true;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.classList.add('bg-primary-soft');
+    window.setTimeout(() => el.classList.remove('bg-primary-soft'), 1200);
+  };
+
   const jump = (anchor: string) => {
     setQ('');
-    requestAnimationFrame(() => document.getElementById(anchor)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+    // Wait for the guide to render again (the search results replace it).
+    requestAnimationFrame(() => requestAnimationFrame(() => reveal(anchor)));
   };
+
+  // /guide#faq-verification (links from Réglages) opens the matching answer.
+  useEffect(() => {
+    const onHash = () => {
+      const id = decodeURIComponent(window.location.hash.slice(1));
+      if (id.startsWith('faq-') || id.startsWith('terme-')) reveal(id);
+    };
+    onHash();
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
 
   return (
     <div className="mx-auto w-full max-w-[1080px] px-4 py-6 md:px-8 md:py-8">
@@ -119,7 +150,7 @@ export function GuideView() {
             value={q}
             onChange={(e) => setQ(e.target.value)}
             onKeyDown={(e) => e.key === 'Escape' && setQ('')}
-            placeholder="Faisabilité, RPM, vérifier ma chaîne…"
+            placeholder="Faisabilité, revenus, vérification…"
             aria-label="Chercher dans l’aide"
             className="well h-12 w-full rounded-xl bg-background pl-10 pr-10 text-[15px] outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-primary/40"
           />
@@ -155,7 +186,7 @@ export function GuideView() {
                   <span className="text-sm leading-relaxed text-muted-foreground">
                     <Highlight text={r.text} q={q} />
                   </span>
-                  <span className="mt-1 inline-flex items-center gap-1 text-[13px] font-medium text-primary opacity-0 transition-opacity group-hover:opacity-100">
+                  <span className="mt-1 inline-flex items-center gap-1 text-[13px] font-medium text-primary">
                     Voir dans le guide <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
                   </span>
                 </button>
@@ -186,6 +217,9 @@ export function GuideView() {
                   </li>
                 ))}
               </ol>
+              <Link href="/bienvenue" className="inline-flex h-10 items-center gap-1.5 self-start rounded-[10px] border border-border bg-card px-4 text-sm font-medium hover:bg-muted">
+                Revoir le parcours de bienvenue <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+              </Link>
             </PageSection>
 
             <PageSection id="espaces" icon="compass" title="Les espaces de l’app" description="Chaque espace répond à une question.">
@@ -241,7 +275,10 @@ export function GuideView() {
                     </li>
                   ))}
                 </ul>
-                <p className="text-[13px] text-muted-foreground">Pas de lettre ? Il faut une chaîne vérifiée dans la thématique du sujet. Voir les questions fréquentes.</p>
+                <p className="text-[13px] text-muted-foreground">
+                  Pas de lettre ?{' '}
+                  <a href="#faq-faisabilite" className="font-medium text-primary hover:underline">Voir la réponse</a>.
+                </p>
               </div>
             </PageSection>
 
@@ -253,8 +290,8 @@ export function GuideView() {
             >
               <div className="flex flex-col gap-2">
                 <div className="flex h-3 overflow-hidden rounded-full" aria-hidden="true">
-                  {['#e2e6ff', '#b7c0f8', '#8c97e9', '#646cd8', '#443cc6'].map((c) => (
-                    <span key={c} className="flex-1" style={{ background: c }} />
+                  {['bg-mgi-1', 'bg-mgi-2', 'bg-mgi-3', 'bg-mgi-4', 'bg-mgi-5'].map((c) => (
+                    <span key={c} className={`flex-1 ${c}`} />
                   ))}
                 </div>
                 <dl className="grid grid-cols-5 gap-1 text-center">
@@ -303,7 +340,7 @@ export function GuideView() {
             <PageSection id="lexique" icon="book" title="Lexique" description="Tous les mots de l’app, par ordre alphabétique.">
               <dl className="overflow-hidden rounded-2xl bg-card">
                 {terms.map((t) => (
-                  <div key={t.term} className="grid gap-1 border-b border-muted px-4 py-3.5 last:border-b-0 md:grid-cols-[200px_1fr] md:gap-6">
+                  <div key={t.term} id={termId(t.term)} className="grid scroll-mt-24 gap-1 border-b border-muted px-4 py-3.5 transition-colors last:border-b-0 md:grid-cols-[200px_1fr] md:gap-6">
                     <dt className="text-sm font-semibold">{t.term}</dt>
                     <dd className="text-sm leading-relaxed text-muted-foreground">{t.def}</dd>
                   </div>
@@ -312,15 +349,22 @@ export function GuideView() {
             </PageSection>
 
             <PageSection id="faq" icon="help" title="Questions fréquentes">
-              <div className="overflow-hidden rounded-2xl bg-card">
-                {FAQ.map((f) => (
-                  <details key={f.q} className="group border-b border-muted last:border-b-0">
-                    <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4 text-[15px] font-medium transition-colors hover:bg-muted [&::-webkit-details-marker]:hidden">
-                      {f.q}
-                      <span aria-hidden="true" className="text-lg leading-none text-muted-foreground transition-transform duration-200 group-open:rotate-90">›</span>
-                    </summary>
-                    <p className="px-5 pb-4 text-sm leading-relaxed text-muted-foreground">{f.a}</p>
-                  </details>
+              <div className="flex flex-col gap-6">
+                {FAQ_GROUPS.map((g) => (
+                  <div key={g.id} className="flex flex-col gap-2">
+                    <h3 className="text-[13px] font-semibold uppercase tracking-[0.04em] text-muted-foreground">{g.title}</h3>
+                    <div className="overflow-hidden rounded-2xl bg-card">
+                      {FAQ.filter((f) => f.group === g.id).map((f) => (
+                        <details key={f.id} id={`faq-${f.id}`} className="group scroll-mt-24 border-b border-muted transition-colors last:border-b-0">
+                          <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4 text-[15px] font-medium transition-colors hover:bg-muted [&::-webkit-details-marker]:hidden">
+                            {f.q}
+                            <span aria-hidden="true" className="text-lg leading-none text-muted-foreground transition-transform duration-200 group-open:rotate-90">›</span>
+                          </summary>
+                          <p className="px-5 pb-4 text-sm leading-relaxed text-muted-foreground">{f.a}</p>
+                        </details>
+                      ))}
+                    </div>
+                  </div>
                 ))}
               </div>
             </PageSection>
