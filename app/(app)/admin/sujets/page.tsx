@@ -87,7 +87,8 @@ export default async function AdminSujetsPage({ searchParams }: { searchParams: 
     return (
       <div className="mx-auto flex max-w-xl flex-col items-center gap-4 px-6 py-24 text-center">
         <CheckCircle2 className="h-10 w-10 text-phase-2" aria-hidden="true" />
-        <h1 className="text-2xl font-semibold tracking-[-0.01em]">Aucun sujet à valider</h1>
+        <h1 className="text-2xl font-semibold tracking-[-0.01em]">{niche ? `Aucun sujet à valider en ${nicheById.get(niche)?.name ?? 'cette niche'}` : 'Aucun sujet à valider'}</h1>
+        {niche && <Link href="/admin/sujets" className="text-sm font-medium text-primary">Voir toutes les niches</Link>}
         <p className="text-[15px] text-muted-foreground">Les prochains sujets proposés arriveront après la collecte de cette nuit.</p>
         <Link href="/admin" className="mt-2 inline-flex h-10 items-center rounded-[10px] bg-primary px-4 text-sm font-medium text-primary-foreground">
           Revenir à la console
@@ -96,5 +97,5 @@ export default async function AdminSujetsPage({ searchParams }: { searchParams: 
     );
   }
 
-  return <TriageDeck key={view} cards={cards} mergeTargets={mergeTargets} view={view} counts={counts} />;
+  return <TriageDeck key={`${view}-${niche ?? ''}`} cards={cards} mergeTargets={mergeTargets} view={view} counts={counts} niches={niches} niche={niche ?? ''} />;
 }

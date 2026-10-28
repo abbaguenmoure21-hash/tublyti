@@ -17,7 +17,7 @@ Ce fichier fait autorité pour la structure des écrans et les parcours, avec `D
 3. **Le contexte est global.** Le sélecteur « Afficher : Toutes mes chaînes / Wealth / Mind / AI » est en haut de la barre latérale et filtre toutes les pages. Il est mémorisé.
 4. **Une seule action principale par zone.** Dans le panneau sujet, c'est « Créer cette vidéo ». Le reste est secondaire.
 5. **Les tâches viennent à l'utilisateur.** Les nouveaux sujets à trier s'affichent en bandeau en haut de « Sujets », avec un mode de tri rapide carte par carte.
-6. **Tout se fait aussi au clavier** : J/K (suivant/précédent), Entrée (ouvrir), C (créer la vidéo), X (ignorer), G/F/I en mode tri, ⌘K (recherche partout).
+6. **Tout se fait aussi au clavier** : J/K (suivant/précédent), Entrée (ouvrir), C (créer la vidéo), X (ignorer), G/F/R en mode tri (garder, fusionner, rejeter), ⌘K (recherche partout).
 7. **Les filtres restent dans l'adresse** (`?moment=2&chaine=wealth`). Un lien partagé ou un retour arrière retrouve exactement la même vue.
 8. **Rien n'est définitif sans retour possible.** Ignorer, fusionner ou déplacer peut s'annuler (bouton « Annuler » dans la notification, Ctrl+Z en mode tri).
 
