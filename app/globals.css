@@ -349,19 +349,6 @@
   border-radius: 16px;
 }
 
-/* ─── Surface Materials ─── */
-.surface-1 {
-  background: var(--bg-surface-1);
-  border: 1px solid var(--glass-border);
-  border-radius: 24px;
-}
-
-.surface-2 {
-  background: var(--bg-surface-2);
-  border: 1px solid var(--glass-border);
-  border-radius: 20px;
-}
-
 /* ─── Bento Card ─── */
 .bento-card {
   background: var(--bg-surface-1);
@@ -377,31 +364,6 @@
   box-shadow: 0 4px 16px -2px var(--glass-shadow);
 }
 
-/* ─── Specular Glow (JuicySMS cursor-tracking) ─── */
-.specular-glow {
-  position: relative;
-  overflow: hidden;
-}
-
-.specular-glow::after {
-  content: '';
-  position: absolute;
-  inset: -1px;
-  border-radius: inherit;
-  background: radial-gradient(
-    400px circle at var(--mouse-x, 50%) var(--mouse-y, 50%),
-    rgba(255, 255, 255, 0.06),
-    transparent 80%
-  );
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.3s ease;
-}
-
-.specular-glow:hover::after {
-  opacity: 1;
-}
-
 /* ─── Haptic Button (JuicySMS mechanical feel) ─── */
 .haptic-btn {
   transition: transform 0.1s cubic-bezier(0.25, 0.46, 0.45, 0.94);
@@ -410,22 +372,6 @@
 
 .haptic-btn:active {
   transform: scale(0.96) translateY(1px);
-}
-
-/* ─── Phase Pulse Animation ─── */
-@keyframes phase-pulse {
-  0%, 100% {
-    opacity: 1;
-    box-shadow: 0 0 0 0 currentColor;
-  }
-  50% {
-    opacity: 0.6;
-    box-shadow: 0 0 0 4px transparent;
-  }
-}
-
-.phase-dot-pulse {
-  animation: phase-pulse 2s ease-in-out infinite;
 }
 
 /* ─── Shimmer Effect (for AI generation buttons) ─── */
@@ -451,45 +397,7 @@
   animation: shimmer 3s linear infinite;
 }
 
-/* ─── Odometer (counter animation) ─── */
-@keyframes count-up {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-.animate-count-up {
-  animation: count-up 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
-}
-
-/* ─── 3D Floating shapes (login page only, per DESIGN.md) ─── */
-@keyframes float-slow {
-  0%, 100% { transform: translateY(0) rotateX(0deg) rotateY(0deg); }
-  25% { transform: translateY(-20px) rotateX(15deg) rotateY(10deg); }
-  50% { transform: translateY(-8px) rotateX(-10deg) rotateY(-15deg); }
-  75% { transform: translateY(-25px) rotateX(8deg) rotateY(20deg); }
-}
-
-@keyframes float-medium {
-  0%, 100% { transform: translateY(0) rotateX(0deg) rotateZ(0deg); }
-  33% { transform: translateY(-30px) rotateX(20deg) rotateZ(10deg); }
-  66% { transform: translateY(-12px) rotateX(-15deg) rotateZ(-8deg); }
-}
-
-@keyframes float-fast {
-  0%, 100% { transform: translateY(0) rotateY(0deg) rotateZ(0deg); }
-  50% { transform: translateY(-18px) rotateY(25deg) rotateZ(15deg); }
-}
-
-@keyframes spin-slow {
-  from { transform: rotateX(0deg) rotateY(0deg) rotateZ(0deg); }
-  to { transform: rotateX(360deg) rotateY(180deg) rotateZ(90deg); }
-}
-
-@keyframes pulse-glow {
-  0%, 100% { opacity: 0.4; filter: blur(40px); }
-  50% { opacity: 0.7; filter: blur(60px); }
-}
-
+/* ─── Login / reset background (page de connexion uniquement) ─── */
 @keyframes gradient-shift {
   0% { background-position: 0% 50%; }
   50% { background-position: 100% 50%; }
@@ -498,7 +406,7 @@
 
 /* ─── Glass morphism (login page) ─── */
 .glass {
-  background: var(--card) / 0.7;
+  background: color-mix(in oklch, var(--card) 70%, transparent);
   backdrop-filter: blur(20px) saturate(1.8);
   -webkit-backdrop-filter: blur(20px) saturate(1.8);
   border: 1px solid oklch(1 0 0 / 0.3);
@@ -507,46 +415,6 @@
 .dark .glass {
   background: oklch(0.20 0.014 265 / 0.7);
   border-color: oklch(1 0 0 / 0.08);
-}
-
-/* ─── Animated gradient orb (login page) ─── */
-.gradient-orb {
-  border-radius: 50%;
-  filter: blur(60px);
-  animation: pulse-glow 6s ease-in-out infinite;
-  pointer-events: none;
-}
-
-/* ─── 3D shape faces (login page) ─── */
-.shape-3d {
-  transform-style: preserve-3d;
-  perspective: 600px;
-}
-
-.face {
-  position: absolute;
-  border: 1px solid var(--primary) / 0.2;
-  background: var(--primary) / 0.06;
-  backdrop-filter: blur(4px);
-}
-
-/* ─── Liquid Gauge (Apple Watch dial) ─── */
-@keyframes gauge-fill {
-  from { stroke-dashoffset: var(--gauge-circumference, 283); }
-  to { stroke-dashoffset: var(--gauge-offset, 0); }
-}
-
-.gauge-ring {
-  animation: gauge-fill 1.2s cubic-bezier(0.22, 1, 0.36, 1) forwards;
-  transform-origin: center;
-  transform: rotate(-90deg);
-}
-
-/* ─── Elastic Pill (Segmented Control) ─── */
-.elastic-pill {
-  transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1),
-              width 0.3s cubic-bezier(0.22, 1, 0.36, 1);
-  will-change: transform;
 }
 
 /* ─── Hide Scrollbar ─── */

@@ -405,7 +405,7 @@ export default async function TopicPage({
 
         {/* Feasibility card */}
         {showFeasibility && (
-          <div className="bento-card !px-[18px] !py-3.5 flex items-center gap-3">
+          <div className="bg-card rounded-xl p-6 !px-[18px] !py-3.5 flex items-center gap-3">
             <span className={`inline-flex items-center justify-center h-8 w-8 rounded-[8px] text-[16px] font-bold ${GRADE_COLORS[userFeasibility.grade]}`}>
               {userFeasibility.grade}
             </span>
@@ -418,7 +418,7 @@ export default async function TopicPage({
           </div>
         )}
         {showNoChannelHint && (
-          <div className="bento-card !px-[18px] !py-3.5 flex items-center gap-3">
+          <div className="bg-card rounded-xl p-6 !px-[18px] !py-3.5 flex items-center gap-3">
             <span className="inline-flex items-center justify-center h-8 w-8 rounded-[8px] text-[16px] bg-muted text-muted-foreground">?</span>
             <div className="flex flex-col gap-0.5">
               <span className="text-[13px] font-semibold">Faisabilité</span>
@@ -438,7 +438,7 @@ export default async function TopicPage({
             <SignalSection signals={signals} />
 
             {/* Frustrations */}
-            <section className="bento-card !p-0 flex flex-col">
+            <section className="bg-card rounded-xl p-6 !p-0 flex flex-col">
               <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-muted/50">
                 <h2 className="text-headline">Ce que réclame le public</h2>
                 <span className="text-[13px] font-medium text-muted-foreground bg-muted px-2 py-0.5 rounded border border-border">
@@ -508,7 +508,7 @@ export default async function TopicPage({
             />
 
             {/* Competitors */}
-            <section className="bento-card !p-0 flex flex-col">
+            <section className="bg-card rounded-xl p-6 !p-0 flex flex-col">
               <div className="px-5 py-4 border-b border-border bg-muted/50">
                 <h2 className="text-headline">Vidéos déjà publiées sur ce sujet</h2>
               </div>
@@ -633,7 +633,7 @@ function SignalSection({ signals }: { signals: Record<string, { date: string; va
   ])].filter(Boolean);
 
   return (
-    <section className="bento-card px-5 py-4 flex flex-col gap-3">
+    <section className="bg-card rounded-xl p-6 px-5 py-4 flex flex-col gap-3">
       <div className="flex items-center justify-between">
         <h2 className="text-headline">Signaux sur 90 jours</h2>
         <div className="flex gap-4 text-[12px] font-semibold uppercase tracking-wider text-muted-foreground">

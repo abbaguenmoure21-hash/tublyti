@@ -369,7 +369,7 @@ export function AngleSection({
         </div>
       )}
 
-      <section className="bento-card !p-0 flex flex-col">
+      <section className="bg-card rounded-xl p-6 !p-0 flex flex-col">
         <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-muted/50">
           <h2 className="text-headline">Angles proposés</h2>
           {canGenerate && (

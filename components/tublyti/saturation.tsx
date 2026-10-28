@@ -16,7 +16,7 @@ const TONE: Record<SaturationLevel, string> = {
 /** Carte « Saturation du sujet » de la fiche sujet. */
 export function TopicSaturationCard({ s }: { s: TopicSaturation }) {
   return (
-    <section className="bento-card flex flex-col gap-3 !px-[18px] !py-4" aria-labelledby="sat-titre">
+    <section className="bg-card rounded-xl p-6 flex flex-col gap-3 !px-[18px] !py-4" aria-labelledby="sat-titre">
       <div className="flex flex-wrap items-center gap-3">
         <span className={`inline-flex h-8 items-center gap-1.5 rounded-[8px] px-2.5 text-[13px] font-semibold ${TONE[s.level]}`}>
           <Layers className="h-4 w-4" aria-hidden="true" /> {LABEL[s.level]}

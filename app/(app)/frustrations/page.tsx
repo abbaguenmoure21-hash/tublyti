@@ -307,7 +307,7 @@ export default async function FrustrationsPage({
         </div>
         <div className="flex-1 p-6 md:px-12 md:py-10 flex flex-col gap-8 w-full max-w-[1400px] mx-auto">
           <h1 className="text-title-1 leading-tight">Que réclame ton public ?</h1>
-          <div className="bento-card !py-16 flex flex-col items-center justify-center text-center">
+          <div className="bg-card rounded-xl p-6 !py-16 flex flex-col items-center justify-center text-center">
             <AlertTriangle className="size-10 text-destructive mb-4" />
             <p className="text-[15px] font-semibold text-destructive">
               {fetchError}
@@ -331,7 +331,7 @@ export default async function FrustrationsPage({
         </div>
         <div className="flex-1 p-6 md:px-12 md:py-10 flex flex-col gap-8 w-full max-w-[1400px] mx-auto">
           <h1 className="text-title-1 leading-tight">Que réclame ton public ?</h1>
-          <div className="bento-card !py-16 flex flex-col items-center justify-center text-center">
+          <div className="bg-card rounded-xl p-6 !py-16 flex flex-col items-center justify-center text-center">
             <div className="flex items-center justify-center w-14 h-14 rounded-2xl bg-primary/10 text-primary mb-5 shadow-[0_2px_8px_rgba(10,132,255,0.15)]">
               <MessageSquareWarning className="size-7" />
             </div>
