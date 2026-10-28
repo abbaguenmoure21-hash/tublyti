@@ -66,6 +66,10 @@ const DEADLINE_MS = parseInt(process.env.NIGHTLY_DEADLINE_MIN ?? '15', 10) * 60 
 const EMBED_MAX_PER_NIGHT = parseInt(process.env.EMBED_MAX_PER_NIGHT ?? '3000', 10);
 // Maximum time (ms) for attach and enrich-insufficient.
 const MIN_STEP_MS = 10 * 60 * 1000; // 10 minutes
+const THUMB_WATCH_MS = parseInt(process.env.THUMB_WATCH_MIN ?? '4', 10) * 60_000;
+const COMMENTS_MS = parseInt(process.env.COMMENTS_MIN ?? '8', 10) * 60_000;
+// 8 min maximum: remaining candidates go to the next night.
+const TRIAGE_MS = parseInt(process.env.TRIAGE_MIN ?? '8', 10) * 60_000;
 // Fast closing steps (reject-stale, aggregate) and score always run, within this grace after the deadline.
 const GRACE_MS = 5 * 60_000;
 // Steps whose failure makes the GitHub run fail (red) — the workflow alert then fires too.
@@ -266,7 +270,7 @@ async function main() {
   // ── Step 5a-bis: THUMB-WATCH (miniatures changées, empreinte d'image, 4 min max) ──
   console.log('\n========== THUMB-WATCH ==========');
 
-  await runStep(runner, win(parseInt(process.env.THUMB_WATCH_MIN ?? '4', 10) * 60_000), 'thumb-watch', async (end) => {
+  await runStep(runner, win(THUMB_WATCH_MS), 'thumb-watch', async (end) => {
     const r = await runThumbWatch(db, end);
     console.log(`  Checked: ${r.checked}, Changed: ${r.changed}, Archived: ${r.archived}, Errors: ${r.errors}`);
     return { items: r.changed };
@@ -275,7 +279,7 @@ async function main() {
   // ── Step 5b: COMMENTS (own window: up to COMMENTS_MIN minutes, quota budget « comments ») ──
   console.log('\n========== COMMENTS ==========');
 
-  await runStep(runner, win(parseInt(process.env.COMMENTS_MIN ?? '8', 10) * 60_000), 'comments', async (end) => {
+  await runStep(runner, win(COMMENTS_MS), 'comments', async (end) => {
     const c = await runCommentIngestion(db, yt, end);
     console.log(`  Videos: ${c.videosChecked}, Comments: ${c.commentsImported}, Purged: ${c.commentsPurged}, Quota: ${c.quotaUsed}${c.stoppedByQuota ? ' (budget atteint)' : ''}${c.stoppedByTimeout ? ' (temps atteint)' : ''}`);
     return { items: c.commentsImported };
@@ -352,7 +356,7 @@ async function main() {
   // ── Step 12: AUTO-TRIAGE (enrich + classify pending candidates) ─
   console.log('\n========== AUTO-TRIAGE ==========');
 
-  await runStep(runner, win(parseInt(process.env.TRIAGE_MIN ?? '8', 10) * 60_000), 'auto-triage', async (end) => {
+  await runStep(runner, win(TRIAGE_MS), 'auto-triage', async (end) => {
     const triage = await autoTriageCandidates(db, embedder, 100, end);
     console.log(`  Processed: ${triage.processed}, Accepted: ${triage.accepted}, Rejected: ${triage.rejected}, Manual: ${triage.manual}`);
     console.log(`  Enriched: ${triage.enriched}, Promoted: ${triage.promoted}`);
@@ -374,7 +378,8 @@ async function main() {
 
   // Keeps its own minimum of 3 min, but never eats the time kept for score.
   const scoreReserve = Math.min(5 * 60_000, reserve);
-  await runStep(runner, Math.max(win(DEADLINE_MS * 0.15, scoreReserve), Math.min(Date.now() + 3 * 60_000, deadline - scoreReserve)), 'classify', async (end) => {
+  const classifyEnd = Math.max(win(DEADLINE_MS * 0.15, scoreReserve), Math.min(Date.now() + 3 * 60_000, deadline - scoreReserve));
+  await runStep(runner, classifyEnd, 'classify', async (end) => {
     const classify = await runClassify(db, end);
     console.log(`  Submitted: ${classify.commentsSubmitted}, Labels: ${classify.labelsStored}`);
     console.log(`  Batches: submitted=${classify.batchSubmitted}, retrieved=${classify.batchesRetrieved}`);
@@ -384,7 +389,8 @@ async function main() {
   // ── Step 15: SCORE (MGI + phase + outliers) — critical, always runs (grace after the deadline) ──
   console.log('\n========== SCORE ==========');
 
-  await runStep(runner, Math.max(deadline, Date.now()) + GRACE_MS, 'score', async () => {
+  const scoreEnd = Math.max(deadline, Date.now()) + GRACE_MS;
+  await runStep(runner, scoreEnd, 'score', async () => {
     const score = await runScore(db, alertSender);
     console.log(`  Topics scored: ${score.topicsScored}`);
     console.log(`  Burn-down alerts: ${score.burnDownAlerts}`);
@@ -407,7 +413,8 @@ async function main() {
 
   let rejectResult = { rejected: 0, protected: 0 };
   // Étape rapide (moins d'une seconde) : toujours exécutée, même si le temps est écoulé.
-  await runStep(runner, Math.max(deadline, Date.now()) + GRACE_MS, 'reject-stale', async () => {
+  const rejectEnd = Math.max(deadline, Date.now()) + GRACE_MS;
+  await runStep(runner, rejectEnd, 'reject-stale', async () => {
     const r = await rejectStaleTopics(db);
     rejectResult = r;
     console.log(`  Rejected: ${r.rejected}, Protected: ${r.protected}`);
@@ -421,7 +428,8 @@ async function main() {
   console.log('\n========== AGGREGATE ==========');
 
   // Toujours exécutée, avec son propre délai (même les nuits en retard).
-  await runStep(runner, Math.max(deadline, Date.now()) + GRACE_MS, 'aggregate', async (end) => {
+  const aggregateEnd = Math.max(deadline, Date.now()) + GRACE_MS;
+  await runStep(runner, aggregateEnd, 'aggregate', async (end) => {
     const r = await aggregateOldSnapshots(db, new Date(Date.now() - 30 * 86_400_000), Math.min(end, Date.now() + 4 * 60_000));
     console.log(`  Weekly rows: ${r.weeklyRows}, Snapshots deleted: ${r.deleted} (${r.mode})${r.stoppedByTimeout ? ' — stopped by timeout' : ''}`);
     return { items: r.deleted };
