@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { parseDuration } from '../youtube/client';
 import { reserveAiBudget, settleAiBudget } from '../ai/budget';
+import { costUsd, geminiPrice } from '../ai/pricing';
 
 /**
  * Analyse du contenu d'une vidéo YouTube publique : image, audio et texte à l'écran.
@@ -92,8 +93,6 @@ export interface RetentionContext {
 // ── Réglages ──────────────────────────────────────────────────────────
 
 const DEFAULT_MODELS = ['gemini-3.1-flash-lite', 'gemini-3.5-flash-lite', 'gemini-2.5-flash'];
-const PRICE_IN = Number(process.env.GEMINI_PRICE_IN_PER_MTOK ?? 0.5); // prudence : tarif audio
-const PRICE_OUT = Number(process.env.GEMINI_PRICE_OUT_PER_MTOK ?? 2.5);
 export const MAX_MIN = Number(process.env.VIDEO_ANALYSIS_MAX_MIN ?? 60);
 const RUNNING_TIMEOUT_MS = 6 * 60_000;
 
@@ -117,7 +116,7 @@ function fpsFor(durationS: number): number {
 /** Estimation avant appel (basse résolution ≈ 66 jetons par image + 32 jetons/s d'audio). */
 export function estimateCostUsd(durationS: number): number {
   const tokensIn = durationS * (fpsFor(durationS) * 70 + 32) + 2_000;
-  return (tokensIn * PRICE_IN + 8_000 * PRICE_OUT) / 1_000_000;
+  return costUsd(geminiPrice(), tokensIn, 8_000);
 }
 
 export function parseVideoId(input: string): string | null {
@@ -470,7 +469,7 @@ export async function analyzeVideo(
 
   try {
     const out = await callGemini(videoId, buildPrompt(meta, opts.retention ?? null), fpsFor(meta.durationS));
-    const cost = (out.tokensIn * PRICE_IN + out.tokensOut * PRICE_OUT) / 1_000_000;
+    const cost = costUsd(geminiPrice(), out.tokensIn, out.tokensOut);
 
     await db.from('ai_spend').insert({
       action: 'analyze_video',

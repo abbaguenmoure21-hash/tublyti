@@ -2,6 +2,7 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
 import { reserveAiBudget, settleAiBudget } from '../ai/budget';
 import { getQuotaSoftLimit } from './quota';
+import { HAIKU_45_BATCH, costUsd } from '../ai/pricing';
 
 const YT_BASE = 'https://www.googleapis.com/youtube/v3';
 const SEARCH_QUOTA_COST = 100;
@@ -9,8 +10,6 @@ const WEEKLY_DISCOVERY_LIMIT = 30;
 const HAIKU_MODEL = 'claude-haiku-4-5-20251001';
 
 // Batch API pricing (50% off standard Haiku 4.5)
-const INPUT_COST_PER_MTOK = 0.5; // Haiku 4.5 Batch ($1 / $5 standard, -50 %)
-const OUTPUT_COST_PER_MTOK = 2.5;
 const EST_INPUT_TOKENS = 400;
 const EST_OUTPUT_TOKENS = 80;
 
@@ -44,9 +43,7 @@ Réponds en JSON strict avec :
 Réponds UNIQUEMENT avec le JSON, sans texte autour.`;
 
 function estimateCost(count: number): number {
-  const inputCost = (count * EST_INPUT_TOKENS * INPUT_COST_PER_MTOK) / 1_000_000;
-  const outputCost = (count * EST_OUTPUT_TOKENS * OUTPUT_COST_PER_MTOK) / 1_000_000;
-  return inputCost + outputCost;
+  return costUsd(HAIKU_45_BATCH, count * EST_INPUT_TOKENS, count * EST_OUTPUT_TOKENS);
 }
 
 function weekKey(): string {

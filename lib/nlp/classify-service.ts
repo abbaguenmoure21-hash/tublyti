@@ -4,6 +4,7 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import { FrustrationLabel } from './classifier';
 import { reserveAiBudget, settleAiBudget } from '../ai/budget';
+import { HAIKU_45_BATCH, costUsd } from '../ai/pricing';
 
 // ── Constants ────────────────────────────────────────────────────────
 const PROMPT_VERSION = 'classify_v1';
@@ -12,8 +13,6 @@ const MODEL_TAG = `haiku-4.5-${PROMPT_VERSION}`;
 const BATCH_SIZE = 500;
 
 // Batch API pricing (50% off standard Haiku 4.5: $1 / $5 per MTok)
-const INPUT_COST_PER_MTOK = 0.5;
-const OUTPUT_COST_PER_MTOK = 2.5;
 const EST_INPUT_TOKENS = 700; // system prompt + comment (comment text capped at MAX_COMMENT_CHARS)
 const MAX_COMMENT_CHARS = 1_500;
 /** Model tag stored when the answer could not be read: the comment is not sent again. */
@@ -48,9 +47,7 @@ function loadSystemPrompt(): string {
 }
 
 function estimateCostUSD(commentCount: number): number {
-  const inputCost = (commentCount * EST_INPUT_TOKENS * INPUT_COST_PER_MTOK) / 1_000_000;
-  const outputCost = (commentCount * EST_OUTPUT_TOKENS * OUTPUT_COST_PER_MTOK) / 1_000_000;
-  return inputCost + outputCost;
+  return costUsd(HAIKU_45_BATCH, commentCount * EST_INPUT_TOKENS, commentCount * EST_OUTPUT_TOKENS);
 }
 
 function parseLabel(raw: string): FrustrationLabel | null {

@@ -3,6 +3,7 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { reserveAiBudget, settleAiBudget } from '../ai/budget';
+import { HAIKU_45_BATCH, costUsd } from '../ai/pricing';
 
 // ── Constants ────────────────────────────────────────────────────────
 const PROMPT_VERSION = 'title_patterns_v1';
@@ -10,8 +11,6 @@ const MODEL = 'claude-haiku-4-5-20251001';
 const MODEL_TAG = `haiku-4.5-${PROMPT_VERSION}`;
 
 // Batch API pricing (50% off standard Haiku 4.5)
-const INPUT_COST_PER_MTOK = 0.5; // Haiku 4.5 Batch ($1 / $5 standard, -50 %)
-const OUTPUT_COST_PER_MTOK = 2.5;
 const EST_INPUT_TOKENS = 1500;
 const EST_OUTPUT_TOKENS = 800;
 
@@ -123,9 +122,7 @@ export async function extractTitlePatterns(
           // Track cost
           const inputTokens = message.usage.input_tokens;
           const outputTokens = message.usage.output_tokens;
-          const cost =
-            (inputTokens * INPUT_COST_PER_MTOK) / 1_000_000 +
-            (outputTokens * OUTPUT_COST_PER_MTOK) / 1_000_000;
+          const cost = costUsd(HAIKU_45_BATCH, inputTokens, outputTokens);
 
           await db.from('ai_spend').insert({
             action: 'extract_title_patterns',
@@ -156,9 +153,7 @@ export async function extractTitlePatterns(
     if (niches && niches.length > 0) {
       // Budget check
       const nicheCount = niches.length;
-      const estCost =
-        (nicheCount * EST_INPUT_TOKENS * INPUT_COST_PER_MTOK) / 1_000_000 +
-        (nicheCount * EST_OUTPUT_TOKENS * OUTPUT_COST_PER_MTOK) / 1_000_000;
+      const estCost = costUsd(HAIKU_45_BATCH, nicheCount * EST_INPUT_TOKENS, nicheCount * EST_OUTPUT_TOKENS);
 
       // Atomic reservation, refunded below if nothing is submitted.
       const reservation = await reserveAiBudget(db, estCost);

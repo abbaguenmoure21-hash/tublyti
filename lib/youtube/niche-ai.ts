@@ -9,10 +9,9 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
 import { reserveAiBudget, settleAiBudget } from '../ai/budget';
+import { HAIKU_45, costUsd } from '../ai/pricing';
 
 const MODEL = 'claude-haiku-4-5-20251001';
-const IN_PER_MTOK = 1.0;
-const OUT_PER_MTOK = 5.0;
 
 export interface AIClassification {
   nicheId: string | null;
@@ -71,7 +70,7 @@ Answer with JSON only:
         },
       ],
     });
-    const cost = (res.usage.input_tokens * IN_PER_MTOK + res.usage.output_tokens * OUT_PER_MTOK) / 1_000_000;
+    const cost = costUsd(HAIKU_45, res.usage.input_tokens, res.usage.output_tokens);
     await db.from('ai_spend').insert({
       action: 'classify_channel_niche',
       model: 'haiku-4.5',

@@ -13,6 +13,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
 import { reserveAiBudget, settleAiBudget } from '../ai/budget';
 import { cosine, parseVec, type Calibration } from './candidate-niche';
+import { HAIKU_45, costUsd } from '../ai/pricing';
 
 const MIN_CHANNELS = Number(process.env.NICHE_AUTO_MIN_CHANNELS ?? 3);
 /** Niche proposée par l'IA : créée dès que ce nombre de chaînes la partagent (ou tout de suite pour une grosse chaîne). */
@@ -21,8 +22,6 @@ const BIG_SUBS = Number(process.env.CANDIDATE_BIG_SUBS ?? 100_000);
 const MAX_PER_NIGHT = Number(process.env.NICHE_AUTO_MAX_PER_NIGHT ?? 2);
 const EXPIRE_DAYS = Number(process.env.NICHE_AUTO_EXPIRE_DAYS ?? 90);
 const MODEL = 'claude-haiku-4-5-20251001';
-const IN_PER_MTOK = 1.0;
-const OUT_PER_MTOK = 5.0;
 
 export interface UnmatchedChannel {
   id: string;
@@ -111,7 +110,7 @@ Answer with JSON only.`,
         },
       ],
     });
-    const cost = (res.usage.input_tokens * IN_PER_MTOK + res.usage.output_tokens * OUT_PER_MTOK) / 1_000_000;
+    const cost = costUsd(HAIKU_45, res.usage.input_tokens, res.usage.output_tokens);
     await db.from('ai_spend').insert({
       action: 'name_auto_niche',
       model: 'haiku-4.5',

@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { aiBudgetLeft, reserveAiBudget, settleAiBudget } from './budget';
+import { costUsd, geminiPrice } from './pricing';
 
 /**
  * Appel générique à Gemini (texte + images), réponse JSON.
@@ -8,8 +9,6 @@ import { aiBudgetLeft, reserveAiBudget, settleAiBudget } from './budget';
  */
 
 const DEFAULT_MODELS = ['gemini-3.1-flash-lite', 'gemini-3.5-flash-lite', 'gemini-2.5-flash'];
-const PRICE_IN = Number(process.env.GEMINI_PRICE_IN_PER_MTOK ?? 0.5);
-const PRICE_OUT = Number(process.env.GEMINI_PRICE_OUT_PER_MTOK ?? 2.5);
 
 export type GeminiPart =
   | { text: string }
@@ -48,7 +47,7 @@ export function estimateGeminiCostUsd(parts: GeminiPart[], maxOutputTokens: numb
     else if ('inlineData' in p) tokensIn += 1_300;
     else tokensIn += 1_300; // fileData: callers should pass opts.estUsd (video)
   }
-  return (tokensIn * PRICE_IN + maxOutputTokens * PRICE_OUT) / 1_000_000;
+  return costUsd(geminiPrice(), tokensIn, maxOutputTokens);
 }
 
 const RETRYABLE = new Set([429, 500, 502, 503, 504]);
@@ -198,13 +197,13 @@ export async function geminiJson<T>(
       const u = body.usageMetadata ?? {};
       const tokensIn = u.promptTokenCount ?? 0;
       const tokensOut = (u.candidatesTokenCount ?? 0) + (u.thoughtsTokenCount ?? 0);
-      const costUsd = (tokensIn * PRICE_IN + tokensOut * PRICE_OUT) / 1_000_000;
+      const cost = costUsd(geminiPrice(), tokensIn, tokensOut);
       return {
         kind: 'ok',
         text,
         tokensIn,
         tokensOut,
-        costUsd,
+        costUsd: cost,
         finishReason: body.candidates?.[0]?.finishReason,
       };
     }

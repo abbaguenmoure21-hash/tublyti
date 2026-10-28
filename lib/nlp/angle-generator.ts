@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { z } from 'zod';
+import { claudePrice, costUsd } from '../ai/pricing';
 
 // ── Constants ────────────────────────────────────────────────────────
 const PROMPT_VERSION = 'angles_v2';
@@ -21,12 +22,6 @@ export function angleModelTag(model: string): string {
   return `${model.replace(/^claude-/, '')}-${PROMPT_VERSION}`;
 }
 
-/** Price per MTok (input / output) by model family. */
-function pricing(model: string): { input: number; output: number } {
-  if (/haiku/i.test(model)) return { input: 1.0, output: 5.0 };
-  if (/opus/i.test(model)) return { input: 5.0, output: 25.0 };
-  return { input: INPUT_COST_PER_MTOK, output: OUTPUT_COST_PER_MTOK };
-}
 
 const angleSchema = z.object({
   title: z.string().min(1),
@@ -53,9 +48,6 @@ import { estimateAngleCostUSD } from './angle-costs';
 // Re-export for API route consumers
 export { estimateAngleCostUSD } from './angle-costs';
 
-// Sonnet pricing per million tokens
-const INPUT_COST_PER_MTOK = 3.0;
-const OUTPUT_COST_PER_MTOK = 15.0;
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -176,8 +168,7 @@ export class ClaudeAngleGenerator implements AngleGenerator {
 
     const inputTokens = response.usage.input_tokens;
     const outputTokens = response.usage.output_tokens;
-    const price = pricing(model);
-    const costUSD = (inputTokens * price.input + outputTokens * price.output) / 1_000_000;
+    const costUSD = costUsd(claudePrice(model), inputTokens, outputTokens);
 
     if (response.stop_reason === 'max_tokens') {
       throw new AngleGenerationError('La réponse de l’IA a été coupée avant la fin. Réessaie.', costUSD);
