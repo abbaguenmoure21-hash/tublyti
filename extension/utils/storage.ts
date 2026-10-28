@@ -55,4 +55,10 @@ export async function saveSettings(apiUrl: string, token: string): Promise<void>
     tublyti_url: apiUrl.replace(/\/$/, ''),
     tublyti_token: token,
   });
+  // Lookup results depend on the token's account: drop them when the settings change.
+  try {
+    await chrome.storage.session.clear();
+  } catch {
+    // Session storage may not be available in all contexts
+  }
 }
