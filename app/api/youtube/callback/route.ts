@@ -17,8 +17,12 @@ import {
  * puis renvoie le client sur Réglages pour choisir la thématique de chaque chaîne.
  */
 export async function GET(request: NextRequest) {
-  const fail = (reason: string, back = '/settings') =>
-    NextResponse.redirect(new URL(`${back}?google=${reason}#chaines`, request.url));
+  // Every exit drops the one-time state cookie (no reuse within its 10 min lifetime).
+  const fail = (reason: string, back = '/settings') => {
+    const res = NextResponse.redirect(new URL(`${back}?google=${reason}#chaines`, request.url));
+    res.cookies.delete(GOOGLE_STATE_COOKIE);
+    return res;
+  };
 
   const user = await getSessionUser();
   if (!user) return NextResponse.redirect(new URL('/login', request.url));
@@ -44,7 +48,9 @@ export async function GET(request: NextRequest) {
       grant_type: 'authorization_code',
     }),
     cache: 'no-store',
-  });
+    signal: AbortSignal.timeout(10_000),
+  }).catch(() => null);
+  if (!tokenRes) return fail('erreur', back);
   const token = (await tokenRes.json().catch(() => null)) as { access_token?: string; refresh_token?: string; scope?: string } | null;
   if (!tokenRes.ok || !token?.access_token) return fail('erreur', back);
 
@@ -55,14 +61,15 @@ export async function GET(request: NextRequest) {
   // Chaînes du compte Google choisi (y compris un compte de marque sélectionné à l'écran Google)
   const chRes = await fetch(
     'https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics&mine=true&maxResults=50',
-    { headers: { Authorization: `Bearer ${token.access_token}` }, cache: 'no-store' },
-  );
-  const data = (await chRes.json().catch(() => null)) as { items?: Record<string, unknown>[] } | null;
+    { headers: { Authorization: `Bearer ${token.access_token}` }, cache: 'no-store', signal: AbortSignal.timeout(10_000) },
+  ).catch(() => null);
+  const data = chRes ? ((await chRes.json().catch(() => null)) as { items?: Record<string, unknown>[] } | null) : null;
 
   // On ne garde pas l'accès Google : révocation immédiate.
   await fetch(`https://oauth2.googleapis.com/revoke?token=${encodeURIComponent(token.access_token)}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    signal: AbortSignal.timeout(10_000),
   }).catch(() => undefined);
 
   const channels: GoogleChannels['channels'] = (data?.items ?? []).map((item) => {
@@ -77,7 +84,7 @@ export async function GET(request: NextRequest) {
       videoCount: Number(st.videoCount ?? 0),
     };
   });
-  if (!chRes.ok) return fail('erreur', back);
+  if (!chRes?.ok) return fail('erreur', back);
   if (!channels.length) return fail('aucune', back);
 
   const payload: GoogleChannels = { userId: user.id, expiresAt: Date.now() + 15 * 60_000, channels: channels.slice(0, 10) };
@@ -112,6 +119,7 @@ async function connectAnalytics(
     fetch(`https://oauth2.googleapis.com/revoke?token=${encodeURIComponent(token.refresh_token ?? token.access_token ?? '')}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      signal: AbortSignal.timeout(10_000),
     }).catch(() => undefined);
 
   const db = createServiceClient();
@@ -129,13 +137,18 @@ async function connectAnalytics(
   const chRes = await fetch('https://www.googleapis.com/youtube/v3/channels?part=id&mine=true&maxResults=50', {
     headers: { Authorization: `Bearer ${token.access_token}` },
     cache: 'no-store',
-  });
-  const data = (await chRes.json().catch(() => null)) as { items?: { id: string }[] } | null;
+    signal: AbortSignal.timeout(10_000),
+  }).catch(() => null);
+  const data = chRes ? ((await chRes.json().catch(() => null)) as { items?: { id: string }[] } | null) : null;
   if (!data?.items?.some((c) => c.id === row.youtube_channel_id)) {
     await revoke();
     return go('autre-chaine');
   }
-  if (!token.refresh_token) return go('erreur');
+  if (!token.refresh_token) {
+    // Access granted but unusable: revoke it rather than leaving it active on Google's side.
+    await revoke();
+    return go('erreur');
+  }
 
   const scopes = (token.scope ?? '').split(' ').filter(Boolean);
   const { error } = await db.from('user_channel_tokens').upsert({
