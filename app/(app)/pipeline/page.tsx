@@ -2,6 +2,7 @@ import { createServiceClient } from '@/lib/supabase/server';
 import { KanbanBoard } from './_components/kanban-board';
 import { requireUser, isDbReady } from '@/lib/auth/session';
 import { resolveScope, labelsByNiche } from '@/lib/scope';
+import { getLatestSnapshots } from '@/lib/youtube/latest-snapshots';
 
 export const metadata = { title: 'Mes vidéos' };
 
@@ -124,20 +125,8 @@ export default async function PipelinePage({
     }
 
     // Get latest view snapshots for these videos
-    const { data: snapshots } = await db
-      .from('video_snapshots')
-      .select('video_id, views')
-      .in('video_id', publishedAngleIds)
-      .order('captured_at', { ascending: false });
-
     const latestViews: Record<string, number> = {};
-    const seenVids = new Set<string>();
-    for (const s of snapshots ?? []) {
-      if (!seenVids.has(s.video_id)) {
-        seenVids.add(s.video_id);
-        latestViews[s.video_id] = s.views ?? 0;
-      }
-    }
+    for (const [vid, s] of await getLatestSnapshots(db, publishedAngleIds)) latestViews[vid] = s.views ?? 0;
 
     // Get channel medians (last 20 videos per channel)
     const channelIds = [...new Set((videos ?? []).map((v: Record<string, unknown>) => v.channel_id as string).filter(Boolean))];
@@ -153,20 +142,8 @@ export default async function PipelinePage({
       const chVidIds = (channelVideos ?? []).map((v: Record<string, unknown>) => v.id as string);
       if (chVidIds.length === 0) continue;
 
-      const { data: chSnaps } = await db
-        .from('video_snapshots')
-        .select('video_id, views')
-        .in('video_id', chVidIds)
-        .order('captured_at', { ascending: false });
-
       const chViews: number[] = [];
-      const seenCh = new Set<string>();
-      for (const s of chSnaps ?? []) {
-        if (!seenCh.has(s.video_id)) {
-          seenCh.add(s.video_id);
-          chViews.push(s.views ?? 0);
-        }
-      }
+      for (const s of (await getLatestSnapshots(db, chVidIds)).values()) chViews.push(s.views ?? 0);
 
       if (chViews.length === 0) continue;
       chViews.sort((a, b) => a - b);

@@ -17,6 +17,7 @@ import { DossierExport } from './_components/dossier-export';
 import { getFavoriteIds } from '@/lib/actions/collections';
 import { computeFeasibilityForUser, isNoChannelResult } from '@/lib/scoring/feasibility-for-user';
 import { getUserSubsByNiche } from '@/lib/scoring/user-subs';
+import { getLatestSnapshots } from '@/lib/youtube/latest-snapshots';
 
 // L'analyse vidéo (Gemini) peut prendre jusqu'à 2-3 minutes.
 export const maxDuration = 300;
@@ -173,22 +174,8 @@ export default async function TopicPage({
 
   // Get latest views
   const videoIds = (videos ?? []).map((v: Record<string, unknown>) => v.id as string);
-  let videoViews: Record<string, number> = {};
-  if (videoIds.length > 0) {
-    const { data: snaps } = await db
-      .from('video_snapshots')
-      .select('video_id, views')
-      .in('video_id', videoIds)
-      .order('captured_at', { ascending: false });
-
-    const seen = new Set<string>();
-    for (const s of snaps ?? []) {
-      if (!seen.has(s.video_id)) {
-        seen.add(s.video_id);
-        videoViews[s.video_id] = s.views ?? 0;
-      }
-    }
-  }
+  const videoViews: Record<string, number> = {};
+  for (const [vid, s] of await getLatestSnapshots(db, videoIds)) videoViews[vid] = s.views ?? 0;
 
   // Fetch outlier scores for these videos
   let videoOutliers: Record<string, { score: number; ageDays: number; method: string; baseline: number }> = {};

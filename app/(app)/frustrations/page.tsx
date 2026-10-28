@@ -10,6 +10,7 @@ import { requireUser } from '@/lib/auth/session';
 import { resolveScope } from '@/lib/scope';
 import { LabelCorrector } from './_components/label-corrector';
 import { OutlierBadge } from '@/components/tublyti/outlier-badge';
+import { getLatestSnapshots } from '@/lib/youtube/latest-snapshots';
 
 /* ------------------------------------------------------------------ */
 /*  Types & constants                                                  */
@@ -197,15 +198,8 @@ async function getSmallChannelOutliers(filterNiche: string, ids: string[]): Prom
   }
   const latestViews = new Map<string, number>();
   if (kept.length) {
-    const { data: snapRows } = await db
-      .from('video_snapshots')
-      .select('video_id, views, captured_at')
-      .in('video_id', kept.map((r: Record<string, unknown>) => r.video_id as string))
-      .order('captured_at', { ascending: false })
-      .limit(2000);
-    for (const sn of (snapRows ?? []) as { video_id: string; views: number | null }[]) {
-      if (!latestViews.has(sn.video_id)) latestViews.set(sn.video_id, Number(sn.views ?? 0));
-    }
+    const snaps = await getLatestSnapshots(db, kept.map((r: Record<string, unknown>) => r.video_id as string));
+    for (const [vid, sn] of snaps) latestViews.set(vid, Number(sn.views ?? 0));
   }
 
   const items: OutlierVideo[] = [];

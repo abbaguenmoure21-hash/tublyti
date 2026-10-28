@@ -13,6 +13,7 @@ import { getChannelAnalytics, getVideoRetention, getVideoTotals, PERIODS, type P
 import { analyzeVideo, parseVideoId, retentionContextFrom, type RetentionContext } from '@/lib/video/analyze';
 import { linkSaturation, topicSaturation } from '@/lib/saturation';
 import { compareKeywords } from '@/lib/keywords';
+import { getLatestSnapshots } from '@/lib/youtube/latest-snapshots';
 
 // ── Constants ──────────────────────────────────────────────────────────
 
@@ -799,20 +800,8 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
       if (!videos?.length) return ok(`Aucune video indexee pour ${channel.title}.`);
 
       const videoIds = videos.map((v: { id: string }) => v.id);
-      const { data: snapshots } = await db
-        .from('video_snapshots')
-        .select('video_id, views')
-        .in('video_id', videoIds)
-        .order('captured_at', { ascending: false });
-
       const viewsMap: Record<string, number> = {};
-      const seen = new Set<string>();
-      for (const s of snapshots ?? []) {
-        if (!seen.has(s.video_id)) {
-          seen.add(s.video_id);
-          viewsMap[s.video_id] = Number(s.views);
-        }
-      }
+      for (const [vid, s] of await getLatestSnapshots(db, videoIds)) viewsMap[vid] = Number(s.views);
 
       const allViews = Object.values(viewsMap).filter((v) => v > 0).sort((a, b) => a - b);
       if (allViews.length < 3) return ok('Pas assez de videos avec des donnees pour calculer les outliers.');
@@ -1455,16 +1444,8 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
         .limit(Math.min(limit ?? 20, 50));
       const list = (vids ?? []) as { id: string; title: string; published_at: string | null; duration_s: number | null }[];
       const stats = new Map<string, { views: number; likes: number; comments: number }>();
-      if (list.length) {
-        const { data: snaps } = await db
-          .from('video_snapshots')
-          .select('video_id, views, likes, comments')
-          .in('video_id', list.map((v) => v.id))
-          .order('captured_at', { ascending: false })
-          .limit(2000);
-        for (const sn of (snaps ?? []) as { video_id: string; views: number; likes: number | null; comments: number | null }[]) {
-          if (!stats.has(sn.video_id)) stats.set(sn.video_id, { views: Number(sn.views) || 0, likes: Number(sn.likes) || 0, comments: Number(sn.comments) || 0 });
-        }
+      for (const [vid, sn] of await getLatestSnapshots(db, list.map((v) => v.id))) {
+        stats.set(vid, { views: Number(sn.views) || 0, likes: Number(sn.likes) || 0, comments: Number(sn.comments) || 0 });
       }
       return json({
         channel_id: picked.channel.youtube_channel_id,
