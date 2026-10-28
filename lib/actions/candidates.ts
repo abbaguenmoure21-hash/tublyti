@@ -72,3 +72,19 @@ export async function ignoreCandidate(candidateId: string) {
   revalidatePath('/channels/candidates');
   return { ok: true };
 }
+
+/** Undo for « Ignorer »: puts an ignored candidate back in the pending list. */
+export async function restoreCandidate(candidateId: string) {
+  await assertAdmin();
+  const db = createServiceClient();
+
+  const { error } = await db.from('candidate_channels')
+    .update({ status: 'pending' })
+    .eq('id', candidateId)
+    .eq('status', 'ignored');
+
+  if (error) return { error: 'Impossible d’annuler. Réessaie dans un instant.' };
+
+  revalidatePath('/channels/candidates');
+  return { ok: true };
+}
