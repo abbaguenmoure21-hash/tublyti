@@ -34,13 +34,18 @@ export async function middleware(request: NextRequest) {
   if (!user && !isPublic) {
     const url = request.nextUrl.clone();
     url.pathname = '/login';
+    // Remember the requested page so the login can bring the user back to it.
+    url.search = '';
+    url.searchParams.set('next', path + request.nextUrl.search);
     return NextResponse.redirect(url);
   }
 
-  // If logged in and on login page, redirect to dashboard
-  if (user && path.startsWith('/login')) {
+  // Logged-in users skip the login page and the landing page.
+  // /login/reset stays reachable: a signed-in user may still want to change their password.
+  if (user && (path === '/login' || path === '/')) {
     const url = request.nextUrl.clone();
     url.pathname = '/sujets';
+    url.search = '';
     return NextResponse.redirect(url);
   }
 
@@ -49,6 +54,6 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|topics|api/cron|api/mcp|api/ext|api/topics|api/alerts|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|api/cron|api/mcp|api/ext|api/topics|api/alerts|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 };
