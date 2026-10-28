@@ -39,7 +39,8 @@ async function getShellData(userId: string, ready: boolean) {
     }
     const pending = pendingChannel?.channelId ? { channelId: pendingChannel.channelId, label: pendingChannel.label } : null;
     return { niches, scope, pending, badges: { videos: videos.length }, dataFresh };
-  } catch {
+  } catch (e) {
+    console.error('[layout] shell data failed', e instanceof Error ? e.message : e);
     return { niches: [], scope: null, pending: null, badges: {}, dataFresh: false };
   }
 }
