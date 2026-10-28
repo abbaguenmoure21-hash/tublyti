@@ -354,7 +354,11 @@ export async function followNiche(nicheId: string) {
   const user = await getSessionUser();
   if (!user) return NOT_SIGNED;
   if (!z.string().uuid().safeParse(nicheId).success) return { error: 'Thématique introuvable.' };
-  const { error } = await createServiceClient().from('user_niches').upsert({ user_id: user.id, niche_id: nicheId });
+  const db = createServiceClient();
+  // Only active niches can be followed (same rule as addMyChannel).
+  const { data: niche } = await db.from('niches').select('id').eq('id', nicheId).eq('status', 'active').maybeSingle();
+  if (!niche) return { error: 'Thématique introuvable.' };
+  const { error } = await db.from('user_niches').upsert({ user_id: user.id, niche_id: nicheId });
   if (error) return { error: 'La thématique n’a pas pu être suivie.' };
   refresh();
   return { success: true };
