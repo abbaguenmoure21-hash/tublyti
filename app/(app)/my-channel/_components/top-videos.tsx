@@ -173,11 +173,48 @@ export function TopVideos({ channelId, rows, hasRevenue }: { channelId: string; 
   const cols = hasRevenue ? 10 : 9;
 
   return (
-    <div className="overflow-x-auto">
+    <>
+    {/* Phones: one card per video, nothing scrolls sideways */}
+    <ul className="md:hidden">
+      {rows.map((v) => {
+        const isOpen = open === v.id;
+        const lengthS = v.avgPercent > 0 ? v.avgDuration / (v.avgPercent / 100) : null;
+        return (
+          <li key={v.id} className="flex flex-col gap-3 border-t border-muted px-4 py-4 first:border-t-0">
+            <a href={`https://www.youtube.com/watch?v=${v.id}`} target="_blank" rel="noreferrer" className="line-clamp-2 text-[15px] font-medium hover:underline">{v.title}</a>
+            <div className="flex items-baseline gap-2">
+              <span className="text-[22px] font-semibold tabular-nums">{nf.format(v.views)}</span>
+              <span className="text-[13px] text-muted-foreground">vues</span>
+            </div>
+            <dl className="grid grid-cols-3 gap-2 text-[13px]">
+              <div><dt className="text-muted-foreground">Regardé</dt><dd className="tabular-nums">{pct(v.avgPercent)}</dd></div>
+              <div><dt className="text-muted-foreground">CTR</dt><dd className="tabular-nums">{v.ctr == null ? '—' : pct(v.ctr * 100, 1)}</dd></div>
+              <div><dt className="text-muted-foreground">Abonnés</dt><dd className="tabular-nums">+{nf.format(v.subscribers)}</dd></div>
+            </dl>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => toggle(v.id)}
+                aria-expanded={isOpen}
+                className="inline-flex h-11 items-center justify-center gap-1 rounded-lg border border-border text-[14px] font-medium text-primary hover:bg-muted"
+              >
+                Rétention
+                <ChevronDown className={`h-3.5 w-3.5 transition-transform ${isOpen ? 'rotate-180' : ''}`} aria-hidden="true" />
+              </button>
+              <div className="flex items-center justify-center rounded-lg border border-border">
+                <AnalyzeVideoButton videoId={v.id} title={v.title} channelId={channelId} variant="link" />
+              </div>
+            </div>
+            {isOpen && <div className="rounded-xl bg-muted/40 p-3">{retentionBody(v.id, lengthS)}</div>}
+          </li>
+        );
+      })}
+    </ul>
+    <div className="hidden overflow-x-auto md:block">
       <table className="w-full min-w-[880px] text-sm">
         <thead>
           <tr className="text-left text-[13px] text-muted-foreground">
-            <th className="px-4 py-2 font-medium">Vidéo</th>
+            <th className="sticky left-0 z-10 bg-card px-4 py-2 font-medium">Vidéo</th>
             <th className="px-3 py-2 text-right font-medium" title="Nombre de fois où la miniature a été vue">Impressions</th>
             <th className="px-3 py-2 text-right font-medium" title="Part des impressions qui ont donné un clic">CTR</th>
             <th className="px-3 py-2 text-right font-medium">Vues</th>
@@ -197,7 +234,7 @@ export function TopVideos({ channelId, rows, hasRevenue }: { channelId: string; 
             return (
               <Fragment key={v.id}>
                 <tr className="border-t border-muted">
-                  <td className="max-w-[300px] truncate px-4 py-2.5">
+                  <td className="sticky left-0 z-10 max-w-[300px] truncate bg-card px-4 py-2.5">
                     <a href={`https://www.youtube.com/watch?v=${v.id}`} target="_blank" rel="noreferrer" className="hover:underline">{v.title}</a>
                   </td>
                   <td className="px-3 py-2.5 text-right tabular-nums text-muted-foreground">{v.impressions == null ? '—' : nf.format(v.impressions)}</td>
@@ -234,5 +271,6 @@ export function TopVideos({ channelId, rows, hasRevenue }: { channelId: string; 
         </tbody>
       </table>
     </div>
+    </>
   );
 }
