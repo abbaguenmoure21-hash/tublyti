@@ -82,6 +82,11 @@ export async function runClassify(
 
   const pendingBatches: string[] = (pendingSetting?.value as string[]) ?? [];
   const stillPending: string[] = [];
+  // Amount reserved per batch at submission (separate key: pending_batches stays a list of ids,
+  // as read by scripts/retrieve-batches.ts).
+  const { data: estRow } = await db.from('settings').select('value').eq('key', 'pending_batches_est').maybeSingle();
+  const estByBatch: Record<string, number> = { ...((estRow?.value as Record<string, number> | null) ?? {}) };
+  let estChanged = false;
 
   for (const batchId of pendingBatches) {
     if (isTimedOut()) {
@@ -95,8 +100,12 @@ export async function runClassify(
       if (batch.processing_status === 'ended') {
         // Retrieve and store results
         const resultsStream = await anthropic.messages.batches.results(batchId);
+        let tokensIn = 0;
+        let tokensOut = 0;
         for await (const item of resultsStream) {
           if (item.result.type === 'succeeded') {
+            tokensIn += item.result.message.usage?.input_tokens ?? 0;
+            tokensOut += item.result.message.usage?.output_tokens ?? 0;
             const content = item.result.message.content[0];
             if (content.type === 'text') {
               try {
@@ -135,6 +144,23 @@ export async function runClassify(
           }
         }
         result.batchesRetrieved++;
+        // Real cost from usage: one ai_spend row per batch, and the monthly counter adjusted
+        // from the reserved estimate to the real amount.
+        const realCost = costUsd(HAIKU_45_BATCH, tokensIn, tokensOut);
+        await db.from('ai_spend').insert({
+          action: 'classify_comments',
+          model: MODEL_TAG,
+          tokens_in: tokensIn,
+          tokens_out: tokensOut,
+          cost_usd: realCost,
+          meta: { batch_id: batchId },
+        });
+        const est = estByBatch[batchId];
+        if (typeof est === 'number') {
+          await settleAiBudget(db, { ok: true, reservedUsd: est, remainingUsd: 0 }, realCost).catch(() => undefined);
+          delete estByBatch[batchId];
+          estChanged = true;
+        }
       } else {
         stillPending.push(batchId);
       }
@@ -146,6 +172,7 @@ export async function runClassify(
 
   // Update pending batches list
   await db.from('settings').upsert({ key: 'pending_batches', value: stillPending });
+  if (estChanged) await db.from('settings').upsert({ key: 'pending_batches_est', value: estByBatch });
 
   if (isTimedOut()) return result;
 
@@ -191,6 +218,8 @@ export async function runClassify(
   // Store batch_id for retrieval
   stillPending.push(batch.id);
   await db.from('settings').upsert({ key: 'pending_batches', value: stillPending });
+  estByBatch[batch.id] = cost;
+  await db.from('settings').upsert({ key: 'pending_batches_est', value: estByBatch });
 
   result.batchSubmitted = true;
   result.commentsSubmitted = unlabeled.length;
