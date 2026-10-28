@@ -6,6 +6,7 @@ import {
   formatNightDate,
   formatWhen,
   isRunOverdue,
+  YT_DAILY_CAP,
   type JobRow,
   type NightRun,
 } from '@/lib/admin/job-status';
@@ -79,7 +80,7 @@ export function NightSummary({ run, deadlineMin, quotaLimit }: NightSummaryProps
           : 'Tout s’est bien passé';
   const Icon = tone === 'error' ? XCircle : tone === 'ok' ? CheckCircle : Clock;
   const iconTone = tone === 'error' ? 'text-destructive' : tone === 'ok' ? 'text-phase-2-ink' : 'text-muted-foreground';
-  const quotaTone = run.quota > 10_000 ? 'text-destructive' : run.quota > quotaLimit ? 'text-phase-1-ink' : '';
+  const quotaTone = run.quota > YT_DAILY_CAP ? 'text-destructive' : run.quota > quotaLimit ? 'text-phase-1-ink' : '';
   const overBudget = run.totalMs > deadlineMin * 60_000;
 
   return (

@@ -124,6 +124,19 @@ export function nightlyDeadlineMin(): number {
   return parseInt(process.env.NIGHTLY_DEADLINE_MIN ?? '15', 10) || 15;
 }
 
+/** YouTube Data API daily ceiling (the soft limit stays below it). */
+export const YT_DAILY_CAP = 10_000;
+
+/** Cost hints for a manual relaunch, derived from the job history. */
+export function relaunchCost(jobs: JobRow[], now = Date.now()) {
+  const since = now - 24 * 3_600_000;
+  const usedLast24h = jobs
+    .filter((j) => new Date(j.started_at).getTime() >= since)
+    .reduce((s, j) => s + (j.quota_used ?? 0), 0);
+  const lastCollect = jobs.find((j) => j.kind === 'collect' && jobState(j) === 'ok' && (j.quota_used ?? 0) > 0);
+  return { usedLast24h, collectEstimate: lastCollect?.quota_used ?? null, dailyCap: YT_DAILY_CAP };
+}
+
 /** True when no job started in the last 26 h (the nightly runs every 24 h). */
 export function isRunOverdue(lastStart: string | null | undefined, now = Date.now()): boolean {
   if (!lastStart) return true;

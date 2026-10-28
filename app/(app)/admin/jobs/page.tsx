@@ -14,6 +14,7 @@ import {
   formatWhen,
   formatNightDate,
   SKIPPED_REASON,
+  relaunchCost,
   type JobRow,
   type JobState,
 } from '@/lib/admin/job-status';
@@ -86,7 +87,7 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
 
       {!error && <NightSummary run={lastRun} deadlineMin={nightlyDeadlineMin()} quotaLimit={getQuotaSoftLimit()} />}
 
-      <CronButtons />
+      <CronButtons cost={relaunchCost(jobs)} />
 
       {error && (
         <div role="alert" className="flex items-center gap-3 rounded-xl border border-destructive/40 bg-destructive/5 px-4 py-3">
