@@ -59,7 +59,7 @@ export const SECTION_TABS: Record<SpaceKey, { href: string; label: string; match
     { href: '/admin/jobs', label: 'Collecte', match: ['/admin/jobs'] },
     { href: '/admin/coverage', label: 'Couverture et quota', match: ['/admin/coverage'] },
     { href: '/channels', label: 'Chaînes analysées', match: ['/channels'] },
-    { href: '/channels/candidates', label: 'Chaînes candidates', match: ['/channels/candidates'] },
+    { href: '/channels/candidates', label: 'Chaînes à valider', match: ['/channels/candidates'] },
     { href: '/admin/reglages', label: 'Niches et calcul', match: ['/admin/reglages'] },
     { href: '/admin/utilisateurs', label: 'Clients', match: ['/admin/utilisateurs'] },
     { href: '/admin/attente', label: 'Liste d’attente', match: ['/admin/attente'] },

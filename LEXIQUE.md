@@ -30,9 +30,14 @@ Ce fichier fait autorité pour tous les textes visibles par l'utilisateur (app, 
 | /frustrations | Questions du public | Frustrations |
 | /activity | Concurrents | Activité |
 | /topics/review | Sujets à valider | Validation |
-| /channels | Chaînes suivies | Chaînes |
-| candidate_channels | Chaînes à valider | Candidates |
-| /admin/jobs | Santé des données | Jobs, Espace Admin |
+| /channels | Chaînes analysées (console) | Chaînes, Chaînes suivies |
+| candidate_channels | Chaînes à valider | Candidates, Chaînes candidates |
+| /admin/jobs | Collecte (console) | Jobs, Tâches de fond, Santé des données |
+| job / step | Étape (de la collecte) | Job, Cron, Tâche |
+| items_processed | Éléments traités | Items |
+| quota_used | Unités de quota | Quota (sans unité) |
+| median_views | Vues habituelles | Médiane vues |
+| faceless | Sans visage | Faceless |
 | digest | Résumé du dimanche | Digest |
 | sensitive | Sujet sensible | — |
 | MCP | Connexion à Claude | MCP, serveur MCP |

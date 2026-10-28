@@ -37,7 +37,7 @@ export default async function AdminReglagesPage() {
           <div className="flex flex-col gap-0.5">
             <h2 id="niches-auto" className="text-[17px] font-semibold">Niches créées automatiquement</h2>
             <p className="text-sm text-muted-foreground">
-              Nées de chaînes candidates semblables qui ne ressemblaient à aucune niche. Vérifie le nom et la fourchette de RPM, estimée par l’IA, dans l’onglet Niches ci-dessous.
+              Nées de chaînes à valider semblables qui ne ressemblaient à aucune niche. Vérifie le nom et la fourchette de RPM, estimée par l’IA, dans l’onglet Niches ci-dessous.
             </p>
           </div>
           <ul className="overflow-hidden rounded-2xl bg-card">
