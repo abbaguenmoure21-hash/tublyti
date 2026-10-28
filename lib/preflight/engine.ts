@@ -5,6 +5,7 @@ import { geminiEnabled } from '../ai/gemini';
 import { deleteFile, scoreVideoFile, type VideoFileScore } from './video-file';
 import { loadModel, plannedContext, predictWithModel, probAbove, type ModelPrediction } from '../predictor/predict';
 import { getVideoReachTotals } from '../youtube/reach-totals';
+import { readAllPages } from '../supabase/rpc-fallback';
 
 const nf = (n: number) => new Intl.NumberFormat('fr-FR').format(n);
 
@@ -93,17 +94,28 @@ async function loadOwnVideos(db: SupabaseClient, ytChannelId: string, limit = 40
   const list = ((vids ?? []) as { id: string; title: string; published_at: string; duration_s: number | null }[]).filter((v) => (v.duration_s ?? 0) > 60);
   const snapsById = new Map<string, Snap[]>();
   const ids = list.map((v) => v.id);
-  for (let i = 0; i < ids.length; i += 50) {
-    for (let from = 0; from < 20_000; from += 1000) {
-      const { data } = await db
-        .from('video_snapshots')
-        .select('video_id, captured_at, views')
-        .in('video_id', ids.slice(i, i + 50))
-        .order('captured_at', { ascending: true })
-        .range(from, from + 999);
-      const rows = (data ?? []) as { video_id: string; captured_at: string; views: number }[];
-      for (const r of rows) snapsById.set(r.video_id, [...(snapsById.get(r.video_id) ?? []), { at: new Date(r.captured_at).getTime(), views: Number(r.views) || 0 }]);
-      if (rows.length < 1000) break;
+  // Batches in parallel; total order (captured_at, video_id) so pages never skip or repeat rows.
+  const batches: string[][] = [];
+  for (let i = 0; i < ids.length; i += 50) batches.push(ids.slice(i, i + 50));
+  const pages = await Promise.all(
+    batches.map((batch) =>
+      readAllPages<{ video_id: string; captured_at: string; views: number }>((from, to) =>
+        db
+          .from('video_snapshots')
+          .select('video_id, captured_at, views')
+          .in('video_id', batch)
+          .order('captured_at', { ascending: true })
+          .order('video_id', { ascending: true })
+          .range(from, to),
+        20_000,
+      ),
+    ),
+  );
+  for (const { data: rows } of pages) {
+    for (const r of rows) {
+      const list = snapsById.get(r.video_id) ?? [];
+      list.push({ at: new Date(r.captured_at).getTime(), views: Number(r.views) || 0 });
+      snapsById.set(r.video_id, list);
     }
   }
   return list.map((v) => ({ id: v.id, title: v.title, publishedMs: new Date(v.published_at).getTime(), durationS: v.duration_s ?? 0, snaps: snapsById.get(v.id) ?? [] }));
@@ -350,6 +362,8 @@ export async function refreshAndFollow(db: SupabaseClient, userId: string, userC
   }[];
 
   const linkedIds = new Set(checks.map((c) => c.video_id).filter(Boolean));
+  // Updates are independent rows: sent together instead of up to 30 sequential writes.
+  const writes: PromiseLike<unknown>[] = [];
   for (const c of checks) {
     // 1. Rattachement automatique : vidéo publiée après l'évaluation, au titre très proche.
     if (!c.video_id && now - new Date(c.created_at).getTime() < 60 * 86_400_000) {
@@ -362,7 +376,7 @@ export async function refreshAndFollow(db: SupabaseClient, userId: string, userC
       if (cands[0]) {
         c.video_id = cands[0].v.id;
         linkedIds.add(c.video_id);
-        await db.from('preflight_checks').update({ video_id: c.video_id, linked_at: new Date().toISOString() }).eq('id', c.id);
+        writes.push(db.from('preflight_checks').update({ video_id: c.video_id, linked_at: new Date().toISOString() }).eq('id', c.id));
       }
     }
     // 2. Mesure à 7 jours, une seule fois.
@@ -374,14 +388,18 @@ export async function refreshAndFollow(db: SupabaseClient, userId: string, userC
         if (views7 !== null && base7) {
           const m = Math.round((views7 / base7) * 100) / 100;
           c.actual_multiple = m;
-          await db
-            .from('preflight_checks')
-            .update({ actual: { views_7d: views7, baseline_7d: base7, multiple_7d: m, measured_at: new Date().toISOString() }, actual_multiple: m })
-            .eq('id', c.id);
+          writes.push(
+            db
+              .from('preflight_checks')
+              .update({ actual: { views_7d: views7, baseline_7d: base7, multiple_7d: m, measured_at: new Date().toISOString() }, actual_multiple: m })
+              .eq('id', c.id),
+          );
         }
       }
     }
   }
+
+  await Promise.all(writes);
 
   // 3. Suivi des vidéos des 21 derniers jours.
   const recent = videos.filter((v) => now - v.publishedMs <= 21 * 86_400_000).slice(0, 10);
