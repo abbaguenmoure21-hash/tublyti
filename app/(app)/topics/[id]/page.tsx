@@ -4,7 +4,7 @@ import type { Metadata } from 'next';
 import { createServiceClient } from '@/lib/supabase/server';
 import { requireUser, isDbReady } from '@/lib/auth/session';
 import { resolveScope } from '@/lib/scope';
-import { PhaseBadge, MgiScore, PHASE_LABELS } from '@/components/tublyti';
+import { PhaseBadge, PHASE_LABELS } from '@/components/tublyti/phase-badge';
 import { getMgiBand, type ConfidenceResult } from '@/lib/scoring/mgi';
 import { OutlierBadge } from '@/components/tublyti/outlier-badge';
 import { AnalyzeVideoButton } from '@/components/tublyti/video-analysis';

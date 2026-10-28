@@ -5,7 +5,6 @@ import { toast } from 'sonner';
 import { RotateCcw } from 'lucide-react';
 import { saveScoringSettings } from '@/lib/actions/settings';
 import type { ScoringSettings } from '@/lib/scoring/scoring-config';
-import { PHASE_LABELS } from '@/components/tublyti';
 
 interface TopTenItem {
   id: string;

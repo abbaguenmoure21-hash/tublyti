@@ -10,7 +10,7 @@ import {
   ResponsiveContainer,
   Cell,
 } from 'recharts';
-import { PHASE_LABELS, phaseColor } from '@/components/tublyti';
+import { PHASE_LABELS, phaseColor } from '@/components/tublyti/phase-badge';
 
 interface ScatterPoint {
   x: number;

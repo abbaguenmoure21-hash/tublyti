@@ -6,7 +6,7 @@ import { Copy, Check, TrendingUp, TrendingDown } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import type { PipelineCard } from '../page';
-import { PHASE_LABELS } from '@/components/tublyti';
+import { PHASE_LABELS } from '@/components/tublyti/phase-badge';
 
 function daysSince(dateStr: string): number {
   return Math.floor((Date.now() - new Date(dateStr).getTime()) / 86_400_000);

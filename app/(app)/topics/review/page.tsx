@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic';
 export const metadata = { title: 'Revue des sujets' };
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { PhaseBadge } from '@/components/tublyti';
+import { PhaseBadge } from '@/components/tublyti/phase-badge';
 import { createServiceClient } from '@/lib/supabase/server';
 import { ReviewActions } from './_components/review-actions';
 

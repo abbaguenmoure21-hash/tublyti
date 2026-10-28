@@ -3,7 +3,9 @@
 import { useState, useCallback } from 'react';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
-import { PhaseBadge, phaseColor, SparklineChart, SensitiveBadge } from '@/components/tublyti';
+import { PhaseBadge, phaseColor } from '@/components/tublyti/phase-badge';
+import { SparklineChart } from '@/components/tublyti/sparkline-chart';
+import { SensitiveBadge } from '@/components/tublyti/sensitive-badge';
 import { FeasibilityBadge } from '@/components/tublyti/feasibility-badge';
 import type { FeasibilityGrade } from '@/lib/scoring/feasibility';
 import { TopicPreview } from './topic-preview';
