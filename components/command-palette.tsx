@@ -30,7 +30,7 @@ const PAGES = [
   
   { href: '/dashboard', label: 'Carte des sujets', icon: ScatterChart },
   { href: '/pipeline', label: 'Mes vidéos', icon: Columns3 },
-  { href: '/my-channel', label: 'Résultats de mes vidéos', icon: Columns3 },
+  { href: '/my-channel', label: 'Ma chaîne', icon: Columns3 },
   { href: '/activity', label: 'Veille', icon: Tv },
   { href: '/frustrations', label: 'Questions du public', icon: MessageSquareWarning },
   { href: '/settings', label: 'Réglages', icon: SlidersHorizontal },
