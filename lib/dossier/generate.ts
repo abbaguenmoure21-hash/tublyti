@@ -1,5 +1,6 @@
 import { createServiceClient } from '@/lib/supabase/server';
 import { getMgiBand } from '@/lib/scoring/mgi';
+import { COMMENT_LABELS, FRUSTRATION_LABEL, RELIABILITY_SHORT, formatLongDate, formatSupply } from '@/lib/lexique';
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -155,7 +156,7 @@ export async function fetchDossierData(topicId: string): Promise<DossierData | n
     .limit(5);
 
   const videoIds = (vids ?? []).map((v: Record<string, unknown>) => v.id as string);
-  let videoViews: Record<string, number> = {};
+  const videoViews: Record<string, number> = {};
   if (videoIds.length > 0) {
     const { data: snaps } = await db
       .from('video_snapshots')
@@ -259,13 +260,6 @@ const PHASE_LABELS: Record<number, string> = {
   3: 'Trop tard',
 };
 
-const LABEL_NAMES: Record<string, string> = {
-  no_one_explains: "Personne n'explique",
-  wish_video_on: 'Souhait de vidéo',
-  stopped_too_early: "S'arrête trop tôt",
-  searched_long: 'Longue recherche',
-};
-
 function formatViews(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)} M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)} k`;
@@ -280,28 +274,28 @@ export function renderDossierMarkdown(data: DossierData): string {
 
   lines.push(`# Dossier : ${topic.label}`);
   lines.push('');
-  lines.push(`**Niche** : ${niche?.name ?? '—'} | **Phase** : ${phase !== null ? PHASE_LABELS[phase] ?? `Phase ${phase}` : 'Inconnue'} | **Statut** : ${topic.status}`);
+  lines.push(`**Thématique** : ${niche?.name ?? '—'} | **Moment** : ${phase !== null ? PHASE_LABELS[phase] ?? '—' : '—'}`);
   lines.push(`**Généré le** : ${new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}`);
 
   // ── MGI breakdown
   if (score) {
     const band = getMgiBand(score.mgi);
     lines.push('');
-    lines.push('## Market Gap Index');
+    lines.push('## Les chiffres');
     lines.push('');
-    lines.push(`| Métrique | Valeur |`);
+    lines.push(`| Indicateur | Valeur |`);
     lines.push(`|----------|--------|`);
-    lines.push(`| **MGI** | **${Math.round(score.mgi)}** (${band.label}) |`);
-    lines.push(`| Demande (D) | ${Math.round(score.demand)} |`);
-    lines.push(`| Frustration (F) | ${Math.round(score.frustration * 100)} % |`);
-    lines.push(`| Offre qualifiée (Oq) | ${Math.round(score.supplyQ)} |`);
-    lines.push(`| Monétisation (P) | × ${score.monetization.toFixed(1)} |`);
+    lines.push(`| **Potentiel** | **${Math.round(score.mgi)} / 100** (${band.label}) |`);
+    lines.push(`| Demande du public | ${Math.round(score.demand * 100)} / 100 |`);
+    lines.push(`| ${FRUSTRATION_LABEL} | ${Math.round(score.frustration * 100)} % |`);
+    lines.push(`| Vidéos de qualité existantes | ${formatSupply(score.supplyQ)} par rapport à la moyenne |`);
+    lines.push(`| Revenus publicitaires | ×${new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 1 }).format(score.monetization)} par rapport à une thématique moyenne |`);
 
     if (score.confidence) {
-      const confLabel = score.confidence === 'high' ? 'Élevée' : score.confidence === 'medium' ? 'Moyenne' : 'Faible';
-      lines.push(`| Confiance | ${confLabel} — ${score.confidenceReason ?? ''} |`);
+      const confLabel = RELIABILITY_SHORT[score.confidence as 'high' | 'medium' | 'low'] ?? 'Faible';
+      lines.push(`| Fiabilité | ${confLabel}${score.confidenceReason ? ` — ${score.confidenceReason}` : ''} |`);
     }
-    lines.push(`| Fraîcheur | Scores du ${score.scoredAt} |`);
+    lines.push(`| Mis à jour | ${formatLongDate(score.scoredAt)} |`);
   }
 
   // ── Feasibility
@@ -326,12 +320,12 @@ export function renderDossierMarkdown(data: DossierData): string {
   // ── Frustrations
   if (frustrations.length > 0) {
     lines.push('');
-    lines.push(`## Frustrations (${frustrations.length})`);
+    lines.push(`## Ce que réclame le public (${frustrations.length})`);
     lines.push('');
     for (const f of frustrations) {
-      const label = LABEL_NAMES[f.label] ?? f.label;
+      const label = COMMENT_LABELS[f.label] ?? f.label;
       const ytLink = `https://youtube.com/watch?v=${f.videoId}&lc=${f.commentId}`;
-      lines.push(`${frustrations.indexOf(f) + 1}. **[${f.likeCount} likes]** « ${f.text.slice(0, 200)} »`);
+      lines.push(`${frustrations.indexOf(f) + 1}. **[${f.likeCount} j’aime]** « ${f.text.slice(0, 200)} »`);
       lines.push(`   Type : ${label}${f.requestedAngle ? ` · Angle demandé : ${f.requestedAngle}` : ''} · [Voir sur YouTube](${ytLink})`);
     }
   }
@@ -339,7 +333,7 @@ export function renderDossierMarkdown(data: DossierData): string {
   // ── Competitors
   if (competitors.length > 0) {
     lines.push('');
-    lines.push(`## Concurrents qualifiés (${competitors.length})`);
+    lines.push(`## Vidéos déjà publiées sur ce sujet (${competitors.length})`);
     lines.push('');
     lines.push(`| # | Titre | Chaîne | Vues | Abonnés | Publiée |`);
     lines.push(`|---|-------|--------|------|---------|---------|`);
@@ -353,12 +347,12 @@ export function renderDossierMarkdown(data: DossierData): string {
   // ── RPM
   if (niche) {
     lines.push('');
-    lines.push('## Monétisation (RPM)');
+    lines.push('## Revenus publicitaires');
     lines.push('');
     if (niche.rpmLow && niche.rpmHigh) {
-      lines.push(`**${niche.rpmLow} – ${niche.rpmHigh} $** par 1 000 vues (${niche.rpmSource ?? `coefficient × ${niche.rpmCoefficient}`})`);
+      lines.push(`**${niche.rpmLow} – ${niche.rpmHigh} $** par 1 000 vues (estimation de la thématique)`);
     } else {
-      lines.push(`Coefficient niche : × ${niche.rpmCoefficient}`);
+      lines.push(`×${niche.rpmCoefficient} par rapport à une thématique moyenne`);
     }
   }
 
@@ -383,20 +377,20 @@ export function renderDossierMarkdown(data: DossierData): string {
   // ── Angles
   if (angles.length > 0) {
     lines.push('');
-    lines.push(`## Angles de contenu (${angles.length})`);
+    lines.push(`## Angles proposés (${angles.length})`);
     lines.push('');
     for (const [i, a] of angles.entries()) {
       lines.push(`### ${i + 1}. ${a.title}`);
       lines.push(`**Hook** : ${a.hook}`);
       lines.push(`**Raison** : ${a.rationale}`);
       if (a.formula) lines.push(`**Formule** : ${a.formula}`);
-      if (a.frustrationResolved) lines.push(`**Frustration résolue** : ${a.frustrationResolved}`);
+      if (a.frustrationResolved) lines.push(`**Question à laquelle il répond** : ${a.frustrationResolved}`);
       lines.push('');
     }
   }
 
   lines.push('---');
-  lines.push(`*Dossier généré par TubLyTI — ${new Date().toISOString().slice(0, 10)}*`);
+  lines.push(`*Dossier généré par TubLyTI — ${formatLongDate(new Date().toISOString())}*`);
 
   return lines.join('\n');
 }
