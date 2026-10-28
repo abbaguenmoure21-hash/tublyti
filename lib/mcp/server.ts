@@ -11,6 +11,7 @@ import { getPublicStats } from '@/lib/youtube/public-stats';
 import { getVideoReach } from '@/lib/youtube/reporting';
 import { getChannelAnalytics, getVideoRetention, getVideoTotals, PERIODS, type Period } from '@/lib/youtube/analytics';
 import { analyzeVideo, parseVideoId, retentionContextFrom, type RetentionContext } from '@/lib/video/analyze';
+import { outlierSaturation, topicSaturation } from '@/lib/saturation';
 
 // ── Constants ──────────────────────────────────────────────────────────
 
@@ -1607,6 +1608,26 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
         with_retention: Boolean(r.analysis?.retention_notes.length),
         analysis: r.analysis,
       });
+    },
+  );
+
+  mcp.tool(
+    'check_saturation',
+    'Le sujet ou la video est-il sature ? (JSON) Pour un sujet (topic_id) : niveau open|filling|saturated, score 0-100, chaines ayant publie ces 30 jours, rythme de publication avant/apres, performance des nouvelles videos vs anciennes, conseil. Pour une video qui a sur-performe (video) : combien de fois son idee a ete copiee dans la niche depuis, par combien de chaines, et si les copies marchent encore.',
+    {
+      topic_id: z.string().uuid().optional().describe('ID du sujet'),
+      video: z.string().optional().describe('Lien YouTube ou ID de la video'),
+    },
+    async ({ topic_id, video }) => {
+      const blocked = await guard(token, 'check_saturation', topic_id ? { topicId: topic_id } : undefined);
+      if (blocked) return fail(blocked);
+      const db = createServiceClient();
+      if (topic_id) return json({ topic_id, ...(await topicSaturation(db, topic_id)) });
+      const id = video ? parseVideoId(video) : null;
+      if (!id) return fail('Donne topic_id ou video.');
+      const r = await outlierSaturation(db, id);
+      if (!r) return fail('Pas assez de donnees sur cette video (titre pas encore analyse par TubLyTI).');
+      return json({ video_id: id, ...r });
     },
   );
 

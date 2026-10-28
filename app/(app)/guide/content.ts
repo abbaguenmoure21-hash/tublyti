@@ -91,6 +91,10 @@ export const LABELS = [
 
 export const FAQ = [
   {
+    q: 'Comment savoir si un sujet ou une idée est saturé ?',
+    a: 'Sur la fiche d’un sujet, la carte « Saturation du sujet » donne un niveau (Ouvert, Se remplit, Saturé) et un score sur 100. Il combine le nombre de chaînes qui ont publié ces 30 derniers jours, l’accélération du rythme de publication, et surtout si les nouvelles vidéos font moins bien que celles d’il y a 1 à 4 mois. À côté de chaque vidéo qui a sur-performé, le bouton « Copiée ? » cherche les vidéos très proches publiées depuis dans ta niche : combien, par combien de chaînes, et si elles marchent encore.',
+  },
+  {
     q: 'Comment fonctionne « Avant de publier » ?',
     a: 'Mes vidéos → Avant de publier. Écris jusqu’à 3 titres, ajoute ta miniature et ton script (au moins l’accroche). TubLyTI compare chaque titre aux vidéos de ta niche aux titres les plus proches et regarde combien elles ont fait par rapport aux vues habituelles de leur chaîne ; Gemini note la miniature face aux miniatures gagnantes de la niche et le script (accroche, relances, passages où l’on décroche). Tu obtiens une note, des corrections et une probabilité (chances de faire ×2 ou ×10 tes vues habituelles). Ce n’est jamais une garantie : après publication, la vidéo est suivie et mesurée à 7 jours, et les prédictions suivantes se recalent sur tes résultats réels.',
   },

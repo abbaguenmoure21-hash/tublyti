@@ -19,6 +19,7 @@ const DAILY_LIMITS: Record<string, number> = {
   list_my_videos: 100,
   get_video_performance: 200,
   analyze_video: 15,
+  check_saturation: 60,
   // Write tools — tighter
   generate_angles: 10,
   save_to_collection: 50,

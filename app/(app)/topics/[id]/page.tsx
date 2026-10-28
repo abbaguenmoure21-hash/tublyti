@@ -8,6 +8,8 @@ import { PhaseBadge, MgiScore, PHASE_LABELS } from '@/components/tublyti';
 import { getMgiBand, type ConfidenceResult } from '@/lib/scoring/mgi';
 import { OutlierBadge } from '@/components/tublyti/outlier-badge';
 import { AnalyzeVideoButton } from '@/components/tublyti/video-analysis';
+import { TopicSaturationCard, OutlierSaturationButton } from '@/components/tublyti/saturation';
+import { topicSaturation } from '@/lib/saturation';
 import { TopicActions } from './_components/topic-actions';
 import { TopicShortcuts } from './_components/topic-shortcuts';
 import { AngleSection } from './_components/angle-section';
@@ -132,6 +134,9 @@ export default async function TopicPage({
     const topicNiche = (topic.niches as unknown as { id: string } | null)?.id;
     if (!topicNiche || !mine.some((n) => n.id === topicNiche)) notFound();
   }
+
+  // Saturation : concurrence récente et performance des nouvelles vidéos du sujet.
+  const saturation = await topicSaturation(db, id).catch(() => null);
 
   // Latest score
   const { data: score } = await db
@@ -429,6 +434,8 @@ export default async function TopicPage({
           </div>
         )}
 
+        {saturation && <TopicSaturationCard s={saturation} />}
+
         {/* Two-column layout */}
         <div className="flex gap-4 items-start">
           {/* Left column */}
@@ -547,6 +554,7 @@ export default async function TopicPage({
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
                         <AnalyzeVideoButton videoId={c.id} title={c.title} variant="icon" />
+                        {c.outlier && c.outlier.score >= 2 && <OutlierSaturationButton videoId={c.id} />}
                         {c.outlier && c.outlier.score >= 2 && (
                           <OutlierBadge
                             score={c.outlier.score}
