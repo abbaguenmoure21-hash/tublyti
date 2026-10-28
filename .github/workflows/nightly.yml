@@ -31,7 +31,7 @@ jobs:
       EMBEDDING_PROVIDER: voyage
       EMBEDDING_MODEL: voyage-4-lite
       EMBEDDING_BASE_URL: https://ai.mongodb.com/v1
-      NIGHTLY_DEADLINE_MIN: '100'
+      NIGHTLY_DEADLINE_MIN: '95'
 
     steps:
       - uses: actions/checkout@v4
@@ -57,7 +57,7 @@ jobs:
         run: npx tsx scripts/nightly.ts
 
       - name: Alert on failure
-        if: failure()
+        if: failure() || cancelled()
         run: |
           curl -s -X POST https://api.resend.com/emails \
             -H "Authorization: Bearer $RESEND_API_KEY" \

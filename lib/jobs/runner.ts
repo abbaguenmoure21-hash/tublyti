@@ -12,7 +12,7 @@ export interface JobRecord {
 
 export interface JobRunner {
   start(kind: string): Promise<JobRecord>;
-  finish(id: string, result: { quotaUsed: number; itemsProcessed: number; error?: string }): Promise<void>;
+  finish(id: string, result: { quotaUsed: number; itemsProcessed: number; error?: string }, opts?: { alert?: boolean }): Promise<void>;
   isLocked(kind: string): Promise<boolean>;
   acquireLock(kind: string): Promise<boolean>;
   releaseLock(kind: string): Promise<void>;

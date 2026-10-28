@@ -34,6 +34,7 @@ export class SupabaseJobRunner implements JobRunner {
   async finish(
     id: string,
     result: { quotaUsed: number; itemsProcessed: number; error?: string },
+    opts: { alert?: boolean } = {},
   ): Promise<void> {
     const { error } = await this.db
       .from('jobs')
@@ -47,8 +48,9 @@ export class SupabaseJobRunner implements JobRunner {
 
     if (error) throw new Error(`Failed to finish job: ${error.message}`);
 
-    // Send alert on cron failure
-    if (result.error && this.alertSender) {
+    // Send alert on cron failure (never for a skipped step; the nightly sends one summary instead: alert=false)
+    const isSkipped = result.error?.startsWith('skipped') ?? false;
+    if (result.error && !isSkipped && opts.alert !== false && this.alertSender) {
       // Get job kind from the DB
       const { data: job } = await this.db
         .from('jobs')
