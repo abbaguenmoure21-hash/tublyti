@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { AlertTriangle, Play } from 'lucide-react';
 import { notFound } from 'next/navigation';
 import type { Metadata } from 'next';
 import { createServiceClient } from '@/lib/supabase/server';
@@ -403,8 +404,8 @@ export default async function TopicPage({
 
         {/* Stale data banner */}
         {score && (Date.now() - new Date(score.scored_at).getTime() > 36 * 3_600_000) && (
-          <div className="flex items-center gap-2 px-4 py-2.5 rounded-[10px] bg-[var(--warning)]/10 text-[var(--warning)] text-[13px] border border-[var(--warning)]/20">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          <div role="status" className="flex items-center gap-2 rounded-[10px] bg-warning/10 px-4 py-2.5 text-[13px] text-foreground">
+            <AlertTriangle className="h-4 w-4 shrink-0 text-warning" aria-hidden="true" />
             Ces chiffres datent de plus de 36 heures : la mise à jour de cette nuit n’est pas encore passée.
           </div>
         )}
@@ -418,7 +419,7 @@ export default async function TopicPage({
             : null;
           return (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-            <div className="flex flex-col gap-1.5 rounded-2xl bg-card px-4 py-4">
+            <div className="flex flex-col gap-1.5 rounded-xl bg-card px-4 py-4">
               <span className="text-[13px] font-medium text-muted-foreground">Potentiel</span>
               <span className="flex items-baseline gap-2">
                 <span className="text-[30px] font-semibold leading-none tabular-nums tracking-[-0.02em]">{Math.round(mgiVal)}</span>
@@ -490,10 +491,10 @@ export default async function TopicPage({
             <SignalSection signals={signals} />
 
             {/* Frustrations */}
-            <section className="bento-card !p-0 flex flex-col">
-              <div className="flex items-center justify-between px-5 py-4 border-b border-[--glass-border] bg-[--bg-surface-1]/50">
+            <section className="rounded-xl bg-card overflow-hidden flex flex-col">
+              <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-muted/40">
                 <h2 className="text-headline">Ce que réclame le public</h2>
-                <span className="text-[13px] font-medium text-muted-foreground bg-[--bg-surface-2] px-2 py-0.5 rounded border border-[--glass-border]">
+                <span className="text-[13px] font-medium text-muted-foreground bg-muted px-2 py-0.5 rounded border border-border">
                   {totalFrustrated} commentaire{totalFrustrated !== 1 ? 's' : ''}
                 </span>
               </div>
@@ -503,7 +504,7 @@ export default async function TopicPage({
                 </div>
               ) : (
                 frustrationList.slice(0, 8).map((f) => (
-                  <div key={f.commentId} className="px-5 py-4 border-b border-[--glass-border] flex flex-col gap-2.5 last:border-0 hover:bg-[--bg-surface-1]/30 transition-colors">
+                  <div key={f.commentId} className="px-5 py-4 border-b border-border flex flex-col gap-2.5 last:border-0 hover:bg-muted/40 transition-colors">
                     <p className="line-clamp-4 text-[15px] leading-relaxed text-foreground">« {f.text} »</p>
                     <div className="flex flex-wrap items-center gap-2.5 text-[12px] text-muted-foreground">
                       <span className="inline-flex h-6 shrink-0 items-center rounded-md bg-muted px-2 font-medium text-muted-foreground">
@@ -537,8 +538,8 @@ export default async function TopicPage({
             />
 
             {/* Competitors */}
-            <section className="bento-card !p-0 flex flex-col">
-              <div className="px-5 py-4 border-b border-[--glass-border] bg-[--bg-surface-1]/50">
+            <section className="rounded-xl bg-card overflow-hidden flex flex-col">
+              <div className="px-5 py-4 border-b border-border bg-muted/40">
                 <h2 className="text-headline">Vidéos déjà publiées sur ce sujet</h2>
               </div>
               {competitors.length === 0 ? (
@@ -549,7 +550,7 @@ export default async function TopicPage({
                 competitors.map((c) => {
                   const tagInfo = COMPETITOR_TAGS[c.tag] ?? { label: c.tag, color: 'text-muted-foreground' };
                   return (
-                    <div key={c.id} className="px-5 py-3.5 border-b border-[--glass-border] flex gap-3.5 items-center last:border-0 hover:bg-[--bg-surface-1]/30 transition-colors">
+                    <div key={c.id} className="px-5 py-3.5 border-b border-border flex gap-3.5 items-center last:border-0 hover:bg-muted/40 transition-colors">
                       <a href={`https://youtube.com/watch?v=${c.id}`} target="_blank" rel="noopener noreferrer" className="shrink-0 relative group">
                         <img 
                           src={`https://i.ytimg.com/vi/${c.id}/mqdefault.jpg`} 
@@ -558,9 +559,7 @@ export default async function TopicPage({
                           loading="lazy"
                         />
                         <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center">
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg">
-                            <path d="M8 5V19L19 12L8 5Z" />
-                          </svg>
+                          <Play className="h-4 w-4 fill-current text-white" aria-hidden="true" />
                         </div>
                       </a>
                       <div className="flex-1 min-w-0 flex flex-col gap-1">
@@ -605,7 +604,7 @@ export default async function TopicPage({
 
 function ScoreCard({ label, value, unit, sub }: { label: string; value: string; unit?: string; sub?: string }) {
   return (
-    <div className="flex flex-col gap-1.5 rounded-2xl bg-card px-4 py-4">
+    <div className="flex flex-col gap-1.5 rounded-xl bg-card px-4 py-4">
       <span className="text-[13px] font-medium text-muted-foreground">{label}</span>
       <span className="flex items-baseline gap-1.5">
         <span className="text-[30px] font-semibold leading-none tabular-nums tracking-[-0.02em]">{value}</span>
@@ -617,9 +616,9 @@ function ScoreCard({ label, value, unit, sub }: { label: string; value: string; 
 }
 
 const SIGNAL_COLORS: Record<string, string> = {
-  trends: '#0A84FF',
-  yt_views: '#30D158',
-  hn: '#FF9F0A',
+  trends: 'var(--chart-1)',
+  yt_views: 'var(--chart-2)',
+  hn: 'var(--chart-3)',
 };
 
 const SIGNAL_LABELS: Record<string, string> = {
@@ -660,7 +659,7 @@ function SignalSection({ signals }: { signals: Record<string, { date: string; va
   ])].filter(Boolean);
 
   return (
-    <section className="bento-card px-5 py-4 flex flex-col gap-3">
+    <section className="rounded-xl bg-card px-5 py-4 flex flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-headline">Signaux sur 90 jours</h2>
         <div className="flex flex-wrap gap-x-4 gap-y-1 text-[12px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -674,7 +673,7 @@ function SignalSection({ signals }: { signals: Record<string, { date: string; va
       </div>
 
       <svg width="100%" viewBox={`0 0 ${W} ${H + 20}`} role="img" aria-label="Signaux sur 90 jours">
-        <g stroke="var(--glass-border)" strokeDasharray="3 4">
+        <g stroke="var(--border)" strokeDasharray="3 4">
           {[T, 80, 140].map((y) => (
             <line key={y} x1={L} y1={y} x2={R} y2={y} />
           ))}
