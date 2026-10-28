@@ -9,7 +9,12 @@ export async function checkOutlierSaturation(videoId: string): Promise<{ ok: tru
   const user = await getSessionUser();
   if (!user) return { ok: false, message: 'Connecte-toi.' };
   if (!/^[\w-]{11}$/.test(videoId)) return { ok: false, message: 'Vidéo invalide.' };
-  const data = await outlierSaturation(createServiceClient(), videoId).catch(() => null);
+  let data: OutlierSaturation | null = null;
+  try {
+    data = await outlierSaturation(createServiceClient(), videoId);
+  } catch (e) {
+    return { ok: false, message: (e as Error).message };
+  }
   if (!data) return { ok: false, message: 'Pas assez de données sur cette vidéo (titre pas encore analysé).' };
   return { ok: true, data };
 }
@@ -18,7 +23,10 @@ export async function checkOutlierSaturation(videoId: string): Promise<{ ok: tru
 export async function checkLinkSaturation(link: string): Promise<{ ok: true; data: LinkSaturation } | { ok: false; message: string }> {
   const user = await getSessionUser();
   if (!user) return { ok: false, message: 'Connecte-toi.' };
-  const r = await linkSaturation(createServiceClient(), String(link ?? '').slice(0, 300)).catch((e: Error) => ({ error: e.message }));
+  const db = createServiceClient();
+  const { data: mine } = await db.from('user_channels').select('niche_id').eq('user_id', user.id).not('verified_at', 'is', null);
+  const prefer = ((mine ?? []) as { niche_id: string | null }[]).map((c) => c.niche_id).filter((x): x is string => Boolean(x));
+  const r = await linkSaturation(db, String(link ?? '').slice(0, 300), prefer).catch((e: Error) => ({ error: e.message }));
   if ('error' in r) return { ok: false, message: r.error };
   return { ok: true, data: r };
 }

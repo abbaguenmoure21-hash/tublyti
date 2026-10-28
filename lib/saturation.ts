@@ -152,12 +152,19 @@ function parseVec(raw: unknown): string | null {
   return null;
 }
 
+function rpcMessage(msg: string): string {
+  if (/function .*match_niche_videos.* does not exist|Could not find the function/i.test(msg)) return 'La migration 00029 n’est pas encore appliquée dans Supabase (fonction match_niche_videos absente).';
+  if (/timeout|canceling statement/i.test(msg)) return 'La recherche a pris trop de temps. Réessaie dans un instant.';
+  return `Recherche impossible : ${msg.slice(0, 160)}`;
+}
+
 /** Cœur commun : vidéos de la niche aux titres très proches, avant et après une date. */
 async function ideaSaturation(
   db: SupabaseClient,
   opts: { vec: string; nicheIds: string[]; originMs: number; excludeId?: string | null; excludeChannelId?: string | null },
 ): Promise<OutlierSaturation> {
-  const { data } = await db.rpc('match_niche_videos', { query_embedding: opts.vec, niche_ids: opts.nicheIds, match_count: 80 });
+  const { data, error } = await db.rpc('match_niche_videos', { query_embedding: opts.vec, niche_ids: opts.nicheIds, match_count: 80 });
+  if (error) throw new Error(rpcMessage(error.message));
   const near = ((data ?? []) as { video_id: string; title: string; channel_id: string; channel_title: string | null; similarity: number; score: number }[]).filter(
     (n) => n.video_id !== opts.excludeId && (!opts.excludeChannelId || n.channel_id !== opts.excludeChannelId) && Number(n.similarity) >= 0.78,
   );
@@ -219,7 +226,7 @@ export interface LinkSaturation {
  * N'importe quel lien YouTube, même une vidéo que TubLyTI ne suit pas :
  * titre lu sur YouTube, niche déduite des vidéos les plus proches du catalogue, puis recherche des copies.
  */
-export async function linkSaturation(db: SupabaseClient, input: string): Promise<LinkSaturation | { error: string }> {
+export async function linkSaturation(db: SupabaseClient, input: string, preferNicheIds: string[] = []): Promise<LinkSaturation | { error: string }> {
   const m = input.trim().match(/(?:v=|youtu\.be\/|\/shorts\/|\/live\/|\/embed\/)([\w-]{11})/);
   const videoId = m?.[1] ?? (/^[\w-]{11}$/.test(input.trim()) ? input.trim() : null);
   if (!videoId) return { error: 'Lien YouTube invalide.' };
@@ -244,20 +251,19 @@ export async function linkSaturation(db: SupabaseClient, input: string): Promise
   if (!vecArr?.length) return { error: 'Analyse du titre impossible pour le moment (VOYAGE_API_KEY ?).' };
   const vec = `[${vecArr.join(',')}]`;
 
-  // Niche : la plus fréquente parmi les 20 vidéos du catalogue aux titres les plus proches.
+  // Niche : celle des chaînes du catalogue dont le contenu ressemble le plus à ce titre
+  // (recherche sur les chaînes, rapide), sinon la niche de ta chaîne.
   const { data: niches } = await db.from('niches').select('id, name');
   const nicheList = (niches ?? []) as { id: string; name: string }[];
-  const { data: near } = await db.rpc('match_niche_videos', { query_embedding: vec, niche_ids: nicheList.map((n) => n.id), match_count: 20 });
-  const nearIds = ((near ?? []) as { channel_id: string }[]).map((n) => n.channel_id);
-  const { data: chans } = nearIds.length ? await db.from('channels').select('id, niche_id').in('id', [...new Set(nearIds)]) : { data: [] };
-  const nicheOf = new Map(((chans ?? []) as { id: string; niche_id: string }[]).map((c) => [c.id, c.niche_id]));
   const votes = new Map<string, number>();
-  for (const cid of nearIds) {
-    const n = nicheOf.get(cid);
-    if (n) votes.set(n, (votes.get(n) ?? 0) + 1);
+  const { data: nearCh } = await db.rpc('match_channels', { query_embedding: vec, match_threshold: 0.2, match_count: 15 });
+  for (const c of (nearCh ?? []) as { niche_id: string | null; similarity: number }[]) {
+    if (c.niche_id) votes.set(c.niche_id, (votes.get(c.niche_id) ?? 0) + Number(c.similarity));
   }
-  const top = [...votes.entries()].sort((a, b) => b[1] - a[1])[0];
-  if (!top) return { error: 'Aucune vidéo comparable dans le catalogue de TubLyTI pour ce sujet.' };
+  let nicheId = [...votes.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+  if (!nicheId && preferNicheIds.length) nicheId = preferNicheIds[0];
+  if (!nicheId) return { error: 'Impossible de rattacher cette vidéo à une niche suivie par TubLyTI.' };
+  const top: [string, number] = [nicheId, 0];
 
   const result = await ideaSaturation(db, { vec, nicheIds: [top[0]], originMs: new Date(sn.publishedAt).getTime(), excludeId: videoId, excludeChannelId: sn.channelId ?? null });
   return { videoId, title: sn.title, channelTitle: sn.channelTitle ?? '', publishedAt: sn.publishedAt, nicheName: nicheList.find((n) => n.id === top[0])?.name ?? null, inCatalog: false, result };

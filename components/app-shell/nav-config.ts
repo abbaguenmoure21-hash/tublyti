@@ -1,6 +1,6 @@
-import { Sparkles, Clapperboard, Radar, SlidersHorizontal, LifeBuoy, ShieldCheck, type LucideIcon } from 'lucide-react';
+import { Sparkles, Clapperboard, Radar, SlidersHorizontal, LifeBuoy, ShieldCheck, Rocket, type LucideIcon } from 'lucide-react';
 
-export type SpaceKey = 'sujets' | 'videos' | 'veille' | 'admin';
+export type SpaceKey = 'sujets' | 'preflight' | 'videos' | 'veille' | 'admin';
 
 export interface NavSpace {
   key: SpaceKey;
@@ -14,7 +14,8 @@ export interface NavSpace {
 /** Les 3 espaces client de l'app (ERGONOMIE.md). */
 export const SPACES: NavSpace[] = [
   { key: 'sujets', href: '/sujets', label: 'Sujets', icon: Sparkles, match: ['/sujets', '/today', '/dashboard', '/topics', '/frustrations', '/bienvenue'] },
-  { key: 'videos', href: '/pipeline', label: 'Mes vidéos', icon: Clapperboard, match: ['/pipeline', '/my-channel', '/videos', '/preflight'] },
+  { key: 'preflight', href: '/preflight', label: 'Avant de publier', icon: Rocket, match: ['/preflight'] },
+  { key: 'videos', href: '/pipeline', label: 'Mes vidéos', icon: Clapperboard, match: ['/pipeline', '/my-channel', '/videos'] },
   { key: 'veille', href: '/activity', label: 'Veille', icon: Radar, match: ['/activity', '/veille'] },
 ];
 
@@ -46,8 +47,8 @@ export const SECTION_TABS: Record<SpaceKey, { href: string; label: string; match
   videos: [
     { href: '/pipeline', label: 'Tableau', match: ['/pipeline'] },
     { href: '/my-channel', label: 'Ma chaîne', match: ['/my-channel'] },
-    { href: '/preflight', label: 'Avant de publier', match: ['/preflight'] },
   ],
+  preflight: [],
   veille: [{ href: '/activity', label: 'À voir cette semaine', match: ['/activity'] }],
   admin: [
     { href: '/admin', label: 'Vue d’ensemble', match: ['/admin'] },

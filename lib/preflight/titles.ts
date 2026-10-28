@@ -107,21 +107,23 @@ async function nichePrior(db: SupabaseClient, nicheIds: string[]) {
   };
 }
 
-export async function scoreTitles(db: SupabaseClient, nicheIds: string[], titles: string[]): Promise<{ scores: TitleScore[]; prior: { p2x: number; p10x: number; n: number; logMean: number } }> {
+export async function scoreTitles(db: SupabaseClient, nicheIds: string[], titles: string[]): Promise<{ scores: TitleScore[]; prior: { p2x: number; p10x: number; n: number; logMean: number }; rpcError: string | null }> {
   const clean = titles.map((t) => t.trim()).filter(Boolean).slice(0, 3);
   const [vectors, prior] = await Promise.all([embedTitles(clean), nichePrior(db, nicheIds)]);
 
   const scores: TitleScore[] = [];
+  let rpcError: string | null = vectors ? null : 'Analyse des titres indisponible (clé VOYAGE_API_KEY ou EMBEDDING_BASE_URL à vérifier sur Vercel).';
   for (let i = 0; i < clean.length; i++) {
     const title = clean[i];
     const { checks, formScore } = titleChecks(title);
     let neighbors: Neighbor[] = [];
     if (vectors?.[i]?.length) {
-      const { data } = await db.rpc('match_niche_videos', {
+      const { data, error } = await db.rpc('match_niche_videos', {
         query_embedding: `[${vectors[i].join(',')}]`,
         niche_ids: nicheIds,
         match_count: 40,
       });
+      if (error) rpcError = /does not exist|Could not find the function/i.test(error.message) ? 'Comparaison des titres indisponible : la migration 00029 n’est pas appliquée dans Supabase.' : `Comparaison des titres indisponible : ${error.message.slice(0, 120)}`;
       neighbors = ((data ?? []) as { video_id: string; title: string; channel_title: string | null; similarity: number; score: number }[])
         .filter((n) => n.title && n.title.trim().toLowerCase() !== title.toLowerCase())
         .map((n) => ({ videoId: n.video_id, title: n.title, channelTitle: n.channel_title ?? '', similarity: Number(n.similarity), score: Number(n.score) }));
@@ -163,7 +165,7 @@ export async function scoreTitles(db: SupabaseClient, nicheIds: string[], titles
       neighborIds: neighbors.slice(0, 15).map((n) => n.videoId),
     });
   }
-  return { scores, prior: { p2x: prior.p2x, p10x: prior.p10x, n: prior.n, logMean: prior.logMean } };
+  return { scores, prior: { p2x: prior.p2x, p10x: prior.p10x, n: prior.n, logMean: prior.logMean }, rpcError };
 }
 
 /** Vidéos qui ont le plus sur-performé dans la niche (pour la miniature et le script). */

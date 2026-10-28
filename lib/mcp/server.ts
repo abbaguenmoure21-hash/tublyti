@@ -1626,7 +1626,7 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
       if (topic_id) return json({ topic_id, ...(await topicSaturation(db, topic_id)) });
       const id = video ? parseVideoId(video) : null;
       if (!id) return fail('Donne topic_id ou video.');
-      const r = await linkSaturation(db, id);
+      const r = await linkSaturation(db, id, token.nicheIds ?? []);
       if ('error' in r) return fail(r.error);
       return json(r);
     },

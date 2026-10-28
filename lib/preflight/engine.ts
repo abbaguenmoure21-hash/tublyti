@@ -141,13 +141,14 @@ export async function runPreflight(db: SupabaseClient, input: PreflightInput): P
   const nicheIds = [input.nicheId];
   const publishAt = input.publishAt && !Number.isNaN(input.publishAt.getTime()) ? input.publishAt : new Date(Date.now() + 86_400_000);
 
-  const [{ scores, prior }, winners, calibration, model] = await Promise.all([
+  const [{ scores, prior, rpcError }, winners, calibration, model] = await Promise.all([
     scoreTitles(db, nicheIds, titles),
     topNicheOutliers(db, nicheIds, 8),
     getCalibration(db, input.userId, input.userChannelId),
     loadModel(db),
   ]);
 
+  if (rpcError) errors.push(rpcError);
   const best = [...scores].sort((a, b) => b.score - a.score)[0];
   let thumbnail: ThumbnailScore | null = null;
   let script: ScriptScore | null = null;
