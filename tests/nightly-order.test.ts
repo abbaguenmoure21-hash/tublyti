@@ -10,7 +10,8 @@ import { resolve } from 'path';
 function extractStepOrder(): string[] {
   const src = readFileSync(resolve(__dirname, '../scripts/nightly.ts'), 'utf-8');
   const steps: string[] = [];
-  const re = /runStep\(runner,\s*['"]([^'"]+)['"]/g;
+  // Signature: runStep(runner, deadline, kind, fn) — the step name is the 3rd argument.
+  const re = /runStep\(\s*runner\s*,\s*[^,]+,\s*['"]([^'"]+)['"]/g;
   let m;
   while ((m = re.exec(src)) !== null) {
     steps.push(m[1]);
@@ -22,6 +23,9 @@ describe('nightly pipeline order', () => {
   const steps = extractStepOrder();
 
   it('has at least 6 steps', () => {
+    // Guard: a broken regex must fail loudly instead of yielding indexOf() === -1 everywhere.
+    expect(steps).toContain('collect');
+    expect(steps).toContain('score');
     expect(steps.length).toBeGreaterThanOrEqual(6);
   });
 
@@ -53,7 +57,12 @@ describe('nightly pipeline order', () => {
     expect(steps.indexOf('classify')).toBeLessThan(steps.indexOf('score'));
   });
 
-  it('runs score last', () => {
-    expect(steps.indexOf('score')).toBe(steps.length - 1);
+  it('runs score after embed-pass2', () => {
+    expect(steps.indexOf('embed-pass2')).toBeLessThan(steps.indexOf('score'));
+  });
+
+  it('only maintenance steps (reject-stale, aggregate) run after score', () => {
+    const after = steps.slice(steps.indexOf('score') + 1);
+    expect(after.every((s) => s === 'reject-stale' || s === 'aggregate')).toBe(true);
   });
 });
