@@ -7,6 +7,7 @@ import { evaluateBeforePublish, startVideoUpload, videoUploadState } from '@/lib
 import type { PreflightResult } from '@/lib/preflight/engine';
 import type { TitleScore } from '@/lib/preflight/titles';
 import { HOOK_TYPES } from '@/lib/preflight/hook-types';
+import { PhaseBadge } from '@/components/tublyti/phase-badge';
 
 const nf = new Intl.NumberFormat('fr-FR');
 const pct = (x: number) => `${Math.round(x * 100)} %`;
@@ -669,19 +670,21 @@ function VideoSection({ v }: { v: NonNullable<PreflightResult['video']> }) {
   );
 }
 
-const PHASES: Record<number, string> = { 1: 'émergent', 2: 'en croissance', 3: 'au pic', 4: 'en déclin' };
-
 function ModelSection({ r }: { r: PreflightResult }) {
   const m = r.model!;
   const up = m.drivers.filter((d) => d.effect > 0.02);
   const down = m.drivers.filter((d) => d.effect < -0.02);
   const pctEffect = (e: number) => `${e > 0 ? '+' : '−'}${Math.round(Math.abs(Math.exp(e) - 1) * 100)} %`;
+  // baseBrierP2x = constant prediction at the usual rate (the average), not chance.
+  const r2Pct = Math.max(0, Math.round(m.metrics.r2 * 100));
+  const gain = m.metrics.baseBrierP2x > 0 && m.metrics.brierP2x < m.metrics.baseBrierP2x ? Math.round((1 - m.metrics.brierP2x / m.metrics.baseBrierP2x) * 100) : 0;
+  const reliability = r2Pct >= 30 && gain >= 15 ? 'haute' : r2Pct >= 10 || gain >= 5 ? 'moyenne' : 'faible';
   return (
     <section className="elev-1 flex flex-col gap-4 rounded-[22px] bg-card p-5 md:p-6">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h3 className="text-[15px] font-semibold">Ce qui joue pour et contre cette vidéo</h3>
         <span className="text-[12px] text-muted-foreground">
-          Modèle entraîné le {new Date(m.trainedAt).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })} sur {nf.format(m.n)} vidéos
+          Calcul mis à jour le {new Date(m.trainedAt).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })} sur {nf.format(m.n)} vidéos
         </span>
       </div>
       <div className="grid gap-4 md:grid-cols-2">
@@ -698,9 +701,17 @@ function ModelSection({ r }: { r: PreflightResult }) {
           )) : <span className="text-[13px] text-muted-foreground">Rien de marquant.</span>}
         </div>
       </div>
+      {m.topicPhase !== null && m.topicPhase !== undefined && (
+        <p className="flex flex-wrap items-center gap-1.5 text-[13px] text-muted-foreground">
+          Sujet le plus proche : <PhaseBadge phase={m.topicPhase} />
+          <span>
+            · {m.topicRecent7d} vidéo{m.topicRecent7d > 1 ? 's' : ''} concurrente{m.topicRecent7d > 1 ? 's' : ''} ces 7 derniers jours
+          </span>
+        </p>
+      )}
       <p className="text-[12px] leading-relaxed text-muted-foreground">
-        {m.topicPhase ? `Sujet le plus proche : ${PHASES[m.topicPhase] ?? 'phase inconnue'}, ${m.topicRecent7d} vidéo${m.topicRecent7d > 1 ? 's' : ''} concurrente${m.topicRecent7d > 1 ? 's' : ''} ces 7 derniers jours. ` : ''}
-        Fiabilité mesurée sur les vidéos les plus récentes ({nf.format(m.metrics.testN)}) : le modèle explique {Math.max(0, Math.round(m.metrics.r2 * 100))} % des écarts de vues, et ses probabilités « ×2 » sont {m.metrics.brierP2x < m.metrics.baseBrierP2x ? `${Math.round((1 - m.metrics.brierP2x / m.metrics.baseBrierP2x) * 100)} % plus justes` : 'pas encore meilleures'} qu’une estimation au hasard.
+        <span className="font-medium text-foreground">Fiabilité : {reliability}.</span> Mesurée sur les {nf.format(m.metrics.testN)} vidéos les plus récentes : le calcul explique {r2Pct} % des écarts de vues, et ses chances « ×2 » sont{' '}
+        {gain > 0 ? `${gain} % plus justes` : 'pas encore plus justes'} que la moyenne de toutes les vidéos.
       </p>
     </section>
   );
