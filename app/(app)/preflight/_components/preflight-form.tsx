@@ -2,11 +2,18 @@
 
 import { useRef, useState, useTransition } from 'react';
 import { AlertTriangle, Check, Film, ImagePlus, Loader2, Plus, Sparkles, TrendingDown, TrendingUp, Trophy, X } from 'lucide-react';
-import { Line, LineChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import dynamic from 'next/dynamic';
 import { evaluateBeforePublish, startVideoUpload, videoUploadState } from '@/lib/actions/preflight';
 import type { PreflightResult } from '@/lib/preflight/engine';
 import type { TitleScore } from '@/lib/preflight/titles';
 import { HOOK_TYPES } from '@/lib/preflight/hook-types';
+
+// recharts (~105 KB gz) is only needed once a result with a video is shown: load it on demand.
+// The parent div reserves the height (h-44), so no layout shift while it loads.
+const RetentionChart = dynamic(() => import('./retention-chart').then((m) => m.RetentionChart), {
+  ssr: false,
+  loading: () => <div className="h-full w-full" />,
+});
 
 const nf = new Intl.NumberFormat('fr-FR');
 const pct = (x: number) => `${Math.round(x * 100)} %`;
@@ -602,15 +609,7 @@ function VideoSection({ v }: { v: NonNullable<PreflightResult['video']> }) {
         <div className="flex flex-col gap-1.5">
           <span className="text-[13px] text-muted-foreground">Part des spectateurs encore là, d’après l’IA (estimation avant publication)</span>
           <div className="h-44 w-full" role="img" aria-label="Rétention prévue au fil de la vidéo">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                <CartesianGrid vertical={false} stroke="var(--border)" strokeOpacity={0.6} />
-                <XAxis dataKey="at_pct" tickFormatter={(x: number) => (v.durationS ? clock((x / 100) * v.durationS) : `${x} %`)} tick={{ fontSize: 12, fill: 'var(--muted-foreground)' }} tickLine={false} axisLine={false} />
-                <YAxis domain={[0, 1]} tickFormatter={(x: number) => `${Math.round(x * 100)} %`} tick={{ fontSize: 12, fill: 'var(--muted-foreground)' }} tickLine={false} axisLine={false} width={44} />
-                <Tooltip formatter={(x) => [`${Math.round(Number(x) * 100)} %`, 'Encore là']} labelFormatter={(x) => (v.durationS ? `À ${clock((Number(x) / 100) * v.durationS)}` : `À ${x} %`)} />
-                <Line type="monotone" dataKey="watch" stroke="var(--chart-1)" strokeWidth={2} dot={false} activeDot={{ r: 4, strokeWidth: 2, stroke: 'var(--card)' }} />
-              </LineChart>
-            </ResponsiveContainer>
+            <RetentionChart data={data} durationS={v.durationS} />
           </div>
         </div>
       )}
