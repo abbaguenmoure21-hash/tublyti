@@ -52,8 +52,8 @@ interface SearchResult {
   extra?: string;
 }
 
-export function CommandPalette({ isAdmin = false }: { isAdmin?: boolean }) {
-  const [open, setOpen] = useState(false);
+export function CommandPalette({ isAdmin = false, defaultOpen = false }: { isAdmin?: boolean; defaultOpen?: boolean }) {
+  const [open, setOpen] = useState(defaultOpen);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
   const [isPending, startTransition] = useTransition();
