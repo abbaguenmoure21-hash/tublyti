@@ -26,7 +26,7 @@ interface TopicQuery {
 const allowFake = () => process.env.NODE_ENV === 'test' || process.env.DEMO === 'true';
 
 /** Null when no real provider is configured: the trends sub-step is then skipped (and logged). */
-function createTrendProvider(): TrendProvider | null {
+export function createTrendProvider(): TrendProvider | null {
   const provider = process.env.TREND_PROVIDER ?? 'serpapi';
   if (provider === 'fake') return allowFake() ? new FakeTrendProvider() : null;
   if (provider === 'searchapi') return new SearchApiTrendProvider();
