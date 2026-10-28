@@ -59,6 +59,8 @@ jobs:
       - name: Alert on failure
         if: failure() || cancelled()
         run: |
+          # The script already sent its detailed summary: one e-mail per night (a cancellation always alerts).
+          if [ "${{ job.status }}" != "cancelled" ] && [ -f .nightly-summary-sent ]; then echo "Summary already sent"; exit 0; fi
           curl -s -X POST https://api.resend.com/emails \
             -H "Authorization: Bearer $RESEND_API_KEY" \
             -H "Content-Type: application/json" \

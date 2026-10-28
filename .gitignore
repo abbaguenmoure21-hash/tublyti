@@ -18,3 +18,4 @@ supabase/.temp/
 # Scripts de test locaux
 _brouillons/
 /node_modules
+.nightly-summary-sent

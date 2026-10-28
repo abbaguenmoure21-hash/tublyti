@@ -10,7 +10,7 @@
  * Each step writes a job record (start/finish) for traceability.
  */
 import { createClient } from '@supabase/supabase-js';
-import { readFileSync, existsSync } from 'fs';
+import { readFileSync, existsSync, writeFileSync, unlinkSync } from 'fs';
 import { resolve } from 'path';
 
 // Load .env.local
@@ -78,6 +78,8 @@ const STEP_OVERRIDES: Record<string, number | null> = {
 const GRACE_MS = 5 * 60_000;
 // Steps whose failure makes the GitHub run fail (red) — the workflow alert then fires too.
 const CRITICAL_STEPS = new Set(['collect', 'comments', 'score']);
+// Written when the summary e-mail was delivered; checked by .github/workflows/nightly.yml.
+const SUMMARY_MARKER = '.nightly-summary-sent';
 
 type StepStatus = 'ok' | 'error' | 'skipped';
 interface StepOutcome {
@@ -136,6 +138,7 @@ async function runStep(
     if (err instanceof QuotaSoftLimitReached && !ledger.exhausted) {
       status = 'skipped';
       reason = `quota soft limit reached (partial): ${msg}`;
+      skippedSteps.push(`${kind} (quota)`);
       console.log(`  [${kind}] stopped — ${msg}`);
     } else {
       status = 'error';
@@ -171,6 +174,7 @@ async function main() {
 
   const db = createClient(supabaseUrl, serviceKey);
   nightDb = db;
+  try { unlinkSync(SUMMARY_MARKER); } catch { /* no marker from a previous run */ }
   const start = Date.now();
   const nightStartIso = new Date(start).toISOString();
   const deadline = start + DEADLINE_MS;
@@ -487,6 +491,10 @@ async function main() {
         actionUrl: `${baseUrl}/admin/jobs`,
         actionLabel: 'Voir les jobs',
       });
+      // Tell the workflow's generic failure e-mail that the detailed summary already went out (one e-mail per night).
+      if (alertSender instanceof ResendAlertSender && alertSender.lastDelivered) {
+        writeFileSync(SUMMARY_MARKER, new Date().toISOString());
+      }
     } catch (err) {
       console.error(`  Summary alert failed: ${err instanceof Error ? err.message : err}`);
     }

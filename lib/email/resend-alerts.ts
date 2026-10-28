@@ -23,6 +23,8 @@ function buildHtml(payload: AlertPayload): string {
 }
 
 export class ResendAlertSender implements AlertSender {
+  /** True when the last send() was accepted by Resend. */
+  lastDelivered = false;
   private apiKey: string;
   private to: string;
   private from: string;
@@ -55,6 +57,7 @@ export class ResendAlertSender implements AlertSender {
       signal: AbortSignal.timeout(10_000),
     });
 
+    this.lastDelivered = res.ok;
     if (!res.ok) {
       console.error(`Resend error ${res.status}: ${await res.text()}`);
     }
