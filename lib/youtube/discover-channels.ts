@@ -9,8 +9,8 @@ const WEEKLY_DISCOVERY_LIMIT = 30;
 const HAIKU_MODEL = 'claude-haiku-4-5-20251001';
 
 // Batch API pricing (50% off standard Haiku 4.5)
-const INPUT_COST_PER_MTOK = 0.40;
-const OUTPUT_COST_PER_MTOK = 2.0;
+const INPUT_COST_PER_MTOK = 0.5; // Haiku 4.5 Batch ($1 / $5 standard, -50 %)
+const OUTPUT_COST_PER_MTOK = 2.5;
 const EST_INPUT_TOKENS = 400;
 const EST_OUTPUT_TOKENS = 80;
 
