@@ -285,7 +285,7 @@ export async function runScore(
 
     // Fetch labels — also paginate within each batch
     const commentIds = comments.map((c) => c.id);
-    interface LabelRow { comment_id: string; label: string; confidence: number }
+    interface LabelRow { comment_id: string; label: string; confidence: number; model: string | null }
     const labels: LabelRow[] = [];
     for (let i = 0; i < commentIds.length; i += IN_BATCH) {
       const batch = commentIds.slice(i, i + IN_BATCH);
@@ -294,7 +294,7 @@ export async function runScore(
         const data = must(
           await db
             .from('comment_labels')
-            .select('comment_id, label, confidence')
+            .select('comment_id, label, confidence, model')
             .in('comment_id', batch)
             .order('comment_id')
             .range(offset, offset + PAGE_SIZE - 1),
@@ -308,6 +308,9 @@ export async function runScore(
     }
 
     for (const label of labels) {
+      // Unreadable answers (stored only so they are not re-billed) and zero-confidence labels
+      // say nothing about frustration: they must not dilute the denominator.
+      if ((label.model ?? '').endsWith('-unparsable') || !(Number(label.confidence) > 0)) continue;
       const videoId = commentVideoMap.get(label.comment_id);
       if (!videoId) continue;
       const topicId = videoToTopic.get(videoId);
