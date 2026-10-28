@@ -17,20 +17,26 @@ import {
  * puis renvoie le client sur Réglages pour choisir la thématique de chaque chaîne.
  */
 export async function GET(request: NextRequest) {
-  const fail = (reason: string, back = '/settings') =>
-    NextResponse.redirect(new URL(`${back}?google=${reason}#chaines`, request.url));
+  const fail = (reason: string, back = '/settings') => {
+    const res = NextResponse.redirect(new URL(`${back}?google=${reason}#chaines`, request.url));
+    // One-shot state: never leave it usable after a failed attempt.
+    res.cookies.delete(GOOGLE_STATE_COOKIE);
+    return res;
+  };
 
   const user = await getSessionUser();
   if (!user) return NextResponse.redirect(new URL('/login', request.url));
 
-  const saved = verify<{ state: string; userId: string; back: string; mode?: 'verify' | 'analytics'; channelRowId?: string | null }>(
+  const saved = verify<{ state: string; userId: string; back: string; mode?: 'verify' | 'analytics'; channelRowId?: string | null; exp?: number }>(
     request.cookies.get(GOOGLE_STATE_COOKIE)?.value,
   );
   const back = saved?.back === '/bienvenue' ? '/bienvenue' : saved?.back === '/my-channel' ? '/my-channel' : '/settings';
   const code = request.nextUrl.searchParams.get('code');
   const state = request.nextUrl.searchParams.get('state');
   if (request.nextUrl.searchParams.get('error')) return fail('annule', back);
-  if (!saved || !code || !state || saved.state !== state || saved.userId !== user.id) return fail('expire', back);
+  // The signed state carries its own expiry (10 min), independent of the browser's maxAge.
+  const expired = typeof saved?.exp !== 'number' || saved.exp < Date.now();
+  if (!saved || expired || !code || !state || saved.state !== state || saved.userId !== user.id) return fail('expire', back);
 
   // Échange du code contre un jeton d'accès temporaire
   const tokenRes = await fetch('https://oauth2.googleapis.com/token', {

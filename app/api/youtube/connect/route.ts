@@ -38,7 +38,7 @@ export async function GET(request: NextRequest) {
   const back = analytics ? '/my-channel' : request.nextUrl.searchParams.get('retour') === 'bienvenue' ? '/bienvenue' : '/settings';
 
   const res = NextResponse.redirect(url.toString());
-  res.cookies.set(GOOGLE_STATE_COOKIE, sign({ state, userId: user.id, back, mode: analytics ? 'analytics' : 'verify', channelRowId }), {
+  res.cookies.set(GOOGLE_STATE_COOKIE, sign({ state, userId: user.id, back, mode: analytics ? 'analytics' : 'verify', channelRowId, exp: Date.now() + 600_000 }), {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
