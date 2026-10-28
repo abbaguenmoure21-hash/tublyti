@@ -1,6 +1,6 @@
 'use server';
 
-import { assertAdmin } from '@/lib/auth/session';
+import { assertAdmin, getSessionUser } from '@/lib/auth/session';
 
 import { createServiceClient } from '@/lib/supabase/server';
 
@@ -16,6 +16,8 @@ export interface AiBudgetStatus {
 }
 
 export async function getAiBudgetStatus(): Promise<AiBudgetStatus> {
+  // Server actions are public HTTP endpoints: require a signed-in account.
+  if (!(await getSessionUser())) throw new Error('Connecte-toi pour continuer.');
   const db = createServiceClient();
   const mk = monthKey();
 
