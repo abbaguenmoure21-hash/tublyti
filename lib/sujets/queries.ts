@@ -66,7 +66,7 @@ export async function getLatestScoreDateOrNull(db: SupabaseClient): Promise<stri
 export async function listTopics(db: SupabaseClient, f: TopicFilters): Promise<{ rows: TopicRow[]; scoredAt: string | null }> {
   const scoredAt = await getLatestScoreDateOrNull(db);
   if (!f.nicheIds.length || !scoredAt) return { rows: [], scoredAt };
-  const { ignored, mine } = await getUserTopicSets(db, f.userId);
+  const [{ ignored, mine }, ready] = await Promise.all([getUserTopicSets(db, f.userId), isDbReady()]);
   let q = db
     .from('topic_scores')
     .select('mgi, phase, confidence, competitor_subs, topics!inner(id, label, status, niche_id)')
@@ -96,7 +96,8 @@ export async function listTopics(db: SupabaseClient, f: TopicFilters): Promise<{
       potential: Math.round(Number(s.mgi)),
       reliability: (['high', 'medium', 'low'].includes(conf) ? conf : 'low') as Reliability,
       status: t.status,
-      inMyVideos: mine.has(t.id) || t.status === 'in_production',
+      // Per account once multi-account is on; the shared topics.status only before migration 00018.
+      inMyVideos: ready ? mine.has(t.id) : t.status === 'in_production',
       sensitive: isSensitiveTopic(t.label),
       competitorSubs: (s.competitor_subs as number[] | null) ?? null,
     };
@@ -182,7 +183,7 @@ export async function getTopicDetail(db: SupabaseClient, topicId: string, userId
     nicheId: topic.niche_id,
     nicheName: topic.niches?.name ?? '',
     status: topic.status,
-    inMyVideos: (mineRes.count ?? 0) > 0 || topic.status === 'in_production',
+    inMyVideos: ready ? (mineRes.count ?? 0) > 0 : topic.status === 'in_production',
     ignored: stateRes.data?.state === 'ignored',
     phase: s?.phase ?? null,
     potential: s?.mgi != null ? Math.round(Number(s.mgi)) : null,
