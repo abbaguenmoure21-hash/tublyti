@@ -1,6 +1,10 @@
 import { createServiceClient } from '@/lib/supabase/server';
 import { getMgiBand } from '@/lib/scoring/mgi';
-import { COMMENT_LABELS, FRUSTRATION_LABEL, RELIABILITY_SHORT, formatLongDate, formatSupply } from '@/lib/lexique';
+import { COMMENT_LABELS, FEASIBILITY_MEANING, FRUSTRATION_LABEL, RELIABILITY_SHORT, formatLongDate, formatSupply } from '@/lib/lexique';
+import { isDbReady } from '@/lib/auth/session';
+import { getUserSubsByNiche } from '@/lib/scoring/user-subs';
+import { computeFeasibilityForUser, isNoChannelResult } from '@/lib/scoring/feasibility-for-user';
+import type { FeasibilityGrade } from '@/lib/scoring/feasibility';
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -30,9 +34,12 @@ export interface DossierData {
     scoredAt: string;
     confidence: string | null;
     confidenceReason: string | null;
-    feasibilityGrade: string | null;
-    feasibilityReason: string | null;
   } | null;
+  /**
+   * « Tes chances » computed for the requesting account only (never the nightly per-owner grade,
+   * whose reason quotes another account's subscriber count). null = no requesting user (cron).
+   */
+  feasibility: { kind: 'grade'; grade: FeasibilityGrade; meaning: string; reason: string } | { kind: 'no_channel' } | null;
   frustrations: {
     text: string;
     likeCount: number;
@@ -69,7 +76,8 @@ export interface DossierData {
 
 // ── Fetch ────────────────────────────────────────────────────────────
 
-export async function fetchDossierData(topicId: string): Promise<DossierData | null> {
+export async function fetchDossierData(topicId: string, opts: { userId?: string | null } = {}): Promise<DossierData | null> {
+  const userId = opts.userId ?? null;
   const db = createServiceClient();
 
   const { data: topic } = await db
@@ -97,7 +105,7 @@ export async function fetchDossierData(topicId: string): Promise<DossierData | n
   // Latest score
   const { data: scoreRow } = await db
     .from('topic_scores')
-    .select('mgi, demand, frustration, supply_q, monetization, phase, scored_at, confidence, confidence_reason, feasibility_grade, feasibility_reason')
+    .select('mgi, demand, frustration, supply_q, monetization, phase, scored_at, confidence, confidence_reason, competitor_subs')
     .eq('topic_id', topicId)
     .order('scored_at', { ascending: false })
     .limit(1)
@@ -113,9 +121,18 @@ export async function fetchDossierData(topicId: string): Promise<DossierData | n
     scoredAt: scoreRow.scored_at as string,
     confidence: (scoreRow.confidence as string) ?? null,
     confidenceReason: (scoreRow.confidence_reason as string) ?? null,
-    feasibilityGrade: (scoreRow.feasibility_grade as string) ?? null,
-    feasibilityReason: (scoreRow.feasibility_reason as string) ?? null,
   } : null;
+
+  // Per-account feasibility (same computation as the topic page).
+  let feasibility: DossierData['feasibility'] = null;
+  if (userId) {
+    const subs = niche ? ((await getUserSubsByNiche(db, userId)).get(niche.id) ?? null) : null;
+    const competitorSubs = (scoreRow?.competitor_subs as number[] | null) ?? null;
+    const f = subs != null ? computeFeasibilityForUser(subs, competitorSubs) : null;
+    feasibility = f && !isNoChannelResult(f)
+      ? { kind: 'grade', grade: f.grade as FeasibilityGrade, meaning: FEASIBILITY_MEANING[f.grade as FeasibilityGrade], reason: f.reason }
+      : { kind: 'no_channel' };
+  }
 
   // Frustrations (top 10)
   const { data: frustRows } = await db
@@ -206,12 +223,15 @@ export async function fetchDossierData(topicId: string): Promise<DossierData | n
   }
 
   // Angles (latest 5)
-  const { data: angleRows } = await db
+  let anglesQ = db
     .from('angles')
     .select('title, hook, rationale, formula, frustration_resolved')
     .eq('topic_id', topicId)
     .order('created_at', { ascending: false })
     .limit(5);
+  // Shared angles + the requesting account's own; never another account's videos.
+  if (await isDbReady()) anglesQ = userId ? anglesQ.or(`user_id.is.null,user_id.eq.${userId}`) : anglesQ.is('user_id', null);
+  const { data: angleRows } = await anglesQ;
 
   const angles = (angleRows ?? []).map((a: Record<string, unknown>) => ({
     title: a.title as string,
@@ -243,6 +263,7 @@ export async function fetchDossierData(topicId: string): Promise<DossierData | n
     },
     niche,
     score,
+    feasibility,
     frustrations,
     competitors,
     titlePatterns,
@@ -299,11 +320,15 @@ export function renderDossierMarkdown(data: DossierData): string {
   }
 
   // ── Feasibility
-  if (score?.feasibilityGrade) {
+  if (data.feasibility) {
     lines.push('');
-    lines.push('## Faisabilité');
+    lines.push('## Tes chances');
     lines.push('');
-    lines.push(`**Note : ${score.feasibilityGrade}** — ${score.feasibilityReason ?? 'Aucune explication.'}`);
+    lines.push(
+      data.feasibility.kind === 'grade'
+        ? `**${data.feasibility.grade} · ${data.feasibility.meaning}** — ${data.feasibility.reason}`
+        : 'Ajoute ta chaîne dans Réglages pour voir tes chances.',
+    );
   }
 
   // ── Phase + trend

@@ -40,3 +40,13 @@ export function formatLongDate(iso: string): string {
   if (Number.isNaN(d.getTime())) return iso;
   return d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
 }
+
+/** Feasibility grade → short meaning shown next to the letter (« B · Très jouable »). */
+export const FEASIBILITY_MEANING: Record<'A' | 'B' | 'C' | 'D' | 'E' | 'F', string> = {
+  A: 'Terrain libre',
+  B: 'Très jouable',
+  C: 'Compétition mixte',
+  D: 'Difficile',
+  E: 'Très difficile',
+  F: 'Hors de portée pour l’instant',
+};

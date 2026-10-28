@@ -44,7 +44,7 @@ export default async function PrintDossierPage({
     ]);
     if (!t || !mine.some((n) => n.id === (t.niche_id as string))) notFound();
   }
-  const data = await fetchDossierData(id);
+  const data = await fetchDossierData(id, { userId: user.id });
   if (!data) notFound();
 
   const { topic, niche, score, frustrations, competitors, titlePatterns, angles, sparkline } = data;
@@ -115,10 +115,14 @@ export default async function PrintDossierPage({
           </>
         )}
 
-        {score?.feasibilityGrade && (
+        {data.feasibility && (
           <>
-            <h2>Faisabilité</h2>
-            <p><strong>Note : {score.feasibilityGrade}</strong> — {score.feasibilityReason ?? 'Aucune explication.'}</p>
+            <h2>Tes chances</h2>
+            {data.feasibility.kind === 'grade' ? (
+              <p><strong>{data.feasibility.grade} · {data.feasibility.meaning}</strong> — {data.feasibility.reason}</p>
+            ) : (
+              <p>Ajoute ta chaîne dans Réglages pour voir tes chances.</p>
+            )}
           </>
         )}
 

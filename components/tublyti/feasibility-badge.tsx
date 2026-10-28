@@ -1,4 +1,5 @@
 import type { FeasibilityGrade } from '@/lib/scoring/feasibility';
+import { FEASIBILITY_MEANING } from '@/lib/lexique';
 
 // Neutral / primary scale only: phase colors are reserved for phases, warning is never text,
 // red is reserved for errors (DESIGN.md).
@@ -11,14 +12,7 @@ const GRADE_COLORS: Record<FeasibilityGrade, string> = {
   F: 'bg-muted text-muted-foreground',
 };
 
-export const FEASIBILITY_MEANING: Record<FeasibilityGrade, string> = {
-  A: 'Terrain libre',
-  B: 'Très jouable',
-  C: 'Compétition mixte',
-  D: 'Difficile',
-  E: 'Très difficile',
-  F: 'Hors de portée pour l’instant',
-};
+export { FEASIBILITY_MEANING };
 
 /**
  * « Tes chances » on a topic: letter + visible short meaning (showLabel), never the letter alone
