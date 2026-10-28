@@ -1,6 +1,6 @@
 import { SupabaseClient } from '@supabase/supabase-js';
 import type { YouTubeClient } from './client';
-import { QuotaSoftLimitReached } from './quota';
+import { QuotaSoftLimitReached, getQuotaSoftLimit } from './quota';
 import { fetchRSSVideos } from './rss';
 import { detectChanges, detectSpikes, recordEvents, recordNewUploads } from './detect-events';
 
@@ -79,7 +79,7 @@ export async function runCollect(
     return Date.now() >= deadlineMs;
   }
 
-  const budget = await loadQuotaBudget(db, 8000);
+  const budget = await loadQuotaBudget(db, getQuotaSoftLimit());
   let trackingQuota = 0;
   let commentQuota = 0;
 
@@ -417,7 +417,7 @@ export async function runCommentIngestion(
   deadlineMs: number,
 ): Promise<CommentIngestionResult> {
   const res: CommentIngestionResult = { videosChecked: 0, commentsImported: 0, commentsPurged: 0, quotaUsed: 0, stoppedByQuota: false, stoppedByTimeout: false };
-  const budget = await loadQuotaBudget(db, 8000);
+  const budget = await loadQuotaBudget(db, getQuotaSoftLimit());
   const now = new Date();
   const sevenDaysAgo = new Date(now.getTime() - 7 * 86_400_000).toISOString();
   const ninetyDaysAgo = new Date(now.getTime() - 90 * 86_400_000).toISOString();

@@ -1,4 +1,4 @@
-import { QuotaSoftLimitReached, getQuotaSoftLimit } from './quota';
+import { METERED_HEADER, QuotaSoftLimitReached, getActiveLedger, getQuotaSoftLimit } from './quota';
 
 // ── Types ───────────────────────────────────────────────────────────
 export interface ChannelInfo {
@@ -69,6 +69,13 @@ export class RealYouTubeClient implements YouTubeClient {
   }
 
   private checkQuota(cost: number) {
+    // Process-wide ledger (nightly): single counter shared with every other YouTube caller.
+    const ledger = getActiveLedger();
+    if (ledger) {
+      ledger.spend(cost);
+      this.quotaUsed += cost;
+      return;
+    }
     this.quotaUsed += cost;
     if (this.quotaUsed >= this.softLimit) {
       throw new QuotaSoftLimitReached(this.quotaUsed, this.softLimit);
@@ -81,7 +88,8 @@ export class RealYouTubeClient implements YouTubeClient {
     for (const [k, v] of Object.entries(params)) {
       url.searchParams.set(k, v);
     }
-    const res = await fetch(url.toString());
+    // Already charged by checkQuota(): tell the metered fetch not to charge it twice.
+    const res = await fetch(url.toString(), getActiveLedger() ? { headers: { [METERED_HEADER]: '1' } } : undefined);
     if (!res.ok) {
       const body = await res.text();
       throw new Error(`YouTube API ${endpoint} ${res.status}: ${body}`);
@@ -249,7 +257,8 @@ export class RealYouTubeClient implements YouTubeClient {
     return allComments;
   }
 
+  /** Units spent so far: today's process-wide total when the ledger is active, else this client's own count. */
   getQuotaUsed(): number {
-    return this.quotaUsed;
+    return getActiveLedger()?.total() ?? this.quotaUsed;
   }
 }
