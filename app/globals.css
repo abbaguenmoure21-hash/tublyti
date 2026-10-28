@@ -36,7 +36,18 @@
   --color-border: var(--border);
   --color-destructive: var(--destructive);
   --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-success-ink: var(--success-ink);
   --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-warning-ink: var(--warning-ink);
+
+  /* MGI sequential scale (1 = weakest, 5 = strongest) */
+  --color-mgi-1: var(--mgi-1);
+  --color-mgi-2: var(--mgi-2);
+  --color-mgi-3: var(--mgi-3);
+  --color-mgi-4: var(--mgi-4);
+  --color-mgi-5: var(--mgi-5);
   --color-accent-foreground: var(--accent-foreground);
   --color-accent: var(--accent);
   --color-muted-foreground: var(--muted-foreground);
@@ -95,8 +106,14 @@
   --accent: oklch(0.95 0.035 277);
   --accent-foreground: oklch(0.45 0.19 277);
   --destructive: oklch(0.55 0.21 25);
-  --success: oklch(0.56 0.13 155);
-  --warning: oklch(0.68 0.15 65);
+  /* success / warning assombris pour rester lisibles en texte :
+     ≥ 4,5:1 sur blanc et sur leur propre fond à 10 % (avant : 4,37 et 2,99). */
+  --success: oklch(0.51 0.13 155);
+  --warning: oklch(0.54 0.14 58);
+  --success-soft: oklch(0.95 0.045 155);
+  --success-ink: oklch(0.44 0.11 155);
+  --warning-soft: oklch(0.96 0.05 80);
+  --warning-ink: oklch(0.48 0.12 60);
   --border: oklch(0.915 0.006 265);
   --input: oklch(0.915 0.006 265);
   --ring: oklch(0.52 0.21 277);
@@ -119,6 +136,13 @@
   --chart-3: #ea580c;
   --chart-4: #64748b;
   --chart-5: #8459c3;
+
+  /* Échelle MGI séquentielle (DESIGN.md) : jauges et barres uniquement, jamais en texte. */
+  --mgi-1: #e2e6ff;
+  --mgi-2: #b7c0f8;
+  --mgi-3: #8c97e9;
+  --mgi-4: #646cd8;
+  --mgi-5: #443cc6;
   --radius: 0.75rem; /* 12 px : coins continus façon Apple (cartes 17 px, panneaux 22 px) */
 
   --sidebar: oklch(1 0 0);
@@ -144,62 +168,77 @@
   /* Text hierarchy (Light) */
   --text-primary: oklch(0.21 0.02 265);
   --text-secondary: oklch(0.50 0.018 265);
-  --text-muted: oklch(0.70 0.01 265);
+  --text-muted: oklch(0.50 0.018 265); /* aligné sur --muted-foreground (avant 2,7:1) */
 }
 
-/* ─── Dark theme — Deep TubLyTI Dark (spec: #08090C canvas) ─── */
+/* ─── Dark theme — DESIGN.md : mêmes rôles, luminosités inversées ───
+   Surfaces opaques (une carte ne laisse jamais voir ce qui est dessous).
+   Contrastes vérifiés sur --card : texte ≥ 4,5:1, graphiques ≥ 3:1.
+   La marque reste violette (277). Les phases sont à +0,08 de luminosité
+   et restent distinctes de success / warning / destructive et des --chart-*. */
 .dark {
-  --background: #08090C;
-  --foreground: #F5F5F7;
-  --card: rgba(255, 255, 255, 0.04);
-  --card-foreground: #F5F5F7;
-  --popover: #12131A;
-  --popover-foreground: #F5F5F7;
-  --primary: #0A84FF;
-  --primary-foreground: #FFFFFF;
-  --primary-soft: rgba(10, 132, 255, 0.15);
-  --primary-ink: #4DA8FF;
-  --secondary: rgba(255, 255, 255, 0.06);
-  --secondary-foreground: #F5F5F7;
-  --muted: rgba(255, 255, 255, 0.06);
-  --muted-foreground: #86868B;
-  --accent: rgba(10, 132, 255, 0.12);
-  --accent-foreground: #4DA8FF;
-  --destructive: #FF453A;
-  --success: #30D158;
-  --warning: #FF9F0A;
-  --border: rgba(255, 255, 255, 0.08);
-  --input: rgba(255, 255, 255, 0.08);
-  --ring: #0A84FF;
+  --background: oklch(0.16 0.012 265);
+  --foreground: oklch(0.96 0.005 265);
+  --card: oklch(0.20 0.014 265);
+  --card-foreground: oklch(0.96 0.005 265);
+  --popover: oklch(0.22 0.014 265);
+  --popover-foreground: oklch(0.96 0.005 265);
+  --primary: oklch(0.68 0.17 277); /* 6,0:1 sur --card en texte */
+  --primary-foreground: oklch(0.16 0.012 265); /* texte foncé sur bouton plein : 6,5:1 (le blanc ne fait que 3:1) */
+  --primary-soft: oklch(0.68 0.17 277 / 0.18);
+  --primary-ink: oklch(0.82 0.10 277); /* 7,8:1 sur --primary-soft */
+  --secondary: oklch(0.25 0.014 265);
+  --secondary-foreground: oklch(0.96 0.005 265);
+  --muted: oklch(0.25 0.014 265);
+  --muted-foreground: oklch(0.72 0.015 265); /* 7,3:1 sur --card */
+  --accent: oklch(0.68 0.17 277 / 0.18);
+  --accent-foreground: oklch(0.82 0.10 277);
+  --destructive: oklch(0.62 0.20 25); /* 4,5:1 sur --card */
+  --success: oklch(0.70 0.13 155);
+  --warning: oklch(0.76 0.15 65);
+  --success-soft: oklch(0.70 0.13 155 / 0.18);
+  --success-ink: oklch(0.84 0.12 155);
+  --warning-soft: oklch(0.76 0.15 65 / 0.18);
+  --warning-ink: oklch(0.86 0.12 70);
+  --border: oklch(0.30 0.015 265);
+  --input: oklch(0.30 0.015 265);
+  --ring: oklch(0.68 0.17 277);
 
-  /* Phase colors — NexLev spectrum */
-  --phase-0: #5E5CE6;
-  --phase-0-soft: rgba(94, 92, 230, 0.15);
-  --phase-0-ink: #8886F0;
-  --phase-1: #FF9F0A;
-  --phase-1-soft: rgba(255, 159, 10, 0.15);
-  --phase-1-ink: #FFB940;
-  --phase-2: #30D158;
-  --phase-2-soft: rgba(48, 209, 88, 0.15);
-  --phase-2-ink: #5EE07E;
-  --phase-3: #FF453A;
-  --phase-3-soft: rgba(255, 69, 58, 0.15);
-  --phase-3-ink: #FF7B73;
+  --phase-0: oklch(0.64 0.16 300);
+  --phase-0-soft: oklch(0.64 0.16 300 / 0.18);
+  --phase-0-ink: oklch(0.83 0.10 300);
+  --phase-1: oklch(0.74 0.15 65);
+  --phase-1-soft: oklch(0.74 0.15 65 / 0.18);
+  --phase-1-ink: oklch(0.86 0.12 70);
+  --phase-2: oklch(0.66 0.14 155);
+  --phase-2-soft: oklch(0.66 0.14 155 / 0.18);
+  --phase-2-ink: oklch(0.84 0.12 155);
+  --phase-3: oklch(0.66 0.19 20);
+  --phase-3-soft: oklch(0.66 0.19 20 / 0.18);
+  --phase-3-ink: oklch(0.82 0.10 20);
 
-  --chart-1: #5E5CE6;
-  --chart-2: #0A84FF;
-  --chart-3: #FF9F0A;
-  --chart-4: #86868B;
-  --chart-5: #BF5AF2;
+  /* Palette catégorielle des sources (Trends, YouTube, HN, SE) éclaircie. */
+  --chart-1: oklch(0.68 0.17 277);
+  --chart-2: oklch(0.70 0.13 225);
+  --chart-3: oklch(0.72 0.16 50);
+  --chart-4: oklch(0.72 0.03 255);
+  --chart-5: oklch(0.70 0.15 300);
 
-  --sidebar: rgba(255, 255, 255, 0.02);
-  --sidebar-foreground: #F5F5F7;
-  --sidebar-primary: #0A84FF;
-  --sidebar-primary-foreground: #FFFFFF;
-  --sidebar-accent: rgba(10, 132, 255, 0.12);
-  --sidebar-accent-foreground: #4DA8FF;
-  --sidebar-border: rgba(255, 255, 255, 0.08);
-  --sidebar-ring: #0A84FF;
+  /* Échelle MGI inversée : le plus fort est le plus lumineux sur fond sombre. */
+  --mgi-1: oklch(0.36 0.06 277);
+  --mgi-2: oklch(0.46 0.10 277);
+  --mgi-3: oklch(0.56 0.14 277);
+  --mgi-4: oklch(0.67 0.15 277);
+  --mgi-5: oklch(0.78 0.12 277);
+
+  --sidebar: oklch(0.20 0.014 265);
+  --sidebar-foreground: oklch(0.96 0.005 265);
+  --sidebar-primary: oklch(0.68 0.17 277);
+  --sidebar-primary-foreground: oklch(0.16 0.012 265);
+  --sidebar-accent: oklch(0.68 0.17 277 / 0.18);
+  --sidebar-accent-foreground: oklch(0.82 0.10 277);
+  --sidebar-border: oklch(0.30 0.015 265);
+  --sidebar-ring: oklch(0.68 0.17 277);
 
   /* Glass (Dark — Apple Ultra-Thin Material) */
   --glass-bg: rgba(18, 19, 24, 0.65);
@@ -213,9 +252,9 @@
   --bg-surface-3: rgba(255, 255, 255, 0.14);
 
   /* Text hierarchy */
-  --text-primary: #F5F5F7;
-  --text-secondary: #86868B;
-  --text-muted: #48484A;
+  --text-primary: oklch(0.96 0.005 265);
+  --text-secondary: oklch(0.72 0.015 265);
+  --text-muted: oklch(0.72 0.015 265);
 }
 
 /* ─── Base Layer ─── */
