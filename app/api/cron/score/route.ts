@@ -3,11 +3,11 @@ import { createServiceClient } from '@/lib/supabase/server';
 import { SupabaseJobRunner } from '@/lib/jobs/supabase-runner';
 import { runScore } from '@/lib/scoring/score-service';
 import { ResendAlertSender, ConsoleAlertSender } from '@/lib/email/resend-alerts';
-import { timingSafeCompare } from '@/lib/auth/timing-safe';
+import { isCronAuthorized } from '@/lib/auth/cron';
 
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
-  if (!timingSafeCompare(authHeader ?? '', `Bearer ${process.env.CRON_SECRET}`)) {
+  if (!isCronAuthorized(authHeader)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 

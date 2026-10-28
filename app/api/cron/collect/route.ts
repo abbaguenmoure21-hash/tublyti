@@ -11,13 +11,13 @@ import { computeChannelEmbeddings } from '@/lib/youtube/channel-embeddings';
 import { VoyageEmbeddingProvider } from '@/lib/providers/voyage-embeddings';
 import { FakeEmbeddingProvider } from '@/lib/providers/embeddings';
 import { ResendAlertSender, ConsoleAlertSender } from '@/lib/email/resend-alerts';
-import { timingSafeCompare } from '@/lib/auth/timing-safe';
+import { isCronAuthorized } from '@/lib/auth/cron';
 
 const MAX_DURATION_MS = 4 * 60 * 1000; // 4 minutes
 
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
-  if (!timingSafeCompare(authHeader ?? '', `Bearer ${process.env.CRON_SECRET}`)) {
+  if (!isCronAuthorized(authHeader)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 

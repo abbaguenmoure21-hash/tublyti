@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
 import { sendAllDigests } from '@/lib/services/digest-send';
-import { timingSafeCompare } from '@/lib/auth/timing-safe';
+import { isCronAuthorized } from '@/lib/auth/cron';
 
 /** Envoi hebdomadaire du résumé : un e-mail par compte (ses chaînes, ses vidéos, ses alertes). */
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
-  if (!timingSafeCompare(authHeader ?? '', `Bearer ${process.env.CRON_SECRET}`)) {
+  if (!isCronAuthorized(authHeader)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
