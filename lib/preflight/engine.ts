@@ -2,7 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { scoreTitles, topNicheOutliers, type TitleScore } from './titles';
 import { scoreScript, scoreThumbnail, type ScriptScore, type ThumbnailScore } from './creative';
 import { geminiEnabled } from '../ai/gemini';
-import { deleteFile, scoreVideoFile, type VideoFileScore } from './video-file';
+import { deleteFile, fileState, scoreVideoFile, type VideoFileScore } from './video-file';
 import { loadModel, plannedContext, predictWithModel, probAbove, type ModelPrediction } from '../predictor/predict';
 
 const nf = (n: number) => new Intl.NumberFormat('fr-FR').format(n);
@@ -172,7 +172,9 @@ export async function runPreflight(db: SupabaseClient, input: PreflightInput): P
     if (input.video) {
       const vf = input.video;
       tasks.push(
-        scoreVideoFile(db, { uri: vf.uri, mimeType: vf.mimeType }, best.title, vf.durationS ?? null)
+        // Duration read server-side from Google (the browser value is only a fallback).
+        fileState(vf.name)
+          .then((st) => scoreVideoFile(db, { uri: vf.uri, mimeType: vf.mimeType }, best.title, st.durationS ?? vf.durationS ?? null))
           .then((r) => void (video = r))
           .catch((e) => void errors.push(`Vidéo : ${(e as Error).message.slice(0, 160)}`))
           .finally(() => deleteFile(vf.name)),
