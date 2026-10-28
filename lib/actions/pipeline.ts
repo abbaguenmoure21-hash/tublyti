@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { createServiceClient } from '@/lib/supabase/server';
+import { consumeUserQuota, QUOTA_MESSAGE } from '@/lib/auth/user-quota';
 import { getSessionUser, isDbReady } from '@/lib/auth/session';
 
 const NOT_SIGNED = { error: 'Connecte-toi pour continuer.' } as const;
@@ -71,6 +72,7 @@ export async function publishAngle(angleId: string, videoId: string) {
   // Validate the video ID via YouTube API (1 quota unit)
   const ytKey = process.env.YOUTUBE_API_KEY;
   if (ytKey) {
+    if (!(await consumeUserQuota(db, user, 'publish_check'))) return { error: QUOTA_MESSAGE };
     const res = await fetch(
       `https://www.googleapis.com/youtube/v3/videos?part=id&id=${encodeURIComponent(videoId.trim())}&key=${ytKey}`,
     );

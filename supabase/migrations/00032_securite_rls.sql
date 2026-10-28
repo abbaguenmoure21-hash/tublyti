@@ -29,3 +29,34 @@ create policy "état personnel (lecture)" on public.user_topic_state
 -- Job lock RPC: server only (nightly job / cron routes use the service role).
 revoke execute on function public.acquire_job_lock(text, text, text) from public, anon, authenticated;
 grant execute on function public.acquire_job_lock(text, text, text) to service_role;
+
+-- Per-account usage caps for server actions that spend the shared YouTube quota or paid APIs
+-- (channel lookup, link saturation, video upload, publish check). Server only: RLS on, no policy.
+create table if not exists public.user_action_usage (
+  user_id uuid not null references auth.users (id) on delete cascade,
+  action text not null,
+  bucket text not null, -- '2026-10-28' (daily) or '2026-10-28T14' (hourly), UTC
+  call_count integer not null default 0,
+  updated_at timestamptz not null default now(),
+  primary key (user_id, action, bucket)
+);
+alter table public.user_action_usage enable row level security;
+
+-- Atomic increment within the cap. Returns the new count, or null when the cap is reached.
+create or replace function public.consume_user_quota(
+  p_user_id uuid,
+  p_action text,
+  p_bucket text,
+  p_limit integer
+) returns integer
+language sql
+as $$
+  insert into public.user_action_usage as u (user_id, action, bucket, call_count)
+  values (p_user_id, p_action, p_bucket, 1)
+  on conflict (user_id, action, bucket) do update
+    set call_count = u.call_count + 1, updated_at = now()
+    where u.call_count < p_limit
+  returning call_count;
+$$;
+revoke execute on function public.consume_user_quota(uuid, text, text, integer) from public, anon, authenticated;
+grant execute on function public.consume_user_quota(uuid, text, text, integer) to service_role;
