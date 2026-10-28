@@ -2,8 +2,9 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import type { Metadata } from 'next';
 import { createServiceClient } from '@/lib/supabase/server';
-import { requireUser, isDbReady } from '@/lib/auth/session';
+import { getSessionUser, requireUser, isDbReady } from '@/lib/auth/session';
 import { resolveScope } from '@/lib/scope';
+import { canSeeTopic } from '@/lib/auth/topic-access';
 import { PhaseBadge, MgiScore, PHASE_LABELS } from '@/components/tublyti';
 import { getMgiBand, type ConfidenceResult } from '@/lib/scoring/mgi';
 import { OutlierBadge } from '@/components/tublyti/outlier-badge';
@@ -23,6 +24,9 @@ export const maxDuration = 300;
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params;
+  // Do not leak a topic label in the tab title to an account that cannot see the topic.
+  const user = await getSessionUser();
+  if (!user || !(await canSeeTopic(user, id))) return { title: 'Sujet' };
   const db = createServiceClient();
   const { data } = await db.from('topics').select('label').eq('id', id).single();
   return { title: data?.label ? `${data.label} - Dossier` : 'Dossier Sujet' };
