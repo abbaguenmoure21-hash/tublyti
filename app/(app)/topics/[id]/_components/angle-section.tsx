@@ -6,6 +6,7 @@ import { Copy, Check, Download, AlertTriangle } from 'lucide-react';
 import { generateAngles } from '@/lib/actions/angles';
 import { getAiBudgetStatus, type AiBudgetStatus } from '@/lib/actions/ai-spend';
 import { estimateAngleCostUSD } from '@/lib/nlp/angle-costs';
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 
 interface Angle {
   id: string;
@@ -230,13 +231,63 @@ export function AngleSection({
     );
   });
 
+  // Rendered inside the « Tous les angles » dialog when it is open so Base UI treats it as a nested dialog.
+  const detailsDialog = (
+      <Dialog open={!!selectedAngle} onOpenChange={(open) => { if (!open) setSelectedAngleId(null); }}>
+        {selectedAngle && (
+          <DialogContent showCloseButton={false} className="bg-card border border-border rounded-[10px] shadow-lg w-[calc(100vw-32px)] max-w-xl sm:max-w-xl p-6 flex flex-col gap-5 max-h-[90vh] overflow-y-auto">
+            <button
+              type="button"
+              onClick={() => setSelectedAngleId(null)}
+              aria-label="Fermer"
+              className="absolute top-4 right-4 p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer after:absolute after:-inset-2 md:after:hidden"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            </button>
+            
+            <div className="flex items-start gap-3 pr-8">
+               <span className="text-[13px] font-bold text-primary tabular-nums bg-primary/10 px-2 py-1 rounded border border-primary/20 shrink-0 mt-0.5">
+                 {String(angles.findIndex(a => a.id === selectedAngle.id) + 1).padStart(2, '0')}
+               </span>
+               <DialogTitle className="text-[18px] font-semibold leading-snug">{selectedAngle.title}</DialogTitle>
+            </div>
+            
+            <div className="flex flex-col gap-2.5">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Accroche (Hook)</span>
+              <p className="text-[14px] text-foreground/90 leading-relaxed bg-[--bg-surface-1] p-3.5 rounded-md border border-[--glass-border] shadow-sm">
+                {selectedAngle.hook}
+              </p>
+            </div>
+            
+            {selectedAngle.rationale && (
+              <div className="flex flex-col gap-2.5">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Justification & Stratégie</span>
+                <p className="text-[13.5px] text-muted-foreground/90 leading-relaxed whitespace-pre-wrap bg-[--bg-surface-1]/50 p-3.5 rounded-md border border-[--glass-border]">
+                  {selectedAngle.rationale}
+                </p>
+              </div>
+            )}
+            
+            <div className="flex gap-2 justify-end mt-2 pt-5 border-t border-[--glass-border]">
+              <button
+                type="button"
+                onClick={() => setSelectedAngleId(null)}
+                className="haptic-btn h-9 px-4 rounded-md text-[13px] font-semibold text-foreground bg-[--bg-surface-2] border border-[--glass-border] hover:bg-muted transition-colors cursor-pointer shadow-sm"
+              >
+                Fermer
+              </button>
+            </div>
+          </DialogContent>
+        )}
+      </Dialog>
+  );
+
   return (
     <>
       {/* Confirmation modal */}
-      {showConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-card border border-border rounded-[10px] shadow-lg w-[380px] p-5 flex flex-col gap-4">
-            <h3 className="text-[15px] font-semibold">Confirmer la g\u00e9n\u00e9ration</h3>
+      <Dialog open={showConfirm} onOpenChange={(open) => { if (!open) setShowConfirm(false); }}>
+          <DialogContent showCloseButton={false} className="w-[min(380px,calc(100vw-32px))] max-w-none sm:max-w-none bg-card border border-border rounded-[10px] shadow-lg p-5 flex flex-col gap-4">
+            <DialogTitle className="text-[15px] font-semibold leading-normal">Confirmer la g\u00e9n\u00e9ration</DialogTitle>
 
             {loadingBudget ? (
               <div className="text-[13px] text-muted-foreground">Chargement du budget\u2026</div>
@@ -296,78 +347,32 @@ export function AngleSection({
                 G\u00e9n\u00e9rer 5 angles
               </button>
             </div>
-          </div>
-        </div>
-      )}
+          </DialogContent>
+      </Dialog>
 
-      {/* Angle Details modal */}
-      {selectedAngle && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="bg-card border border-border rounded-[10px] shadow-lg w-full max-w-xl p-6 flex flex-col gap-5 max-h-[90vh] overflow-y-auto relative animate-in fade-in zoom-in-95 duration-200">
-            <button 
-              type="button" 
-              onClick={() => setSelectedAngleId(null)}
-              className="absolute top-4 right-4 p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer"
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
-            </button>
-            
-            <div className="flex items-start gap-3 pr-8">
-               <span className="text-[13px] font-bold text-primary tabular-nums bg-primary/10 px-2 py-1 rounded border border-primary/20 shrink-0 mt-0.5">
-                 {String(angles.findIndex(a => a.id === selectedAngle.id) + 1).padStart(2, '0')}
-               </span>
-               <h3 className="text-[18px] font-semibold leading-snug">{selectedAngle.title}</h3>
-            </div>
-            
-            <div className="flex flex-col gap-2.5">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Accroche (Hook)</span>
-              <p className="text-[14px] text-foreground/90 leading-relaxed bg-[--bg-surface-1] p-3.5 rounded-md border border-[--glass-border] shadow-sm">
-                {selectedAngle.hook}
-              </p>
-            </div>
-            
-            {selectedAngle.rationale && (
-              <div className="flex flex-col gap-2.5">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Justification & Stratégie</span>
-                <p className="text-[13.5px] text-muted-foreground/90 leading-relaxed whitespace-pre-wrap bg-[--bg-surface-1]/50 p-3.5 rounded-md border border-[--glass-border]">
-                  {selectedAngle.rationale}
-                </p>
-              </div>
-            )}
-            
-            <div className="flex gap-2 justify-end mt-2 pt-5 border-t border-[--glass-border]">
-              <button
-                type="button"
-                onClick={() => setSelectedAngleId(null)}
-                className="haptic-btn h-9 px-4 rounded-md text-[13px] font-semibold text-foreground bg-[--bg-surface-2] border border-[--glass-border] hover:bg-muted transition-colors cursor-pointer shadow-sm"
-              >
-                Fermer
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Angle Details modal (nested inside « Tous les angles » when that one is open) */}
+      {!showAllAngles && detailsDialog}
 
       {/* All Angles modal */}
-      {showAllAngles && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4">
-          <div className="bg-card border border-border rounded-[10px] shadow-lg w-full max-w-2xl flex flex-col max-h-[90vh] overflow-hidden relative animate-in fade-in zoom-in-95 duration-200">
+      <Dialog open={showAllAngles} onOpenChange={(open) => { if (!open) setShowAllAngles(false); }}>
+          <DialogContent showCloseButton={false} className="bg-card border border-border rounded-[10px] shadow-lg w-[calc(100vw-32px)] max-w-2xl sm:max-w-2xl p-0 gap-0 flex flex-col max-h-[90vh] overflow-hidden">
             <div className="flex items-center justify-between px-5 py-4 border-b border-[--glass-border] bg-[--bg-surface-1]/50 sticky top-0 z-10">
-              <h2 className="text-headline">Tous les angles proposés ({angles.length})</h2>
-              <button 
-                type="button" 
+              <DialogTitle render={<h2 />} className="text-headline">Tous les angles proposés ({angles.length})</DialogTitle>
+              <button
+                type="button"
                 onClick={() => setShowAllAngles(false)}
-                className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer"
+                aria-label="Fermer"
+                className="relative p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer after:absolute after:-inset-2 md:after:hidden"
               >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>
               </button>
             </div>
             <div className="overflow-y-auto flex flex-col">
               {angleCards}
             </div>
-          </div>
-        </div>
-      )}
+            {showAllAngles && detailsDialog}
+          </DialogContent>
+      </Dialog>
 
       <section className="bento-card !p-0 flex flex-col">
         <div className="flex items-center justify-between px-5 py-4 border-b border-[--glass-border] bg-[--bg-surface-1]/50">
