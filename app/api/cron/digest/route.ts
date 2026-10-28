@@ -3,6 +3,10 @@ import { createServiceClient } from '@/lib/supabase/server';
 import { sendAllDigests } from '@/lib/services/digest-send';
 import { timingSafeCompare } from '@/lib/auth/timing-safe';
 
+// Long-running (YouTube collection, AI batches, Gemini video analysis): explicit Vercel limit.
+// Internal deadlines (MAX_DURATION_MS = 4 min) keep >= 20 s of margin for finish/releaseLock.
+export const maxDuration = 300;
+
 /** Envoi hebdomadaire du résumé : un e-mail par compte (ses chaînes, ses vidéos, ses alertes). */
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get('authorization');

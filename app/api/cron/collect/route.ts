@@ -13,6 +13,10 @@ import { FakeEmbeddingProvider } from '@/lib/providers/embeddings';
 import { ResendAlertSender, ConsoleAlertSender } from '@/lib/email/resend-alerts';
 import { timingSafeCompare } from '@/lib/auth/timing-safe';
 
+// Long-running (YouTube collection, AI batches, Gemini video analysis): explicit Vercel limit.
+// Internal deadlines (MAX_DURATION_MS = 4 min) keep >= 20 s of margin for finish/releaseLock.
+export const maxDuration = 300;
+
 const MAX_DURATION_MS = 4 * 60 * 1000; // 4 minutes
 
 export async function GET(request: NextRequest) {
