@@ -18,10 +18,10 @@ function monthLabel(m: string) {
   return new Date(`${m}-01T00:00:00Z`).toLocaleDateString('fr-FR', { month: 'short', year: '2-digit', timeZone: 'UTC' });
 }
 
-function ChartTip({ active, payload, label, kind, unit }: { active?: boolean; payload?: { value: number }[]; label?: string; kind: 'day' | 'month'; unit: 'views' | 'usd' | 'subs' }) {
+function ChartTip({ active, payload, label, kind, unit }: { active?: boolean; payload?: { value: number | null }[]; label?: string; kind: 'day' | 'month'; unit: 'views' | 'usd' | 'subs' }) {
   if (!active || !payload?.length || !label) return null;
   const v = payload[0].value;
-  const text = unit === 'usd' ? usd.format(v) : unit === 'subs' ? `${v > 0 ? '+' : ''}${nf.format(v)} abonnés` : `${nf.format(v)} vues`;
+  const text = v === null || v === undefined ? 'Pas encore calculé par YouTube' : unit === 'usd' ? usd.format(v) : unit === 'subs' ? `${v > 0 ? '+' : ''}${nf.format(v)} abonnés` : `${nf.format(v)} vues`;
   return (
     <div className="elev-3 rounded-xl bg-card px-3 py-2 text-[13px]">
       <p className="text-muted-foreground">{kind === 'day' ? dayLabel(label) : monthLabel(label)}</p>
@@ -34,11 +34,20 @@ const axis = { fontSize: 12, fill: 'var(--muted-foreground)' };
 
 /** Une seule série par graphique : jamais deux échelles sur le même axe. */
 export function DailyChart({ data, metric, label }: { data: { date: string; views: number; revenue: number | null; subsNet: number }[]; metric: 'views' | 'revenue' | 'subsNet'; label: string }) {
-  const rows = data.map((d) => ({ date: d.date, v: metric === 'revenue' ? d.revenue ?? 0 : d[metric] }));
+  // Revenue not consolidated yet stays null (gap in the chart), never 0 $.
+  const rows = data.map((d) => ({ date: d.date, v: metric === 'revenue' ? d.revenue : d[metric] }));
   const unit = metric === 'revenue' ? 'usd' : metric === 'subsNet' ? 'subs' : 'views';
+  // Text alternative: total and peak day, read by screen readers.
+  const known = rows.filter((r): r is { date: string; v: number } => r.v !== null);
+  const total = known.reduce((a, r) => a + r.v, 0);
+  const peak = known.reduce<{ date: string; v: number } | null>((b, r) => (!b || r.v > b.v ? r : b), null);
+  const fmt = (v: number) => (unit === 'usd' ? usd.format(v) : `${unit === 'subs' && v > 0 ? '+' : ''}${nf.format(v)}`);
+  const summary = rows.length && peak
+    ? `${label}, du ${dayLabel(rows[0].date)} au ${dayLabel(rows[rows.length - 1].date)} : ${fmt(total)} au total, maximum le ${dayLabel(peak.date)} avec ${fmt(peak.v)}.`
+    : `${label} : pas encore de données.`;
   const color = metric === 'revenue' ? 'var(--chart-2)' : metric === 'subsNet' ? 'var(--chart-5)' : 'var(--chart-1)';
   return (
-    <div className="h-56 w-full" role="img" aria-label={label}>
+    <div className="h-56 w-full" role="img" aria-label={summary}>
       <ResponsiveContainer width="100%" height="100%">
         {metric === 'views' ? (
           <AreaChart data={rows} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
