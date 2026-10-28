@@ -11,7 +11,7 @@ const times = (m: number) => `×${m.toLocaleString('fr-FR', { maximumFractionDig
 const date = (iso: string) => new Date(iso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
 
 const STATUS: Record<FollowRow['status'], { label: string; cls: string }> = {
-  above: { label: 'Au-dessus', cls: 'bg-phase-2-soft text-phase-2-ink' },
+  above: { label: 'Au-dessus', cls: 'bg-primary-soft text-primary-ink' },
   normal: { label: 'Habituel', cls: 'bg-muted text-muted-foreground' },
   below: { label: 'En dessous', cls: 'bg-destructive/10 text-destructive' },
   unknown: { label: 'Trop tôt', cls: 'bg-muted text-muted-foreground' },
@@ -123,7 +123,7 @@ export function History({
                   <td className="px-3 py-2.5 text-right tabular-nums">{c.predictedMultiple ? times(c.predictedMultiple) : '—'}</td>
                   <td className="px-3 py-2.5 text-right tabular-nums">
                     {c.actualMultiple !== null ? (
-                      <span className={c.actualMultiple >= (c.predictedMultiple ?? 1) ? 'font-semibold text-phase-2-ink' : 'font-semibold'}>{times(c.actualMultiple)}</span>
+                      <span className={c.actualMultiple >= (c.predictedMultiple ?? 1) ? 'font-semibold text-primary-ink' : 'font-semibold'}>{times(c.actualMultiple)}</span>
                     ) : c.pendingDays !== null ? (
                       <span className="text-muted-foreground">dans {c.pendingDays} j</span>
                     ) : (

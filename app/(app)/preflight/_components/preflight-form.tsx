@@ -52,13 +52,13 @@ async function shrink(file: File): Promise<{ mimeType: string; base64: string; t
 }
 
 function tone(score: number) {
-  return score >= 75 ? 'text-phase-2-ink bg-phase-2-soft' : score >= 55 ? 'text-phase-1-ink bg-phase-1-soft' : 'text-destructive bg-destructive/10';
+  return score >= 75 ? 'text-primary-ink bg-primary-soft' : score >= 55 ? 'text-foreground bg-muted' : 'text-destructive bg-destructive/10';
 }
 
 function Bar({ value }: { value: number }) {
   return (
     <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted" role="presentation">
-      <div className={`h-full rounded-full ${value >= 75 ? 'bg-phase-2' : value >= 55 ? 'bg-warning' : 'bg-destructive'}`} style={{ width: `${value}%` }} />
+      <div className={`h-full rounded-full ${value >= 75 ? 'bg-primary' : value >= 55 ? 'bg-warning' : 'bg-destructive'}`} style={{ width: `${value}%` }} />
     </div>
   );
 }
@@ -280,8 +280,8 @@ function ResultView({ r }: { r: PreflightResult }) {
             C’est une probabilité, pas une garantie.
           </p>
           {r.errors.map((e) => (
-            <p key={e} className="flex items-start gap-2 text-[13px] text-warning">
-              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" /> {e}
+            <p key={e} className="flex items-start gap-2 text-[13px] text-foreground">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" aria-hidden="true" /> {e}
             </p>
           ))}
         </div>
@@ -357,7 +357,7 @@ function ResultView({ r }: { r: PreflightResult }) {
               <ul className="flex flex-col gap-2">
                 {r.script.risks.map((k, i) => (
                   <li key={i} className="flex gap-3 rounded-xl bg-warning/10 px-3 py-2.5 text-[14px]">
-                    <span className="shrink-0 font-semibold tabular-nums text-warning">{k.at_pct} %</span>
+                    <span className="shrink-0 font-semibold tabular-nums text-foreground">{k.at_pct} %</span>
                     <span>
                       {k.issue} <span className="text-muted-foreground">→ {k.fix}</span>
                     </span>
@@ -395,7 +395,7 @@ function TitleCard({ t, best }: { t: TitleScore; best: boolean }) {
       <ul className="grid gap-1.5 sm:grid-cols-2">
         {t.checks.map((c) => (
           <li key={c.label} className="flex items-start gap-2 text-[13px]">
-            {c.ok ? <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-phase-2" aria-hidden="true" /> : <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" aria-hidden="true" />}
+            {c.ok ? <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-success" aria-hidden="true" /> : <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" aria-hidden="true" />}
             <span className={c.ok ? 'text-muted-foreground' : ''}>{c.label}</span>
           </li>
         ))}
@@ -412,7 +412,7 @@ function TitleCard({ t, best }: { t: TitleScore; best: boolean }) {
                     {w.title}
                     <span className="block text-[12px] text-muted-foreground">{w.channelTitle}</span>
                   </span>
-                  <span className="shrink-0 font-semibold tabular-nums text-phase-2-ink">{times(w.score)}</span>
+                  <span className="shrink-0 font-semibold tabular-nums text-foreground">{times(w.score)}</span>
                 </a>
               ))}
             </div>
@@ -462,7 +462,7 @@ function TwoLists({ good, fix }: { good: string[]; fix: string[] }) {
           <span className="text-[13px] font-medium">Ce qui marche</span>
           <ul className="flex flex-col gap-1.5">
             {good.map((g) => (
-              <li key={g} className="flex items-start gap-2 text-[14px]"><Check className="mt-1 h-3.5 w-3.5 shrink-0 text-phase-2" aria-hidden="true" />{g}</li>
+              <li key={g} className="flex items-start gap-2 text-[14px]"><Check className="mt-1 h-3.5 w-3.5 shrink-0 text-success" aria-hidden="true" />{g}</li>
             ))}
           </ul>
         </div>
@@ -632,7 +632,7 @@ function VideoUploader({ state, onChange: setState, aiEnabled }: { state: Upload
             <span className="flex items-center gap-2 text-[12px] text-muted-foreground"><Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> L’IA prépare ta vidéo…</span>
           )}
           {state.status === 'ready' && (
-            <span className="flex items-center gap-2 text-[12px] text-phase-2-ink"><Check className="h-3.5 w-3.5" aria-hidden="true" /> Prête à être analysée{state.durationS ? ` · ${Math.floor(state.durationS / 60)} min ${String(state.durationS % 60).padStart(2, '0')}` : ''}</span>
+            <span className="flex items-center gap-2 text-[12px] text-foreground"><Check className="h-3.5 w-3.5 text-success" aria-hidden="true" /> Prête à être analysée{state.durationS ? ` · ${Math.floor(state.durationS / 60)} min ${String(state.durationS % 60).padStart(2, '0')}` : ''}</span>
           )}
           {state.status === 'error' && <span className="text-[12px] text-destructive">{state.error}</span>}
         </div>
@@ -681,7 +681,7 @@ function VideoSection({ v }: { v: NonNullable<PreflightResult['video']> }) {
           <ul className="flex flex-col gap-2">
             {v.drops.map((d, i) => (
               <li key={i} className="flex gap-3 rounded-xl bg-warning/10 px-3 py-2.5 text-[14px]">
-                <span className="shrink-0 font-mono font-semibold tabular-nums text-warning">{clock(d.at_s)}</span>
+                <span className="shrink-0 font-mono font-semibold tabular-nums text-foreground">{clock(d.at_s)}</span>
                 <span>
                   {d.issue} <span className="text-muted-foreground">→ {d.fix}</span>
                 </span>
@@ -714,9 +714,9 @@ function ModelSection({ r }: { r: PreflightResult }) {
       </div>
       <div className="grid gap-4 md:grid-cols-2">
         <div className="flex flex-col gap-1.5">
-          <span className="flex items-center gap-1.5 text-[13px] font-medium"><TrendingUp className="h-4 w-4 text-phase-2" aria-hidden="true" /> Pour</span>
+          <span className="flex items-center gap-1.5 text-[13px] font-medium"><TrendingUp className="h-4 w-4 text-success" aria-hidden="true" /> Pour</span>
           {up.length ? up.map((d) => (
-            <span key={d.label} className="flex justify-between gap-3 text-[14px]"><span>{d.label}</span><span className="tabular-nums text-phase-2-ink">{pctEffect(d.effect)}</span></span>
+            <span key={d.label} className="flex justify-between gap-3 text-[14px]"><span>{d.label}</span><span className="tabular-nums text-foreground">{pctEffect(d.effect)}</span></span>
           )) : <span className="text-[13px] text-muted-foreground">Rien de marquant.</span>}
         </div>
         <div className="flex flex-col gap-1.5">
