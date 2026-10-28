@@ -4,6 +4,7 @@ import { useState, useTransition } from 'react';
 import { toast } from 'sonner';
 import { Plus, Copy, Check, Trash2, Shield, ShieldAlert } from 'lucide-react';
 import { createApiToken, revokeApiToken } from '@/lib/actions/api-tokens';
+import { ConfirmDialog } from './confirm-dialog';
 
 interface TokenData {
   id: string;
@@ -15,12 +16,50 @@ interface TokenData {
   revokedAt: string | null;
 }
 
-export function ApiTokensTab({ tokens }: { tokens: TokenData[] }) {
+/** A value shown in monospace with its own "Copier" button. */
+export function CopyField({ label, value }: { label: string; value: string }) {
+  const [copied, setCopied] = useState(false);
+  async function handleCopy() {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      toast.error('Copie impossible. Sélectionne le texte et copie-le à la main.');
+    }
+  }
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-[12px] text-muted-foreground">{label}</span>
+      <div className="flex items-center gap-2">
+        <code className="flex h-9 min-w-0 flex-1 items-center overflow-x-auto whitespace-nowrap rounded-lg border border-border bg-card px-3 font-mono text-[12px]">
+          {value}
+        </code>
+        <button
+          type="button"
+          onClick={handleCopy}
+          aria-label={`Copier : ${label}`}
+          className="flex h-9 shrink-0 cursor-pointer items-center gap-1 rounded-lg border border-border bg-card px-3 text-[13px] transition-colors hover:bg-muted"
+        >
+          {copied ? <Check className="h-3.5 w-3.5" aria-hidden="true" /> : <Copy className="h-3.5 w-3.5" aria-hidden="true" />}
+          {copied ? 'Copié' : 'Copier'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+const PERMISSIONS = [
+  { value: 'read' as const, label: 'Lecture seule', help: 'Claude ou l’extension peuvent consulter tes sujets, sans rien changer.' },
+  { value: 'readwrite' as const, label: 'Lecture et actions', help: 'Ils peuvent aussi créer des vidéos et ajouter des favoris pour toi.' },
+];
+
+export function ApiTokensTab({ tokens, mcpUrl }: { tokens: TokenData[]; mcpUrl: string }) {
   const [showCreate, setShowCreate] = useState(false);
   const [name, setName] = useState('');
   const [permission, setPermission] = useState<'read' | 'readwrite'>('read');
   const [newToken, setNewToken] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [toRevoke, setToRevoke] = useState<TokenData | null>(null);
   const [isPending, startTransition] = useTransition();
 
   function handleCreate() {
@@ -32,35 +71,31 @@ export function ApiTokensTab({ tokens }: { tokens: TokenData[] }) {
       } else if (result.token) {
         setNewToken(result.token);
         setName('');
-        toast.success('Jeton créé. Copie-le maintenant — il ne sera plus affiché.');
+        toast.success('Jeton créé. Copie-le maintenant : il ne sera plus affiché.');
       }
     });
   }
 
-  function handleRevoke(tokenId: string) {
+  function handleRevoke(token: TokenData) {
     startTransition(async () => {
-      const result = await revokeApiToken(tokenId);
+      const result = await revokeApiToken(token.id);
       if (result.error) {
         toast.error(result.error);
       } else {
-        toast.success('Jeton révoqué.');
+        toast.success(`Jeton « ${token.name} » révoqué.`);
+        setToRevoke(null);
       }
     });
-  }
-
-  async function handleCopy(text: string) {
-    await navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
   }
 
   const activeTokens = tokens.filter((t) => !t.revokedAt);
   const revokedTokens = tokens.filter((t) => t.revokedAt);
+  const currentHelp = PERMISSIONS.find((p) => p.value === permission)?.help;
 
   return (
     <div className="space-y-4">
-      <div className="bg-card border border-border rounded-[10px] shadow-[0_1px_2px_rgba(20,24,34,0.06)]">
-        <div className="px-5 py-3.5 border-b border-border flex items-center justify-between">
+      <div className="elev-1 rounded-xl bg-card">
+        <div className="flex items-center justify-between border-b border-border px-5 py-3.5">
           <h2 className="text-[15px] font-semibold">Jetons d’accès</h2>
           <button
             type="button"
@@ -68,100 +103,88 @@ export function ApiTokensTab({ tokens }: { tokens: TokenData[] }) {
               setShowCreate(true);
               setNewToken(null);
             }}
-            className="flex items-center gap-1 h-7 px-2.5 rounded-md bg-primary text-primary-foreground text-[12px] font-medium hover:bg-primary/90 transition-colors cursor-pointer"
+            className="flex h-9 cursor-pointer items-center gap-1 rounded-md bg-primary px-3 text-[13px] font-medium text-primary-foreground transition-colors hover:bg-primary/90"
           >
-            <Plus className="w-3 h-3" />
+            <Plus className="h-3.5 w-3.5" aria-hidden="true" />
             Nouveau jeton
           </button>
         </div>
 
         {/* New token creation form */}
         {showCreate && (
-          <div className="px-5 py-4 border-b border-border bg-muted/20 space-y-3">
+          <div className="space-y-3 border-b border-border px-5 py-4">
             {newToken ? (
-              <div className="space-y-2">
+              <div className="space-y-3">
                 <p className="text-[13px] font-medium text-foreground">
-                  Jeton créé — copie-le maintenant :
+                  Jeton créé. Copie ces deux valeurs maintenant : le jeton ne sera plus affiché.
                 </p>
-                <div className="flex items-center gap-2">
-                  <code className="flex-1 h-9 px-3 border border-border rounded-lg bg-card text-[12px] font-mono flex items-center overflow-x-auto">
-                    {newToken}
-                  </code>
-                  <button
-                    type="button"
-                    onClick={() => handleCopy(newToken)}
-                    className="h-9 px-3 rounded-lg border border-border bg-card text-[13px] flex items-center gap-1 hover:bg-muted transition-colors cursor-pointer"
-                  >
-                    {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                    {copied ? 'Copié' : 'Copier'}
-                  </button>
-                </div>
+                <CopyField label="Adresse du serveur" value={mcpUrl} />
+                <CopyField label="Jeton" value={newToken} />
+                <p className="text-[13px] text-muted-foreground">
+                  Colle-les dans Claude › Réglages › Connecteurs, ou dans les options de l’extension Chrome TubLyTI.
+                </p>
                 <button
                   type="button"
                   onClick={() => {
                     setShowCreate(false);
                     setNewToken(null);
                   }}
-                  className="text-[12px] text-muted-foreground hover:text-foreground cursor-pointer"
+                  className="h-9 cursor-pointer text-[13px] text-muted-foreground hover:text-foreground"
                 >
-                  Fermer
+                  J’ai copié, fermer
                 </button>
               </div>
             ) : (
-              <div className="flex items-end gap-3">
-                <div className="flex-1">
-                  <label className="text-[12px] text-muted-foreground block mb-1">Nom</label>
+              <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+                <div className="min-w-0 sm:min-w-[200px] sm:flex-1">
+                  <label htmlFor="token-name" className="mb-1 block text-[12px] text-muted-foreground">Nom</label>
                   <input
+                    id="token-name"
                     type="text"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     placeholder="Claude, extension Chrome…"
                     autoFocus
-                    className="h-9 w-full px-3 border border-border rounded-lg bg-card text-[13px] text-foreground"
+                    className="h-9 w-full rounded-lg border border-border bg-card px-3 text-[13px] text-foreground"
                   />
                 </div>
                 <div>
-                  <label className="text-[12px] text-muted-foreground block mb-1">Permission</label>
-                  <div className="flex gap-1">
-                    <button
-                      type="button"
-                      onClick={() => setPermission('read')}
-                      className={`h-9 px-3 rounded-lg text-[12px] font-medium transition-colors cursor-pointer ${
-                        permission === 'read'
-                          ? 'bg-primary text-primary-foreground'
-                          : 'bg-muted text-muted-foreground'
-                      }`}
-                    >
-                      Consulter seulement
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setPermission('readwrite')}
-                      className={`h-9 px-3 rounded-lg text-[12px] font-medium transition-colors cursor-pointer ${
-                        permission === 'readwrite'
-                          ? 'bg-primary text-primary-foreground'
-                          : 'bg-muted text-muted-foreground'
-                      }`}
-                    >
-                      Consulter et agir (créer des vidéos, favoris)
-                    </button>
+                  <span id="token-permission" className="mb-1 block text-[12px] text-muted-foreground">Ce qu’il peut faire</span>
+                  <div role="radiogroup" aria-labelledby="token-permission" className="flex gap-1">
+                    {PERMISSIONS.map((p) => (
+                      <button
+                        key={p.value}
+                        type="button"
+                        role="radio"
+                        aria-checked={permission === p.value}
+                        onClick={() => setPermission(p.value)}
+                        className={`h-9 cursor-pointer rounded-lg px-3 text-[12px] font-medium transition-colors ${
+                          permission === p.value ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
+                        }`}
+                      >
+                        {p.label}
+                      </button>
+                    ))}
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={handleCreate}
-                  disabled={isPending || !name.trim()}
-                  className="h-9 px-4 rounded-lg bg-primary text-primary-foreground text-[13px] font-medium hover:bg-primary/90 transition-colors disabled:opacity-50 cursor-pointer"
-                >
-                  {isPending ? 'Création…' : 'Créer'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowCreate(false)}
-                  className="h-9 px-3 text-[13px] text-muted-foreground hover:text-foreground cursor-pointer"
-                >
-                  Annuler
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={handleCreate}
+                    disabled={isPending || !name.trim()}
+                    className="h-9 cursor-pointer rounded-lg bg-primary px-4 text-[13px] font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+                  >
+                    {isPending ? 'Création…' : 'Créer'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowCreate(false)}
+                    className="h-9 cursor-pointer px-3 text-[13px] text-muted-foreground hover:text-foreground"
+                  >
+                    Annuler
+                  </button>
+                </div>
+                <p className="text-[12px] text-muted-foreground sm:basis-full">{currentHelp}</p>
               </div>
             )}
           </div>
@@ -175,36 +198,50 @@ export function ApiTokensTab({ tokens }: { tokens: TokenData[] }) {
         ) : (
           <div className="divide-y divide-border">
             {activeTokens.map((token) => (
-              <div key={token.id} className="px-5 py-3 flex items-center gap-3">
-                <div className="flex items-center gap-2 flex-1">
+              <div key={token.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-5 py-3">
+                <div className="flex min-w-0 flex-1 items-center gap-2">
                   {token.permission === 'readwrite' ? (
-                    <ShieldAlert className="w-3.5 h-3.5 text-phase-1" />
+                    <ShieldAlert className="h-3.5 w-3.5 shrink-0 text-phase-1" aria-label="Lecture et actions" />
                   ) : (
-                    <Shield className="w-3.5 h-3.5 text-muted-foreground" />
+                    <Shield className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-label="Lecture seule" />
                   )}
-                  <span className="text-[13px] font-medium">{token.name}</span>
-                  <code className="text-[11px] font-mono text-muted-foreground">
+                  <span className="truncate text-[13px] font-medium">{token.name}</span>
+                  <code className="font-mono text-[11px] text-muted-foreground">
                     {token.tokenPrefix}…
                   </code>
                 </div>
                 <span className="text-[11px] text-muted-foreground">
                   {token.lastUsedAt
-                    ? `Utilisé ${new Date(token.lastUsedAt).toLocaleDateString('fr-FR')}`
+                    ? `Utilisé le ${new Date(token.lastUsedAt).toLocaleDateString('fr-FR')}`
                     : 'Jamais utilisé'}
                 </span>
                 <button
                   type="button"
-                  onClick={() => handleRevoke(token.id)}
+                  onClick={() => setToRevoke(token)}
                   disabled={isPending}
-                  className="w-7 h-7 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 flex items-center justify-center cursor-pointer"
+                  aria-label={`Révoquer le jeton ${token.name}`}
+                  title="Révoquer"
+                  className="flex h-10 w-10 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive sm:h-8 sm:w-8"
                 >
-                  <Trash2 className="w-3.5 h-3.5" />
+                  <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
                 </button>
               </div>
             ))}
           </div>
         )}
       </div>
+
+      <ConfirmDialog
+        open={toRevoke !== null}
+        onOpenChange={(o) => {
+          if (!o) setToRevoke(null);
+        }}
+        title={toRevoke ? `Révoquer « ${toRevoke.name} » ?` : 'Révoquer ce jeton ?'}
+        description="Claude ou l’extension qui l’utilisent perdront l’accès tout de suite. Ce n’est pas réversible : il faudra créer un nouveau jeton."
+        confirmLabel="Révoquer"
+        pending={isPending}
+        onConfirm={() => toRevoke && handleRevoke(toRevoke)}
+      />
 
       {/* Revoked tokens */}
       {revokedTokens.length > 0 && (

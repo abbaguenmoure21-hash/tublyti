@@ -8,7 +8,7 @@ import { getAlertRules } from '@/lib/actions/alerts';
 import { listApiTokens } from '@/lib/actions/api-tokens';
 import { getCollections } from '@/lib/actions/collections';
 import { AlertsTab } from '../settings/_components/alerts-tab';
-import { ApiTokensTab } from '../settings/_components/api-tokens-tab';
+import { ApiTokensTab, CopyField } from '../settings/_components/api-tokens-tab';
 import { DigestButton } from './_client/digest-button';
 import { nicheColor } from '@/lib/scope';
 import { MyChannels } from './_client/my-channels';
@@ -179,7 +179,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
               {[
                 ['Crée un jeton', 'Avec le bouton ci-dessous. Copie-le tout de suite : il ne s’affiche qu’une fois.'],
                 ['Ajoute un connecteur', 'Dans Claude › Réglages › Connecteurs › Ajouter un connecteur personnalisé.'],
-                ['Colle l’adresse et le jeton', `Adresse : ${appUrl}/api/mcp`],
+                ['Colle l’adresse et le jeton', 'L’adresse est juste en dessous. Le jeton s’affiche quand tu le crées.'],
               ].map(([t, d], i) => (
                 <li key={t} className="flex flex-col gap-1 rounded-2xl bg-card px-4 py-3">
                   <span className="flex items-center gap-2 text-sm font-semibold">
@@ -190,9 +190,11 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
                 </li>
               ))}
             </ol>
-            <p className="text-[13px] text-muted-foreground">Un jeton ne donne accès qu’à tes chaînes et à tes thématiques. Tu peux le révoquer à tout moment.</p>
+            <CopyField label="Adresse du serveur" value={`${appUrl}/api/mcp`} />
+            <p className="text-[13px] text-muted-foreground">Le même jeton sert à l’extension Chrome TubLyTI : colle-le dans ses options. Un jeton ne donne accès qu’à tes chaînes et à tes thématiques. Tu peux le révoquer à tout moment.</p>
             {tools ? (
               <ApiTokensTab
+                mcpUrl={`${appUrl}/api/mcp`}
                 tokens={(tokensRes.data ?? []).map((t: Record<string, unknown>) => ({
                   id: t.id as string,
                   name: t.name as string,
