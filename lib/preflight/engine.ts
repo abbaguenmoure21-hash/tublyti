@@ -22,6 +22,8 @@ export interface Prediction {
   baselineViews: number | null;
   /** Facteur appris sur les vidéos déjà publiées de la chaîne (1 = pas encore assez de recul). */
   calibration: { factor: number; n: number };
+  /** Multiple BEFORE the calibration factor: the calibration learns on this one (no feedback loop). */
+  multipleRaw?: number;
   basis: string;
 }
 
@@ -115,20 +117,51 @@ function baselineAt(videos: OwnVideo[], before: number, ageDays: number): number
 
 // ── Recalibrage ──────────────────────────────────────────────────────
 
-export async function getCalibration(db: SupabaseClient, userId: string, userChannelId: string | null) {
-  let q = db.from('preflight_checks').select('predicted_multiple, actual_multiple, predicted_p2x').eq('user_id', userId).not('actual_multiple', 'is', null).order('created_at', { ascending: false }).limit(30);
-  if (userChannelId) q = q.eq('user_channel_id', userChannelId);
-  const { data } = await q;
-  const rows = ((data ?? []) as { predicted_multiple: number; actual_multiple: number; predicted_p2x: number | null }[]).filter((r) => Number(r.predicted_multiple) > 0 && Number(r.actual_multiple) > 0);
-  if (rows.length < 3) return { factor: 1, n: rows.length, hits: null as null | { predictedHigh: number; actualHigh: number } };
-  const logs = rows.map((r) => Math.log(Number(r.actual_multiple) / Number(r.predicted_multiple)));
-  const factor = Math.min(3, Math.max(0.33, Math.exp(median(logs))));
-  const high = rows.filter((r) => Number(r.predicted_p2x ?? 0) >= 0.3);
+/**
+ * Calibration factor = median of log(actual / raw prediction) on the channel's measured videos.
+ * Learned on the prediction BEFORE calibration (result.prediction.multipleRaw): learning on the
+ * calibrated value made the factor oscillate (×2 → predictions right → factor back to 1 → ...).
+ * Old rows without multipleRaw are de-calibrated with the factor they stored.
+ * Shrunk towards 1 while fewer than 10 videos are measured: exp(median × min(1, n / 10)).
+ */
+export function calibrationFrom(
+  rows: { predicted_multiple: number; actual_multiple: number; predicted_p2x: number | null; raw: number | null }[],
+) {
+  const ok = rows.filter((r) => Number(r.actual_multiple) > 0 && Number(r.raw ?? r.predicted_multiple) > 0);
+  if (ok.length < 3) return { factor: 1, n: ok.length, hits: null as null | { predictedHigh: number; actualHigh: number } };
+  const logs = ok.map((r) => Math.log(Number(r.actual_multiple) / Number(r.raw ?? r.predicted_multiple)));
+  const shrink = Math.min(1, ok.length / 10);
+  const factor = Math.min(3, Math.max(0.33, Math.exp(median(logs) * shrink)));
+  const high = ok.filter((r) => Number(r.predicted_p2x ?? 0) >= 0.3);
   return {
     factor: Math.round(factor * 100) / 100,
-    n: rows.length,
+    n: ok.length,
     hits: high.length ? { predictedHigh: high.length, actualHigh: high.filter((r) => Number(r.actual_multiple) >= 2).length } : null,
   };
+}
+
+export async function getCalibration(db: SupabaseClient, userId: string, userChannelId: string | null) {
+  let q = db
+    .from('preflight_checks')
+    .select('predicted_multiple, actual_multiple, predicted_p2x, result')
+    .eq('user_id', userId)
+    .not('actual_multiple', 'is', null)
+    .order('created_at', { ascending: false })
+    .limit(30);
+  if (userChannelId) q = q.eq('user_channel_id', userChannelId);
+  const { data } = await q;
+  const rows = ((data ?? []) as {
+    predicted_multiple: number;
+    actual_multiple: number;
+    predicted_p2x: number | null;
+    result: { prediction?: { multipleRaw?: number; calibration?: { factor?: number } } } | null;
+  }[]).map((r) => {
+    const pr = r.result?.prediction;
+    const stored = Number(pr?.calibration?.factor) > 0 ? Number(pr?.calibration?.factor) : 1;
+    const raw = Number(pr?.multipleRaw) > 0 ? Number(pr?.multipleRaw) : Number(r.predicted_multiple) / stored;
+    return { predicted_multiple: r.predicted_multiple, actual_multiple: r.actual_multiple, predicted_p2x: r.predicted_p2x, raw };
+  });
+  return calibrationFrom(rows);
 }
 
 // ── Évaluation ───────────────────────────────────────────────────────
@@ -219,7 +252,8 @@ export async function runPreflight(db: SupabaseClient, input: PreflightInput): P
   }
   const quality = [th?.score, sc?.score, vd?.score].filter((x): x is number => typeof x === 'number');
   const q = quality.length ? quality.reduce((a, b) => a + b, 0) / quality.length / 100 : 0.5;
-  const logFinal = logCore + Math.log(0.7 + 0.6 * q) + Math.log(calibration.factor);
+  const logRaw = logCore + Math.log(0.7 + 0.6 * q);
+  const logFinal = logRaw + Math.log(calibration.factor);
   const multiple = Math.round(Math.exp(logFinal) * 100) / 100;
   let p2x: number;
   let p10x: number;
@@ -250,6 +284,7 @@ export async function runPreflight(db: SupabaseClient, input: PreflightInput): P
       expectedViews: baselineViews ? Math.round(baselineViews * multiple) : null,
       baselineViews,
       calibration: { factor: calibration.factor, n: calibration.n },
+      multipleRaw: Math.round(Math.exp(logRaw) * 1000) / 1000,
       basis: model
         ? `Modèle entraîné sur ${nf(model.n)} vidéos suivies par TubLyTI, plus la ressemblance du titre avec les gagnants de ta niche.`
         : best.multiple === null
