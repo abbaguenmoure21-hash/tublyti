@@ -2,11 +2,11 @@
 
 import { useDraggable } from '@dnd-kit/core';
 import Link from 'next/link';
-import { Copy, Check, TrendingUp, TrendingDown, ArrowRightLeft } from 'lucide-react';
+import { Copy, Check, TrendingUp, TrendingDown, ArrowRightLeft, GripVertical } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import type { PipelineCard, PipelineColumn } from '../page';
-import { PHASE_LABELS, PhaseBadge } from '@/components/tublyti';
+import { PHASE_LABELS, PhaseBadge } from '@/components/tublyti/phase-badge';
 import { buttonVariants } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -89,17 +89,13 @@ export function KanbanCardComponent({
   }
 
   return (
+    // The card itself is not interactive (no nested-interactive): mouse/touch drag
+    // starts anywhere on it, keyboard drag only from the dedicated handle.
     <div
-      ref={(node) => {
-        setNodeRef(node);
-        setActivatorNodeRef(node);
-      }}
+      ref={setNodeRef}
       style={style}
       {...listeners}
-      {...attributes}
-      aria-roledescription="vidéo déplaçable"
-      aria-label={card.angleTitle}
-      className={`group elev-1 rounded-2xl bg-card p-4 outline-none transition-shadow hover:elev-2 focus-visible:ring-3 focus-visible:ring-ring/50 ${
+      className={`group elev-1 rounded-2xl bg-card p-4 transition-shadow hover:elev-2 ${
         column === 'measured' ? '' : 'cursor-grab active:cursor-grabbing'
       } ${isDragging ? 'elev-3 ring-1 ring-primary/30' : ''}`}
     >
@@ -109,10 +105,22 @@ export function KanbanCardComponent({
         <Link
           href={`/topics/${card.topicId}`}
           {...stopDrag}
-          className="truncate text-[13px] text-muted-foreground transition-colors hover:text-primary"
+          className="min-w-0 truncate text-[13px] text-muted-foreground transition-colors hover:text-primary"
         >
           {card.topicLabel}
         </Link>
+        {column && column !== 'measured' && !isDragging && (
+          <button
+            type="button"
+            ref={setActivatorNodeRef}
+            {...attributes}
+            aria-roledescription="poignée de déplacement"
+            aria-label={`Déplacer « ${card.angleTitle} »`}
+            className={`${buttonVariants({ variant: 'ghost', size: 'icon-sm' })} -my-1 ml-auto size-10 shrink-0 cursor-grab text-muted-foreground active:cursor-grabbing md:size-7`}
+          >
+            <GripVertical aria-hidden="true" />
+          </button>
+        )}
       </div>
 
       {/* Angle title */}
