@@ -50,7 +50,7 @@ import { syncReachReports } from '../lib/youtube/reporting';
 import { runThumbWatch } from '../lib/youtube/thumb-watch';
 import { ResendAlertSender, ConsoleAlertSender } from '../lib/email/resend-alerts';
 import { SupabaseJobRunner } from '../lib/jobs/supabase-runner';
-import { MIN_USEFUL_MS, planWindow, tailReserveMs } from '../lib/jobs/nightly-plan';
+import { DEFAULT_TARGET_MIN, MIN_USEFUL_MS, NIGHTLY_SHARES, planWindow, stepBudgetMs, stepMaxMs, tailReserveMs } from '../lib/jobs/nightly-plan';
 import {
   QuotaLedger,
   QuotaSoftLimitReached,
@@ -65,11 +65,15 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 const DEADLINE_MS = parseInt(process.env.NIGHTLY_DEADLINE_MIN ?? '15', 10) * 60 * 1000;
 const EMBED_MAX_PER_NIGHT = parseInt(process.env.EMBED_MAX_PER_NIGHT ?? '3000', 10);
 // Maximum time (ms) for attach and enrich-insufficient.
-const MIN_STEP_MS = 10 * 60 * 1000; // 10 minutes
-const THUMB_WATCH_MS = parseInt(process.env.THUMB_WATCH_MIN ?? '4', 10) * 60_000;
-const COMMENTS_MS = parseInt(process.env.COMMENTS_MIN ?? '8', 10) * 60_000;
-// 8 min maximum: remaining candidates go to the next night.
-const TRIAGE_MS = parseInt(process.env.TRIAGE_MIN ?? '8', 10) * 60_000;
+// Planned steps end by NIGHTLY_TARGET_MIN (default 65 min); classify + score use the tail before the deadline.
+const TARGET_MS = parseInt(process.env.NIGHTLY_TARGET_MIN ?? String(DEFAULT_TARGET_MIN), 10) * 60_000;
+// Explicit per-step overrides (minutes), otherwise the step's share of the budget (lib/jobs/nightly-plan.ts).
+const envMin = (name: string) => (process.env[name] ? parseInt(process.env[name]!, 10) * 60_000 : null);
+const STEP_OVERRIDES: Record<string, number | null> = {
+  'thumb-watch': envMin('THUMB_WATCH_MIN'),
+  comments: envMin('COMMENTS_MIN'),
+  'auto-triage': envMin('TRIAGE_MIN'),
+};
 // Fast closing steps (reject-stale, aggregate) and score always run, within this grace after the deadline.
 const GRACE_MS = 5 * 60_000;
 // Steps whose failure makes the GitHub run fail (red) — the workflow alert then fires too.
@@ -171,8 +175,12 @@ async function main() {
   const nightStartIso = new Date(start).toISOString();
   const deadline = start + DEADLINE_MS;
   const reserve = tailReserveMs(DEADLINE_MS);
+  const budget = stepBudgetMs(DEADLINE_MS, TARGET_MS);
+  const planEnd = start + budget;
   // Window for a step: its own maximum, minus the time kept for classify + score.
-  const win = (maxMs: number, reserveMs = reserve) => planWindow(Date.now(), deadline, maxMs, reserveMs).end;
+  // Window of a step: its share of the budget (or override), never past the planned end.
+  const stepMax = (kind: string) => STEP_OVERRIDES[kind] ?? stepMaxMs(kind, budget);
+  const win = (kind: string) => planWindow(Date.now(), planEnd, stepMax(kind), 0).end;
 
   // One quota counter for the whole process, starting from what was already spent this Pacific day.
   const day = pacificDay();
@@ -195,13 +203,14 @@ async function main() {
   const embedder: EmbeddingProvider | null = process.env.VOYAGE_API_KEY ? new VoyageEmbeddingProvider() : null;
   const noEmbedder = embedder ? null : 'VOYAGE_API_KEY missing';
 
-  console.log(`  Deadline ${DEADLINE_MS / 60000} min, tail reserve (classify + score) ${Math.round(reserve / 60000)} min`);
-  console.log(`  Embed cap: ${EMBED_MAX_PER_NIGHT} videos/night, attach/enrich max: ${MIN_STEP_MS / 60000}min each`);
+  const sumMax = NIGHTLY_SHARES.reduce((sum, [k]) => sum + stepMax(k), 0);
+  console.log(`  Deadline ${DEADLINE_MS / 60000} min, steps budget ${(budget / 60000).toFixed(0)} min (sum of step maxima ${(sumMax / 60000).toFixed(0)} min), tail reserve (classify + score) ${Math.round(reserve / 60000)} min`);
+  console.log(`  Embed cap: ${EMBED_MAX_PER_NIGHT} videos/night`);
 
   // ── Step 1: USER-CHANNELS (fast — ~1 API call per 50 channels) ──
   console.log('\n========== USER-CHANNELS ==========');
 
-  await runStep(runner, win(5 * 60_000), 'user-channels', async () => {
+  await runStep(runner, win('user-channels'), 'user-channels', async () => {
     const uc = await updateUserChannelSubs(db);
     console.log(`  Updated: ${uc.updated}, Handles resolved: ${uc.resolved}, Quota: ${uc.quotaUsed}`);
     return { items: uc.updated };
@@ -210,11 +219,7 @@ async function main() {
   // ── Step 2: COLLECT (signals + videos + snapshots) ────
   console.log('\n========== COLLECT ==========');
 
-  await runStep(runner, win(DEADLINE_MS * 0.30), 'collect', async (end) => {
-    console.log('  Signals (Trends, HN)...');
-    const signals = await collectSignals(db, end);
-    console.log(`    Trend: ${signals.trendPointsCollected}, Social: ${signals.socialPointsCollected}, YT: ${signals.ytViewPointsCollected}`);
-
+  await runStep(runner, win('collect'), 'collect', async (end) => {
     console.log('  Videos & snapshots...');
     const collect = await runCollect(db, yt, end);
     console.log(`    Channels: ${collect.channelsUpdated}, Videos: ${collect.videosDiscovered} (RSS: ${collect.videosFromRSS}, API: ${collect.videosFromAPI})`);
@@ -225,10 +230,20 @@ async function main() {
     return { items: collect.videosDiscovered + collect.snapshotsTaken + collect.commentsImported };
   });
 
+  // ── Step 2b: SIGNALS (Trends, HN, average views per topic) — own step, after the snapshots ──
+  // Before, it ran first inside « collect »: one read error there skipped the whole view collection.
+  console.log('\n========== SIGNALS ==========');
+
+  await runStep(runner, win('signals'), 'signals', async (end) => {
+    const signals = await collectSignals(db, end);
+    console.log(`  Trend: ${signals.trendPointsCollected}, Social: ${signals.socialPointsCollected}, YT: ${signals.ytViewPointsCollected}`);
+    return { items: signals.trendPointsCollected + signals.socialPointsCollected + signals.ytViewPointsCollected };
+  });
+
   // ── Step 3: EMBED (capped to EMBED_MAX_PER_NIGHT, most recent first) ──
   console.log('\n========== EMBED ==========');
 
-  await runStep(runner, win(DEADLINE_MS * 0.15), 'embed', async (end) => {
+  await runStep(runner, win('embed'), 'embed', async (end) => {
     const { embedded } = await runEmbedAll(db, embedder!, end, EMBED_MAX_PER_NIGHT);
     console.log(`  Embedded: ${embedded} videos (cap: ${EMBED_MAX_PER_NIGHT})`);
     return { items: embedded };
@@ -237,7 +252,7 @@ async function main() {
   // ── Step 4: ATTACH ──
   console.log('\n========== ATTACH ==========');
 
-  await runStep(runner, win(MIN_STEP_MS), 'attach', async (end) => {
+  await runStep(runner, win('attach'), 'attach', async (end) => {
     const { attached, orphans } = await runAttachAll(db, end, { incremental: true });
     console.log(`  Attached: ${attached}, Orphans: ${orphans}`);
     return { items: attached };
@@ -247,7 +262,7 @@ async function main() {
   console.log('\n========== ENRICH-INSUFFICIENT ==========');
 
   let enrichInsuffResult: { topicsProcessed: number; videosAttached: number; details: Record<string, number> } = { topicsProcessed: 0, videosAttached: 0, details: {} };
-  await runStep(runner, win(MIN_STEP_MS), 'enrich-insufficient', async (end) => {
+  await runStep(runner, win('enrich-insufficient'), 'enrich-insufficient', async (end) => {
     enrichInsuffResult = await runAttachInsufficient(db, end, { checkedSince: nightStartIso });
     console.log(`  Topics enriched: ${enrichInsuffResult.topicsProcessed}, Videos attached: ${enrichInsuffResult.videosAttached}`);
     if (enrichInsuffResult.topicsProcessed > 0) {
@@ -261,7 +276,7 @@ async function main() {
   // ── Step 5a: REACH (impressions et CTR des miniatures, YouTube Reporting API — sans quota Data API) ──
   console.log('\n========== REACH ==========');
 
-  await runStep(runner, win(5 * 60_000), 'reach', async (end) => {
+  await runStep(runner, win('reach'), 'reach', async (end) => {
     const r = await syncReachReports(db, end);
     console.log(`  Channels: ${r.channels}, New jobs: ${r.jobsCreated}, Files: ${r.files}, Rows: ${r.rows}${r.errors.length ? `, Errors: ${r.errors.join(' | ')}` : ''}`);
     if (r.errors.length && r.rows === 0 && r.channels > 0 && r.errors.length === r.channels) throw new Error(r.errors[0]);
@@ -271,7 +286,7 @@ async function main() {
   // ── Step 5a-bis: THUMB-WATCH (miniatures changées, empreinte d'image, 4 min max) ──
   console.log('\n========== THUMB-WATCH ==========');
 
-  await runStep(runner, win(THUMB_WATCH_MS), 'thumb-watch', async (end) => {
+  await runStep(runner, win('thumb-watch'), 'thumb-watch', async (end) => {
     const r = await runThumbWatch(db, end);
     console.log(`  Checked: ${r.checked}, Changed: ${r.changed}, Archived: ${r.archived}, Errors: ${r.errors}`);
     return { items: r.changed };
@@ -280,7 +295,7 @@ async function main() {
   // ── Step 5b: COMMENTS (own window: up to COMMENTS_MIN minutes, quota budget « comments ») ──
   console.log('\n========== COMMENTS ==========');
 
-  await runStep(runner, win(COMMENTS_MS), 'comments', async (end) => {
+  await runStep(runner, win('comments'), 'comments', async (end) => {
     const c = await runCommentIngestion(db, yt, end);
     console.log(`  Videos: ${c.videosChecked}, Comments: ${c.commentsImported}, Purged: ${c.commentsPurged}, Quota: ${c.quotaUsed}${c.stoppedByQuota ? ' (budget atteint)' : ''}${c.stoppedByTimeout ? ' (temps atteint)' : ''}`);
     return { items: c.commentsImported };
@@ -289,7 +304,7 @@ async function main() {
   // ── Step 6: DISCOVER-TOPICS (cluster orphans into new topics) ──
   console.log('\n========== DISCOVER-TOPICS ==========');
 
-  await runStep(runner, win(DEADLINE_MS * 0.20), 'discover-topics', async (end) => {
+  await runStep(runner, win('discover-topics'), 'discover-topics', async (end) => {
     // runClustering only reads stored embeddings (its embedder argument is unused).
     const clustering = await runClustering(db, embedder as EmbeddingProvider, end);
     console.log(`  Proposed: ${clustering.topicsProposed}`);
@@ -299,7 +314,7 @@ async function main() {
   // ── Step 7: QUALITY-GATES (reject single-channel-dominated topics) ──
   console.log('\n========== QUALITY-GATES ==========');
 
-  await runStep(runner, win(5 * 60_000), 'quality-gates', async () => {
+  await runStep(runner, win('quality-gates'), 'quality-gates', async () => {
     const gates = await runQualityGates(db);
     console.log(`  Rejected (mono-channel): ${gates.rejectedMonoChannel}`);
     console.log(`  Rejected (channel-name): ${gates.rejectedChannelName}`);
@@ -311,7 +326,7 @@ async function main() {
   console.log('\n========== SEARCH-EMERGING ==========');
 
   let emergingResult: EmergingSearchResult = { searchesPerformed: 0, videosFound: 0, videosAttached: 0, quotaUsed: 0 };
-  await runStep(runner, win(4 * 60_000), 'search-emerging', async (end) => {
+  await runStep(runner, win('search-emerging'), 'search-emerging', async (end) => {
     // yt.getQuotaUsed() = today's process-wide total (every step included).
     emergingResult = await searchForEmergingTopics(db, embedder!, end, yt.getQuotaUsed());
     console.log(`  Searches: ${emergingResult.searchesPerformed}, Found: ${emergingResult.videosFound}, Attached: ${emergingResult.videosAttached}, Candidate channels: ${emergingResult.channelsProposed ?? 0}`);
@@ -321,7 +336,7 @@ async function main() {
   // ── Step 9: SEARCH ──────────────────────────────────────────────
   console.log('\n========== SEARCH ==========');
 
-  await runStep(runner, win(6 * 60_000), 'search', async (end) => {
+  await runStep(runner, win('search'), 'search', async (end) => {
     const search = await runYouTubeSearch(db, end, yt.getQuotaUsed());
     console.log(`  Searches: ${search.searchesPerformed}, Discovered: ${search.videosDiscovered}`);
     return { items: search.videosDiscovered };
@@ -330,7 +345,7 @@ async function main() {
   // ── Step 10: DISCOVER-SOURCES (channelSections + search results) ─
   console.log('\n========== DISCOVER-SOURCES ==========');
 
-  await runStep(runner, win(4 * 60_000), 'discover-sources', async (end) => {
+  await runStep(runner, win('discover-sources'), 'discover-sources', async (end) => {
     const sources = await runDiscoverySources(db, end, 500);
     console.log(`  channelSections: ${sources.channelSections.channelsDiscovered} channels (${sources.channelSections.quotaUsed} quota)`);
     console.log(`  searchResults: ${sources.searchResults.channelsDiscovered} channels`);
@@ -340,7 +355,7 @@ async function main() {
   // ── Step 11: DISCOVER-CHANNELS (search for new channels in phase 1/2 topics) ─
   console.log('\n========== DISCOVER-CHANNELS ==========');
 
-  await runStep(runner, win(8 * 60_000), 'discover-channels', async (end) => {
+  await runStep(runner, win('discover-channels'), 'discover-channels', async (end) => {
     const disc = await discoverChannels(db, end, yt.getQuotaUsed());
     console.log(`  Searches: ${disc.searchesPerformed}, Channels: ${disc.channelsDiscovered}`);
     console.log(`  Faceless estimated: ${disc.facelessEstimated} ($${disc.estimatedCostUSD.toFixed(3)})`);
@@ -357,7 +372,7 @@ async function main() {
   // ── Step 12: AUTO-TRIAGE (enrich + classify pending candidates) ─
   console.log('\n========== AUTO-TRIAGE ==========');
 
-  await runStep(runner, win(TRIAGE_MS), 'auto-triage', async (end) => {
+  await runStep(runner, win('auto-triage'), 'auto-triage', async (end) => {
     const triage = await autoTriageCandidates(db, embedder, 100, end);
     console.log(`  Processed: ${triage.processed}, Accepted: ${triage.accepted}, Rejected: ${triage.rejected}, Manual: ${triage.manual}`);
     console.log(`  Enriched: ${triage.enriched}, Promoted: ${triage.promoted}`);
@@ -367,7 +382,7 @@ async function main() {
   // ── Step 13: EMBED-2 + ATTACH-2 (new videos from search) ──────
   console.log('\n========== EMBED+ATTACH (pass 2) ==========');
 
-  await runStep(runner, win(DEADLINE_MS * 0.10), 'embed-pass2', async (end) => {
+  await runStep(runner, win('embed-pass2'), 'embed-pass2', async (end) => {
     const embedded = embedder ? (await runEmbedAll(db, embedder, end)).embedded : 0;
     const { attached, orphans } = await runAttachAll(db, end, { incremental: true });
     console.log(`  Embedded: ${embedded}, Attached: ${attached}, Orphans: ${orphans}`);
@@ -379,7 +394,7 @@ async function main() {
 
   // Keeps its own minimum of 3 min, but never eats the time kept for score.
   const scoreReserve = Math.min(5 * 60_000, reserve);
-  const classifyEnd = Math.max(win(DEADLINE_MS * 0.15, scoreReserve), Math.min(Date.now() + 3 * 60_000, deadline - scoreReserve));
+  const classifyEnd = Math.max(Math.min(Date.now() + 5 * 60_000, deadline - scoreReserve), Math.min(Date.now() + 3 * 60_000, deadline));
   await runStep(runner, classifyEnd, 'classify', async (end) => {
     const classify = await runClassify(db, end);
     console.log(`  Submitted: ${classify.commentsSubmitted}, Labels: ${classify.labelsStored}`);
