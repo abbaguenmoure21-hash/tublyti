@@ -543,12 +543,12 @@ export default async function TopicPage({
                 competitors.map((c) => {
                   const tagInfo = COMPETITOR_TAGS[c.tag] ?? { label: c.tag, color: 'text-muted-foreground' };
                   return (
-                    <div key={c.id} className="px-5 py-3.5 border-b border-border flex gap-3.5 items-center last:border-0 hover:bg-muted/40 transition-colors">
+                    <div key={c.id} className="px-4 py-3.5 border-b border-border flex flex-wrap items-start gap-x-3 gap-y-2 last:border-0 hover:bg-muted/40 transition-colors md:px-5">
                       <a href={`https://youtube.com/watch?v=${c.id}`} target="_blank" rel="noopener noreferrer" className="shrink-0 relative group">
                         <img 
                           src={`https://i.ytimg.com/vi/${c.id}/mqdefault.jpg`} 
                           alt={c.title} 
-                          className="elev-1 aspect-video w-[96px] rounded-lg object-cover"
+                          className="elev-1 aspect-video w-[80px] rounded-lg object-cover"
                           loading="lazy"
                         />
                         <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center">
@@ -559,8 +559,8 @@ export default async function TopicPage({
                         <a href={`https://youtube.com/watch?v=${c.id}`} target="_blank" rel="noopener noreferrer" className="line-clamp-2 text-[13px] font-semibold leading-snug text-foreground hover:text-primary">
                           {c.title}
                         </a>
-                        <div className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
-                            <a href={`https://youtube.com/channel/${c.channelId}`} target="_blank" rel="noopener noreferrer" className="hover:underline truncate max-w-[120px]">
+                        <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[12px] text-muted-foreground">
+                          <a href={`https://youtube.com/channel/${c.channelId}`} target="_blank" rel="noopener noreferrer" className="hover:underline truncate max-w-[160px]">
                             {c.channelTitle}
                           </a>
                           <span>·</span>
@@ -568,7 +568,8 @@ export default async function TopicPage({
                           <span className="shrink-0">· {formatRelativeDate(c.publishedAt)} · {formatDuration(c.durationSec)}</span>
                         </div>
                       </div>
-                      <div className="flex items-center gap-2 shrink-0">
+                      {/* Actions under the text (the column is ≤ 400 px wide): the title keeps the full width. */}
+                      <div className="flex basis-full flex-wrap items-center gap-2 pl-[92px]">
                         <AnalyzeVideoButton videoId={c.id} title={c.title} variant="icon" />
                         {c.outlier && c.outlier.score >= 2 && <OutlierSaturationButton videoId={c.id} />}
                         {c.outlier && c.outlier.score >= 2 && (
