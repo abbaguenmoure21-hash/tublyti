@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { COMMENT_LABELS } from '@/lib/lexique';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Card, CardContent } from '@/components/ui/card';
@@ -25,6 +26,8 @@ interface FrustrationItem {
   commentText: string;
   likeCount: number;
   videoId: string;
+  /** Topic of the video: lets the user open it in Sujets. */
+  topicId: string | null;
   videoTitle: string;
   channelTitle: string;
   nicheName: string;
@@ -76,6 +79,7 @@ async function getFrustrations(ids: string[]): Promise<FrustrationItem[]> {
         videos!inner (
           id,
           title,
+          topic_id,
           channel_id,
           channels!inner (
             title,
@@ -111,6 +115,7 @@ async function getFrustrations(ids: string[]): Promise<FrustrationItem[]> {
         commentText: comment.text as string,
         likeCount: (comment.like_count as number) ?? 0,
         videoId: video.id as string,
+        topicId: (video.topic_id as string | null) ?? null,
         videoTitle: video.title as string,
         channelTitle: channel.title as string,
         nicheName: niche.name as string,
@@ -302,8 +307,8 @@ export default async function FrustrationsPage({
         </div>
         <div className="flex-1 p-6 md:px-12 md:py-10 flex flex-col gap-8 w-full max-w-[1400px] mx-auto">
           <h1 className="text-title-1 leading-tight">Que réclame ton public ?</h1>
-          <div className="bento-card !py-16 flex flex-col items-center justify-center text-center">
-            <div className="flex items-center justify-center w-14 h-14 rounded-2xl bg-primary/10 text-primary mb-5 shadow-[0_2px_8px_rgba(10,132,255,0.15)]">
+          <div className="rounded-xl bg-card py-16 flex flex-col items-center justify-center text-center">
+            <div className="flex items-center justify-center w-14 h-14 rounded-2xl bg-primary/10 text-primary mb-5">
               <MessageSquareWarning className="size-7" />
             </div>
             <p className="text-title-3 mb-2">
@@ -388,24 +393,26 @@ export default async function FrustrationsPage({
         </header>
 
       {/* Tab bar */}
-      <div className="flex gap-1 p-1 bg-black/5 dark:bg-white/5 rounded-2xl border border-black/5 dark:border-white/5 shadow-inner w-fit">
-        <a
+      <nav aria-label="Vue" className="well inline-flex max-w-full gap-0.5 self-start overflow-x-auto rounded-[12px] bg-muted p-[3px]">
+        <Link
           href="/frustrations"
-          className={`h-[36px] px-4 rounded-[12px] text-[13px] transition-all flex items-center gap-2 cursor-pointer ${
+          aria-current={tab !== 'outliers' ? 'true' : undefined}
+          className={`flex h-8 shrink-0 items-center gap-2 rounded-[9px] px-3.5 text-[13px] transition-all ${
             tab !== 'outliers'
-              ? 'bg-white dark:bg-[#1C1C1E] text-foreground font-semibold shadow-[0_2px_8px_rgba(0,0,0,0.08)] border border-black/5 dark:border-white/10'
-              : 'text-muted-foreground font-medium hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5 border border-transparent'
+              ? 'elev-1 bg-card text-foreground font-semibold'
+              : 'text-muted-foreground font-medium hover:text-foreground'
           }`}
         >
           <MessageSquareWarning className="w-[15px] h-[15px]" />
           Ce que le public réclame
-        </a>
-        <a
+        </Link>
+        <Link
           href="/frustrations?tab=outliers"
-          className={`h-[36px] px-4 rounded-[12px] text-[13px] transition-all flex items-center gap-2 cursor-pointer ${
+          aria-current={tab === 'outliers' ? 'true' : undefined}
+          className={`flex h-8 shrink-0 items-center gap-2 rounded-[9px] px-3.5 text-[13px] transition-all ${
             tab === 'outliers'
-              ? 'bg-white dark:bg-[#1C1C1E] text-foreground font-semibold shadow-[0_2px_8px_rgba(0,0,0,0.08)] border border-black/5 dark:border-white/10'
-              : 'text-muted-foreground font-medium hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5 border border-transparent'
+              ? 'elev-1 bg-card text-foreground font-semibold'
+              : 'text-muted-foreground font-medium hover:text-foreground'
           }`}
         >
           <TrendingUp className="w-[15px] h-[15px]" />
@@ -413,8 +420,8 @@ export default async function FrustrationsPage({
           {outlierVideos.length > 0 && (
             <Badge variant="secondary" className="ml-1 text-[11px] h-5 rounded-md px-1.5">{outlierVideos.length}</Badge>
           )}
-        </a>
-      </div>
+        </Link>
+      </nav>
 
       {/* Outliers tab content */}
       {tab === 'outliers' && (
@@ -425,7 +432,7 @@ export default async function FrustrationsPage({
             </p>
           </div>
           {outlierVideos.length === 0 ? (
-            <div className="bg-white/60 dark:bg-white/5 backdrop-blur-2xl border border-white/40 dark:border-white/10 shadow-sm rounded-[24px] py-16 flex flex-col items-center justify-center text-center gap-3">
+            <div className="bg-card rounded-xl py-16 flex flex-col items-center justify-center text-center gap-3">
               <Search className="w-10 h-10 text-muted-foreground/30" />
               <p className="text-[15px] text-muted-foreground font-medium">
                 Aucune petite chaîne n’a surperformé récemment.
@@ -439,9 +446,9 @@ export default async function FrustrationsPage({
                   href={`https://www.youtube.com/watch?v=${v.videoId}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="group flex flex-col bg-white/60 dark:bg-white/5 backdrop-blur-xl border border-black/5 dark:border-white/10 rounded-[24px] overflow-hidden shadow-[0_4px_20px_rgb(0,0,0,0.03)] hover:shadow-[0_8px_30px_rgb(0,0,0,0.08)] hover:-translate-y-1 transition-all"
+                  className="group flex flex-col bg-card rounded-xl overflow-hidden transition-colors hover:bg-muted/40"
                 >
-                  <div className="relative aspect-video w-full bg-black/5 dark:bg-white/5 overflow-hidden">
+                  <div className="relative aspect-video w-full bg-muted overflow-hidden">
                     {v.thumbnailUrl ? (
                       <img src={v.thumbnailUrl} alt={v.videoTitle} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
                     ) : (
@@ -462,10 +469,10 @@ export default async function FrustrationsPage({
                       </h3>
                     </div>
                     
-                    <div className="flex items-center gap-3 mt-auto pt-2 border-t border-black/5 dark:border-white/10">
+                    <div className="flex items-center gap-3 mt-auto pt-2 border-t border-border">
                       <Avatar className="w-[34px] h-[34px] ring-2 ring-background shadow-sm">
                         <AvatarImage src={`https://unavatar.io/youtube/${v.channelId}`} alt={v.channelTitle} />
-                        <AvatarFallback className="bg-black/5 dark:bg-white/10 font-bold text-xs">{v.channelTitle.charAt(0)}</AvatarFallback>
+                        <AvatarFallback className="bg-muted font-bold text-xs">{v.channelTitle.charAt(0)}</AvatarFallback>
                       </Avatar>
                       <div className="flex flex-col min-w-0">
                         <span className="text-[13px] font-bold text-foreground truncate">{v.channelTitle}</span>
@@ -495,12 +502,12 @@ export default async function FrustrationsPage({
 
             return (
               <Dialog key={group.id}>
-                <DialogTrigger render={<button type="button" className="w-full cursor-pointer group flex flex-col gap-3 bg-white/40 dark:bg-white/5 backdrop-blur-xl border border-black/5 dark:border-white/10 rounded-[28px] p-6 shadow-sm hover:shadow-[0_8px_30px_rgb(0,0,0,0.06)] hover:bg-white/60 dark:hover:bg-white/10 transition-all text-left" />}>
+                <DialogTrigger render={<button type="button" className="w-full cursor-pointer group flex flex-col gap-3 bg-card rounded-xl p-6 text-left transition-colors hover:bg-muted/40" />}>
                   <div className="flex justify-between items-start">
-                      <div className={`p-3 rounded-2xl bg-white dark:bg-black/20 shadow-sm border border-black/5 dark:border-white/10 ${group.colorClass}`}>
+                      <div className={`p-3 rounded-2xl bg-primary-soft ${group.colorClass}`}>
                         <Icon className="w-7 h-7" />
                       </div>
-                      <Badge variant="secondary" className="rounded-full px-3 py-1 bg-black/5 dark:bg-white/10 font-bold text-[14px]">
+                      <Badge variant="secondary" className="rounded-full px-3 py-1 bg-muted font-bold text-[14px]">
                         {groupItems.length}
                       </Badge>
                     </div>
@@ -515,14 +522,14 @@ export default async function FrustrationsPage({
                 </DialogTrigger>
 
                 <DialogContent className="w-full sm:max-w-[1000px] h-[85vh] flex flex-col gap-0 p-0 overflow-hidden bg-background/95 backdrop-blur-3xl border border-glass rounded-[32px] shadow-2xl">
-                  <DialogHeader className="p-6 md:p-8 border-b border-black/5 dark:border-white/10 bg-black/5 dark:bg-white/5 shrink-0">
+                  <DialogHeader className="p-6 md:p-8 border-b border-border bg-muted/40 shrink-0">
                     <DialogTitle className="flex flex-col gap-1 text-left">
                       <div className="flex items-center gap-3">
-                        <div className={`p-2 rounded-xl bg-background shadow-sm border border-black/5 dark:border-white/10 ${group.colorClass}`}>
+                        <div className={`p-2 rounded-xl bg-primary-soft ${group.colorClass}`}>
                           <Icon className="w-5 h-5" />
                         </div>
                         <span className="text-[24px] font-bold text-foreground">{group.title}</span>
-                        <Badge variant="secondary" className="ml-1 rounded-full px-2.5 py-0.5 bg-black/5 dark:bg-white/10 font-bold">
+                        <Badge variant="secondary" className="ml-1 rounded-full px-2.5 py-0.5 bg-muted font-bold">
                           {groupItems.length}
                         </Badge>
                       </div>
@@ -530,16 +537,16 @@ export default async function FrustrationsPage({
                     </DialogTitle>
                   </DialogHeader>
 
-                  <div className="flex-1 overflow-y-auto p-6 md:p-8 bg-black/5 dark:bg-transparent">
+                  <div className="flex-1 overflow-y-auto p-6 md:p-8 bg-muted/40">
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
                       {groupItems.map((item) => (
                         <div
                           key={item.commentId}
-                          className="bg-white/80 dark:bg-white/5 backdrop-blur-2xl border border-black/5 dark:border-white/10 shadow-sm rounded-[24px] transition-all hover:shadow-md flex flex-col"
+                          className="bg-card border border-border rounded-xl flex flex-col"
                         >
                           <div className="p-6 flex flex-col h-full">
                             {/* Video context */}
-                            <div className="mb-4 pb-4 border-b border-black/5 dark:border-white/10">
+                            <div className="mb-4 pb-4 border-b border-border">
                               <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider mb-1.5">{item.nicheName}</p>
                               <a 
                                 href={`https://www.youtube.com/watch?v=${item.videoId}`}
@@ -569,7 +576,7 @@ export default async function FrustrationsPage({
 
                             {/* Meta & actions */}
                             <div className="flex flex-wrap items-center justify-between gap-3 mt-auto pt-2">
-                              <span className="flex items-center gap-1.5 text-[12px] font-bold text-muted-foreground bg-black/5 dark:bg-white/5 px-2.5 py-1.5 rounded-lg">
+                              <span className="flex items-center gap-1.5 text-[12px] font-bold text-muted-foreground bg-muted px-2.5 py-1.5 rounded-lg">
                                 <ThumbsUp className="w-[14px] h-[14px]" />
                                 {item.likeCount}
                                 {/* Model certainty: admin only (meaningless for a client). */}
@@ -581,6 +588,15 @@ export default async function FrustrationsPage({
                                   </>
                                 )}
                               </span>
+
+                              {item.topicId && (
+                                <Link
+                                  href={`/sujets?sujet=${item.topicId}&moment=tous`}
+                                  className="inline-flex h-8 items-center rounded-lg px-2.5 text-[13px] font-semibold text-primary hover:bg-primary-soft"
+                                >
+                                  Voir le sujet
+                                </Link>
+                              )}
 
                               {isAdmin && (
                                 <LabelCorrector
