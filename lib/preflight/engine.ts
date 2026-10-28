@@ -4,6 +4,7 @@ import { scoreScript, scoreThumbnail, type ScriptScore, type ThumbnailScore } fr
 import { geminiEnabled } from '../ai/gemini';
 import { deleteFile, scoreVideoFile, type VideoFileScore } from './video-file';
 import { loadModel, plannedContext, predictWithModel, probAbove, type ModelPrediction } from '../predictor/predict';
+import { getVideoReachTotals } from '../youtube/reach-totals';
 
 const nf = (n: number) => new Intl.NumberFormat('fr-FR').format(n);
 
@@ -386,15 +387,8 @@ export async function refreshAndFollow(db: SupabaseClient, userId: string, userC
   const recent = videos.filter((v) => now - v.publishedMs <= 21 * 86_400_000).slice(0, 10);
   const ctrById = new Map<string, number>();
   if (recent.length) {
-    const { data } = await db.from('video_reach_daily').select('video_id, impressions, ctr').eq('user_channel_id', userChannelId).in('video_id', recent.map((v) => v.id));
-    const agg = new Map<string, { imp: number; clicks: number }>();
-    for (const r of (data ?? []) as { video_id: string; impressions: number; ctr: number | null }[]) {
-      const a = agg.get(r.video_id) ?? { imp: 0, clicks: 0 };
-      a.imp += Number(r.impressions) || 0;
-      a.clicks += (Number(r.impressions) || 0) * (Number(r.ctr) || 0);
-      agg.set(r.video_id, a);
-    }
-    for (const [id, a] of agg) if (a.imp > 0) ctrById.set(id, a.clicks / a.imp);
+    const agg = await getVideoReachTotals(db, userChannelId, recent.map((v) => v.id));
+    for (const [id, a] of agg) if (a.impressions > 0) ctrById.set(id, a.clicks / a.impressions);
   }
   const follow: FollowRow[] = recent.map((v) => {
     const ageDays = Math.max(0, (now - v.publishedMs) / 86_400_000);
