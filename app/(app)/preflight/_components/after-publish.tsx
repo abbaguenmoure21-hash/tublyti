@@ -48,7 +48,12 @@ export function FollowUp({ rows }: { rows: FollowRow[] }) {
                 <span className="text-[13px] leading-snug">{r.advice}</span>
               </div>
               <div className="flex shrink-0 items-center gap-2">
-                {r.multiple !== null && <span className="text-[15px] font-semibold tabular-nums">{times(r.multiple)}</span>}
+                {r.multiple !== null && (
+                  <span className="text-[15px] font-semibold tabular-nums" title="Par rapport à tes vidéos précédentes au même âge">
+                    {times(r.multiple)}
+                    <span className="sr-only"> par rapport à tes vidéos précédentes au même âge</span>
+                  </span>
+                )}
                 <span className={`rounded-full px-2 py-0.5 text-[12px] font-semibold ${STATUS[r.status].cls}`}>{STATUS[r.status].label}</span>
               </div>
             </li>
@@ -86,7 +91,7 @@ export function History({
           {calibration.n >= 3
             ? ` Sur tes ${calibration.n} vidéos mesurées, tes résultats valent en moyenne ${times(calibration.factor)} la prédiction : les prochaines en tiennent compte.`
             : ` Encore ${3 - calibration.n} vidéo${3 - calibration.n > 1 ? 's' : ''} mesurée${3 - calibration.n > 1 ? 's' : ''} avant que le modèle se recale sur ta chaîne.`}
-          {calibration.hits && ` Vidéos annoncées avec au moins 30 % de chances de faire ×2 : ${calibration.hits.actualHigh} sur ${calibration.hits.predictedHigh} l’ont fait.`}
+          {calibration.hits && ` Vidéos annoncées avec au moins 30 % de chances de doubler tes vues habituelles :${calibration.hits.actualHigh} sur ${calibration.hits.predictedHigh} l’ont fait.`}
         </p>
       </div>
       {checks.length === 0 ? (
@@ -103,9 +108,9 @@ export function History({
               <tr className="text-left text-[13px] text-muted-foreground">
                 <th className="px-4 py-2.5 font-medium">Date</th>
                 <th className="px-3 py-2.5 font-medium">Titre évalué</th>
-                <th className="px-3 py-2.5 text-right font-medium">Note</th>
-                <th className="px-3 py-2.5 text-right font-medium">Prévu</th>
-                <th className="px-3 py-2.5 text-right font-medium">Réel à 7 j</th>
+                <th className="px-3 py-2.5 text-right font-medium">Note /100</th>
+                <th className="px-3 py-2.5 text-right font-medium">Prévu (× tes vues habituelles)</th>
+                <th className="px-3 py-2.5 text-right font-medium">Réel à 7 jours</th>
                 <th className="px-4 py-2.5 font-medium">Vidéo publiée</th>
               </tr>
             </thead>

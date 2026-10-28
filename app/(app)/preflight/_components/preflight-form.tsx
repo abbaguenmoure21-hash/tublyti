@@ -10,7 +10,18 @@ import { HOOK_TYPES } from '@/lib/preflight/hook-types';
 import { PhaseBadge } from '@/components/tublyti/phase-badge';
 
 const nf = new Intl.NumberFormat('fr-FR');
-const pct = (x: number) => `${Math.round(x * 100)} %`;
+/** Probability: "moins de 1 %" under 1 %, one decimal under 10 % (never a misleading "0 %"). */
+const pct = (x: number) => {
+  const v = x * 100;
+  if (v < 1) return 'moins de 1 %';
+  return `${v < 10 ? v.toLocaleString('fr-FR', { maximumFractionDigits: 1 }) : Math.round(v)} %`;
+};
+/** Point estimates are rounded to 2 significant digits: the precision is not real. */
+const roughly = (n: number) => {
+  if (n < 100) return Math.round(n);
+  const p = 10 ** (Math.floor(Math.log10(n)) - 1);
+  return Math.round(n / p) * p;
+};
 const times = (m: number) => `×${m.toLocaleString('fr-FR', { maximumFractionDigits: 1 })}`;
 
 /** Réduit l'image côté navigateur (1280 px de large, JPEG) pour un envoi léger. */
@@ -234,20 +245,24 @@ function ResultView({ r }: { r: PreflightResult }) {
           <dl className="grid grid-cols-2 gap-2 sm:grid-cols-3">
             <div className="rounded-xl bg-background px-3 py-2.5">
               <dt className="text-[12px] text-muted-foreground">Vues attendues</dt>
-              <dd className="text-[20px] font-semibold tabular-nums">{times(p.multiple)}</dd>
-              <dd className="text-[12px] text-muted-foreground">{p.expectedViews ? `≈ ${nf.format(p.expectedViews)} vues` : 'tes vues habituelles'}</dd>
+              <dd className="text-[20px] font-semibold tabular-nums">
+                {times(p.multiple)}
+                {p.multiple < 1 && <span className="ml-1.5 text-[13px] font-medium text-muted-foreground">{`−${Math.round((1 - p.multiple) * 100)} %`}</span>}
+              </dd>
+              <dd className="text-[12px] text-muted-foreground">{p.expectedViews ? `≈ ${nf.format(roughly(p.expectedViews))} vues · ` : ''}tes vues habituelles</dd>
             </div>
             <div className="rounded-xl bg-background px-3 py-2.5">
-              <dt className="text-[12px] text-muted-foreground">Chances de faire ×2</dt>
+              <dt className="text-[12px] text-muted-foreground">Chances de doubler tes vues habituelles</dt>
               <dd className="text-[20px] font-semibold tabular-nums">{pct(p.p2x)}</dd>
               <dd className="text-[12px] text-muted-foreground">niche : {pct(r.nichePrior.p2x)}</dd>
             </div>
             <div className="rounded-xl bg-background px-3 py-2.5">
-              <dt className="text-[12px] text-muted-foreground">Chances de faire ×10</dt>
+              <dt className="text-[12px] text-muted-foreground">Chances de les multiplier par 10</dt>
               <dd className="text-[20px] font-semibold tabular-nums">{pct(p.p10x)}</dd>
               <dd className="text-[12px] text-muted-foreground">niche : {pct(r.nichePrior.p10x)}</dd>
             </div>
           </dl>
+          <p className="text-[12px] text-muted-foreground">×2 = deux fois les vues habituelles de la chaîne ; ×0,8 = 20 % de moins que d’habitude.</p>
           <p className="text-[13px] leading-relaxed text-muted-foreground">
             {p.basis}{' '}
             {p.calibration.n >= 3
@@ -364,8 +379,8 @@ function TitleCard({ t, best }: { t: TitleScore; best: boolean }) {
         <span className={`rounded-full px-2.5 py-0.5 text-[13px] font-semibold tabular-nums ${tone(t.score)}`}>{t.score}/100</span>
       </div>
       <dl className="flex flex-wrap gap-x-6 gap-y-1 text-[13px]">
-        <div><dt className="inline text-muted-foreground">Titres proches dans la niche : </dt><dd className="inline font-medium tabular-nums">{t.multiple === null ? '—' : times(t.multiple)}</dd></div>
-        <div><dt className="inline text-muted-foreground">×2 : </dt><dd className="inline font-medium tabular-nums">{t.p2x === null ? '—' : pct(t.p2x)}</dd></div>
+        <div><dt className="inline text-muted-foreground">Vidéos au titre proche : </dt><dd className="inline font-medium tabular-nums">{t.multiple === null ? '—' : `${times(t.multiple)} leurs vues habituelles`}</dd></div>
+        <div><dt className="inline text-muted-foreground">Chances de doubler : </dt><dd className="inline font-medium tabular-nums">{t.p2x === null ? '—' : pct(t.p2x)}</dd></div>
         <div><dt className="inline text-muted-foreground">Forme : </dt><dd className="inline font-medium tabular-nums">{t.formScore}/100</dd></div>
       </dl>
       <ul className="grid gap-1.5 sm:grid-cols-2">
@@ -381,6 +396,7 @@ function TitleCard({ t, best }: { t: TitleScore; best: boolean }) {
           {t.winners.length > 0 && (
             <div className="flex flex-col gap-1.5">
               <span className="text-[12px] font-semibold uppercase tracking-[0.04em] text-muted-foreground">Proches et gagnants · inspire-toi</span>
+              <span className="text-[12px] text-muted-foreground">×N = vues de la vidéo par rapport aux vues habituelles de sa chaîne</span>
               {t.winners.map((w) => (
                 <a key={w.videoId} href={`https://www.youtube.com/watch?v=${w.videoId}`} target="_blank" rel="noreferrer" className="flex items-start justify-between gap-3 rounded-lg px-2 py-1.5 text-[13px] hover:bg-muted">
                   <span className="min-w-0">
