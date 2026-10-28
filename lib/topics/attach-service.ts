@@ -1,4 +1,5 @@
 import { SupabaseClient } from '@supabase/supabase-js';
+import { isMissingColumn, markChecked, needsFullScan, saveFullScan, topicSignature } from './scan-state';
 
 const SAME_NICHE_THRESHOLD = 0.66;
 const CROSS_NICHE_THRESHOLD = 0.75;
@@ -57,7 +58,8 @@ interface TopicRef {
 export async function runAttachAll(
   db: SupabaseClient,
   deadlineMs: number,
-): Promise<{ attached: number; orphans: number }> {
+  opts: { incremental?: boolean } = {},
+): Promise<{ attached: number; orphans: number; scanned?: number; mode?: 'full' | 'incremental' }> {
   // Load topics with embeddings
   const { data: topics } = await db
     .from('topics')
@@ -86,6 +88,13 @@ export async function runAttachAll(
   }
   const channelNiche = new Map(channels.map((c) => [c.id, c.niche_id]));
 
+  // Incremental mode (nightly): only videos never compared, unless the topic set changed (scan-state.ts).
+  const signature = topicSignature(topicList.map((t) => t.id));
+  let incremental = Boolean(opts.incremental) && !(await needsFullScan(db, 'attach_scan_state', signature));
+  let hasCheckedCol = Boolean(opts.incremental);
+  let scanned = 0;
+  let stoppedByTimeout = false;
+
   const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
   // Keyset pagination on id: attaching a video removes it from the `topic_id is null` filter, so the old
   // `offset += page` skipped as many unseen videos as had just been attached (and range() had no order).
@@ -94,19 +103,32 @@ export async function runAttachAll(
   let totalOrphans = 0;
   const touchedTopics = new Set<string>();
 
-  while (Date.now() < deadlineMs) {
-    const { data: videos, error: vErr } = await db
+  const page = (onlyUnchecked: boolean) => {
+    let q = db
       .from('videos')
       .select('id, channel_id, title_embedding')
       .is('topic_id', null)
       .not('title_embedding', 'is', null)
       .gte('published_at', cutoff)
-      .gt('id', lastId)
-      .order('id')
-      .limit(PAGE_SIZE);
+      .gt('id', lastId);
+    if (onlyUnchecked) q = q.is('attach_checked_at', null);
+    return q.order('id').limit(PAGE_SIZE);
+  };
+
+  while (true) {
+    if (Date.now() >= deadlineMs) { stoppedByTimeout = true; break; }
+    let { data: videos, error: vErr } = await page(incremental && hasCheckedCol);
+    if (vErr && hasCheckedCol && isMissingColumn(vErr.message, 'attach_checked_at')) {
+      console.warn('  [attach] videos.attach_checked_at absent (migration 00033) — full scan');
+      hasCheckedCol = false;
+      incremental = false;
+      ({ data: videos, error: vErr } = await page(false));
+    }
     if (vErr) throw new Error(`attach: read orphan videos: ${vErr.message}`);
 
     if (!videos?.length) break;
+    scanned += videos.length;
+    const toAttach = new Map<string, string[]>();
 
     for (const video of videos) {
       const videoEmb = parseEmbedding(video.title_embedding);
@@ -131,21 +153,27 @@ export async function runAttachAll(
       }
 
       // Tier 1: same-niche ≥ 0.68 (preferred)
-      if (bestSameTopicId && bestSameSim >= SAME_NICHE_THRESHOLD) {
-        await db.from('videos').update({ topic_id: bestSameTopicId }).eq('id', video.id);
-        totalAttached++;
-        touchedTopics.add(bestSameTopicId);
-      }
-      // Tier 2: cross-niche ≥ 0.75 (fallback)
-      else if (bestCrossTopicId && bestCrossSim >= CROSS_NICHE_THRESHOLD) {
-        await db.from('videos').update({ topic_id: bestCrossTopicId }).eq('id', video.id);
-        totalAttached++;
-        touchedTopics.add(bestCrossTopicId);
-      }
-      else {
+      const target = bestSameTopicId && bestSameSim >= SAME_NICHE_THRESHOLD
+        ? bestSameTopicId
+        // Tier 2: cross-niche ≥ 0.75 (fallback)
+        : bestCrossTopicId && bestCrossSim >= CROSS_NICHE_THRESHOLD ? bestCrossTopicId : null;
+      if (target) {
+        const list = toAttach.get(target) ?? [];
+        list.push(video.id);
+        toAttach.set(target, list);
+      } else {
         totalOrphans++;
       }
     }
+
+    // One update per target topic (was one per video).
+    for (const [topicId, ids] of toAttach) {
+      const { error: upErr } = await db.from('videos').update({ topic_id: topicId }).in('id', ids);
+      if (upErr) { console.error(`  [attach] update: ${upErr.message}`); continue; }
+      totalAttached += ids.length;
+      touchedTopics.add(topicId);
+    }
+    if (hasCheckedCol) await markChecked(db, videos.map((v) => v.id));
 
     lastId = videos[videos.length - 1]!.id;
     if (videos.length < PAGE_SIZE) break;
@@ -172,5 +200,11 @@ export async function runAttachAll(
     await db.from('topics').update({ embedding: formatVector(avg) }).eq('id', topicId);
   }
 
-  return { attached: totalAttached, orphans: totalOrphans };
+  // A complete full scan resets the reference: next nights only compare new videos.
+  if (opts.incremental && hasCheckedCol && !incremental && !stoppedByTimeout) {
+    await saveFullScan(db, 'attach_scan_state', signature);
+  }
+  console.log(`  [attach] ${incremental ? 'incremental' : 'full'} scan: ${scanned} orphan vectors read`);
+
+  return { attached: totalAttached, orphans: totalOrphans, scanned, mode: incremental ? 'incremental' : 'full' };
 }

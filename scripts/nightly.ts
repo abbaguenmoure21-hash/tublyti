@@ -168,6 +168,7 @@ async function main() {
   const db = createClient(supabaseUrl, serviceKey);
   nightDb = db;
   const start = Date.now();
+  const nightStartIso = new Date(start).toISOString();
   const deadline = start + DEADLINE_MS;
   const reserve = tailReserveMs(DEADLINE_MS);
   // Window for a step: its own maximum, minus the time kept for classify + score.
@@ -237,7 +238,7 @@ async function main() {
   console.log('\n========== ATTACH ==========');
 
   await runStep(runner, win(MIN_STEP_MS), 'attach', async (end) => {
-    const { attached, orphans } = await runAttachAll(db, end);
+    const { attached, orphans } = await runAttachAll(db, end, { incremental: true });
     console.log(`  Attached: ${attached}, Orphans: ${orphans}`);
     return { items: attached };
   });
@@ -247,7 +248,7 @@ async function main() {
 
   let enrichInsuffResult: { topicsProcessed: number; videosAttached: number; details: Record<string, number> } = { topicsProcessed: 0, videosAttached: 0, details: {} };
   await runStep(runner, win(MIN_STEP_MS), 'enrich-insufficient', async (end) => {
-    enrichInsuffResult = await runAttachInsufficient(db, end);
+    enrichInsuffResult = await runAttachInsufficient(db, end, { checkedSince: nightStartIso });
     console.log(`  Topics enriched: ${enrichInsuffResult.topicsProcessed}, Videos attached: ${enrichInsuffResult.videosAttached}`);
     if (enrichInsuffResult.topicsProcessed > 0) {
       for (const [label, count] of Object.entries(enrichInsuffResult.details)) {
@@ -368,7 +369,7 @@ async function main() {
 
   await runStep(runner, win(DEADLINE_MS * 0.10), 'embed-pass2', async (end) => {
     const embedded = embedder ? (await runEmbedAll(db, embedder, end)).embedded : 0;
-    const { attached, orphans } = await runAttachAll(db, end);
+    const { attached, orphans } = await runAttachAll(db, end, { incremental: true });
     console.log(`  Embedded: ${embedded}, Attached: ${attached}, Orphans: ${orphans}`);
     return { items: embedded + attached };
   });

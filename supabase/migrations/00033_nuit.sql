@@ -36,6 +36,12 @@ revoke all on function public.increment_yt_quota(date, text, integer) from publi
 alter table public.videos add column if not exists comments_fetched_at timestamptz;
 alter table public.videos add column if not exists comments_disabled boolean not null default false;
 
+-- ── Rattachement incrémental : une vidéo orpheline déjà comparée aux mêmes sujets n'est plus retestée ──
+alter table public.videos add column if not exists attach_checked_at timestamptz;
+create index if not exists idx_videos_orphans_unchecked
+  on public.videos (id)
+  where topic_id is null and title_embedding is not null and attach_checked_at is null;
+
 -- ── Découverte par sections : date du dernier passage par chaîne ──────────────────────
 alter table public.channels add column if not exists sections_scanned_at timestamptz;
 create index if not exists idx_channels_sections_scanned on public.channels (sections_scanned_at nulls first);

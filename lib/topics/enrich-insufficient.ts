@@ -10,6 +10,7 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import type { EmbeddingProvider } from '../providers/embeddings';
 import { searchSingle } from '../youtube/search';
 import { getQuotaSoftLimit } from '../youtube/quota';
+import { isMissingColumn, needsFullScan, saveFullScan, topicSignature } from './scan-state';
 
 const ATTACH_THRESHOLD = 0.72;
 const MAX_ATTACH_PER_TOPIC = 40;
@@ -135,6 +136,8 @@ async function loadInsufficientTopics(db: SupabaseClient): Promise<InsufficientT
 export async function runAttachInsufficient(
   db: SupabaseClient,
   deadlineMs: number,
+  /** Nightly: only videos first compared by `attach` since this instant, unless the insufficient-topic set changed. */
+  opts: { checkedSince?: string } = {},
 ): Promise<AttachInsufficientResult> {
   const result: AttachInsufficientResult = {
     topicsProcessed: 0, videosAttached: 0, details: {},
@@ -169,19 +172,34 @@ export async function runAttachInsufficient(
   // Keyset on id (attached videos leave the filter: offset pagination skipped unseen videos).
   let lastId = '';
 
-  while (Date.now() < deadlineMs) {
-    const { data: videos, error: vErr } = await db
+  const signature = topicSignature(insufficientTopics.map((t) => t.id));
+  let incremental = Boolean(opts.checkedSince) && !(await needsFullScan(db, 'enrich_scan_state', signature));
+  let stoppedByTimeout = false;
+  let scanned = 0;
+  const page = (since: string | null) => {
+    let q = db
       .from('videos')
       .select('id, channel_id, title_embedding')
       .is('topic_id', null)
       .not('title_embedding', 'is', null)
       .gte('published_at', cutoff30d)
-      .gt('id', lastId)
-      .order('id')
-      .limit(PAGE);
+      .gt('id', lastId);
+    if (since) q = q.gte('attach_checked_at', since);
+    return q.order('id').limit(PAGE);
+  };
+
+  while (true) {
+    if (Date.now() >= deadlineMs) { stoppedByTimeout = true; break; }
+    let { data: videos, error: vErr } = await page(incremental ? opts.checkedSince! : null);
+    if (vErr && incremental && isMissingColumn(vErr.message, 'attach_checked_at')) {
+      incremental = false;
+      ({ data: videos, error: vErr } = await page(null));
+    }
     if (vErr) throw new Error(`enrich-insufficient: read orphan videos: ${vErr.message}`);
 
     if (!videos?.length) break;
+    scanned += videos.length;
+    const toAttach = new Map<string, string[]>();
 
     for (const video of videos) {
       const nicheId = channelNiche.get(video.channel_id);
@@ -207,16 +225,30 @@ export async function runAttachInsufficient(
       }
 
       if (bestTopic) {
-        await db.from('videos').update({ topic_id: bestTopic.id }).eq('id', video.id);
-        const count = (attachCount.get(bestTopic.id) ?? 0) + 1;
-        attachCount.set(bestTopic.id, count);
-        result.videosAttached++;
+        const list = toAttach.get(bestTopic.id) ?? [];
+        list.push(video.id);
+        toAttach.set(bestTopic.id, list);
+        attachCount.set(bestTopic.id, (attachCount.get(bestTopic.id) ?? 0) + 1);
       }
+    }
+
+    // One update per topic (was one per video).
+    for (const [topicId, ids] of toAttach) {
+      const { error: upErr } = await db.from('videos').update({ topic_id: topicId }).in('id', ids);
+      if (upErr) {
+        console.error(`  [enrich-insufficient] update: ${upErr.message}`);
+        attachCount.set(topicId, (attachCount.get(topicId) ?? 0) - ids.length);
+        continue;
+      }
+      result.videosAttached += ids.length;
     }
 
     lastId = videos[videos.length - 1]!.id;
     if (videos.length < PAGE) break;
   }
+
+  if (opts.checkedSince && !incremental && !stoppedByTimeout) await saveFullScan(db, 'enrich_scan_state', signature);
+  console.log(`  [enrich-insufficient] ${incremental ? 'incremental' : 'full'} scan: ${scanned} orphan vectors read`);
 
   // Recalculate embeddings for topics that got new videos
   const touchedTopicIds = [...attachCount.keys()].filter((id) => (attachCount.get(id) ?? 0) > 0);
