@@ -11,8 +11,8 @@ import { AnalyzeVideoButton } from '@/components/tublyti/video-analysis';
 import { TopicSaturationCard, OutlierSaturationButton } from '@/components/tublyti/saturation';
 import { topicSaturation } from '@/lib/saturation';
 import { TopicActions } from './_components/topic-actions';
-import { TopicShortcuts } from './_components/topic-shortcuts';
 import { AngleSection } from './_components/angle-section';
+import type { BriefData } from './_components/brief';
 import { DossierExport } from './_components/dossier-export';
 import { getFavoriteIds } from '@/lib/actions/collections';
 import { computeFeasibilityForUser, isNoChannelResult } from '@/lib/scoring/feasibility-for-user';
@@ -262,6 +262,16 @@ export default async function TopicPage({
   if (await isDbReady()) anglesQ = anglesQ.or(`user_id.is.null,user_id.eq.${user.id}`);
   const { data: angles } = await anglesQ;
 
+  // Per-account state (the shared topics.status is not per user since multi-account).
+  const ready = await isDbReady();
+  let myVideos: { status: string }[] = [];
+  if (ready) {
+    const { data: mineRows } = await db.from('angles').select('status').eq('topic_id', id).eq('user_id', user.id);
+    myVideos = (mineRows ?? []) as { status: string }[];
+  }
+  const inMyVideos = ready ? myVideos.length > 0 : topic.status === 'in_production';
+  const hasOpenVideo = ready ? myVideos.some((v) => v.status === 'in_production') : topic.status === 'in_production';
+
   // Signals (90 days)
   const ninetyDaysAgo = new Date(Date.now() - 90 * 86_400_000).toISOString().slice(0, 10);
   const { data: trendPoints } = await db
@@ -308,6 +318,39 @@ export default async function TopicPage({
 
   const totalFrustrated = frustrationList.length;
 
+  const briefData: BriefData = {
+    topicLabel: topic.label,
+    nicheName: niche?.name ?? '?',
+    rpmCoefficient: niche?.rpm_coefficient ?? 1,
+    phaseLabel: phase !== null && phase !== undefined ? (PHASE_LABELS[phase] ?? String(phase)) : '?',
+    mgi: score ? Number(score.mgi) : null,
+    demand: score ? Number(score.demand) : null,
+    supply: score ? Number(score.supply_q) : null,
+    frustrationScore: score ? Number(score.frustration) : null,
+    monetization: score ? Number(score.monetization) : null,
+    date: score?.scored_at ?? new Date().toISOString().slice(0, 10),
+    frustrations: frustrationList.map((f) => ({
+      text: f.text,
+      likeCount: f.likeCount,
+      label: f.label,
+      requestedAngle: f.requestedAngle,
+      commentId: f.commentId,
+    })),
+    competitors: competitors.map((c) => ({
+      title: c.title,
+      channelTitle: c.channelTitle,
+      views: c.views,
+      videoId: c.id,
+    })),
+  };
+  // Brief angle: the one already chosen, otherwise the first proposed one.
+  const anglesList = (angles ?? []) as { id: string; title: string | null; hook: string | null; rationale: string | null; status: string }[];
+  const chosenAngle =
+    anglesList.find((a) => a.status === 'in_production' || a.status === 'published') ?? anglesList[0] ?? null;
+  const briefAngle = chosenAngle
+    ? { id: chosenAngle.id as string, title: String(chosenAngle.title ?? ''), hook: String(chosenAngle.hook ?? ''), rationale: String(chosenAngle.rationale ?? '') }
+    : null;
+
   // Estimate total comments from frustration ratio
   let totalComments = 0;
   if (score && Number(score.frustration) > 0) {
@@ -339,10 +382,18 @@ export default async function TopicPage({
           </div>
           <div className="flex items-center gap-2">
             <DossierExport topicId={id} />
-            <TopicActions topicId={id} status={topic.status} isFavorite={isFavorite} canGenerate={user.role === 'admin'} />
+            <TopicActions
+              topicId={id}
+              topicLabel={topic.label}
+              inMyVideos={inMyVideos}
+              hasOpenVideo={hasOpenVideo}
+              isFavorite={isFavorite}
+              canGenerate={user.role === 'admin'}
+              briefAngle={briefAngle}
+              briefData={briefData}
+            />
           </div>
         </div>
-        <TopicShortcuts topicId={id} status={topic.status} hasBrief={(angles ?? []).length > 0} />
 
         {/* Stale data banner */}
         {score && (Date.now() - new Date(score.scored_at).getTime() > 36 * 3_600_000) && (
@@ -486,30 +537,7 @@ export default async function TopicPage({
               topicId={id}
               angles={angles ?? []}
               canGenerate={user.role === 'admin'}
-              briefData={{
-                topicLabel: topic.label,
-                nicheName: niche?.name ?? '?',
-                rpmCoefficient: niche?.rpm_coefficient ?? 1,
-                phaseLabel: phase !== null && phase !== undefined ? (PHASE_LABELS[phase] ?? String(phase)) : '?',
-                mgi: score ? Number(score.mgi) : null,
-                demand: score ? Number(score.demand) : null,
-                supply: score ? Number(score.supply_q) : null,
-                frustrationScore: score ? Number(score.frustration) : null,
-                monetization: score ? Number(score.monetization) : null,
-                date: score?.scored_at ?? new Date().toISOString().slice(0, 10),
-                frustrations: frustrationList.map((f) => ({
-                  text: f.text,
-                  likeCount: f.likeCount,
-                  requestedAngle: f.requestedAngle,
-                  commentId: f.commentId,
-                })),
-                competitors: competitors.map((c) => ({
-                  title: c.title,
-                  channelTitle: c.channelTitle,
-                  views: c.views,
-                  videoId: c.id,
-                })),
-              }}
+              briefData={briefData}
             />
 
             {/* Competitors */}

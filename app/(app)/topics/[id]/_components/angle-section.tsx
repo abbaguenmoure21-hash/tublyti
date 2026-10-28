@@ -1,11 +1,14 @@
 'use client';
 
 import { useState, useTransition } from 'react';
+import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { Copy, Check, Download, AlertTriangle } from 'lucide-react';
 import { generateAngles } from '@/lib/actions/angles';
 import { getAiBudgetStatus, type AiBudgetStatus } from '@/lib/actions/ai-spend';
 import { estimateAngleCostUSD } from '@/lib/nlp/angle-costs';
+import { createVideoFromTopic, undoCreateVideo } from '@/lib/actions/sujets';
+import { copyBrief, downloadBrief, type BriefData } from './brief';
 
 interface Angle {
   id: string;
@@ -17,87 +20,7 @@ interface Angle {
   created_at: string;
 }
 
-export interface BriefData {
-  topicLabel: string;
-  nicheName: string;
-  rpmCoefficient: number;
-  phaseLabel: string;
-  mgi: number | null;
-  demand: number | null;
-  supply: number | null;
-  frustrationScore: number | null;
-  monetization: number | null;
-  date: string;
-  frustrations: {
-    text: string;
-    likeCount: number;
-    requestedAngle: string | null;
-    commentId: string;
-    videoId?: string;
-  }[];
-  competitors: {
-    title: string;
-    channelTitle: string;
-    views: number;
-    videoId: string;
-  }[];
-}
-
-function buildBrief(angle: Angle, data: BriefData): string {
-  const lines: string[] = [
-    `# Brief \u2014 ${angle.title}`,
-    '',
-    `**Date :** ${data.date}`,
-    `**Sujet :** ${data.topicLabel}`,
-    `**Niche :** ${data.nicheName} (RPM \u00d7${data.rpmCoefficient})`,
-    `**Phase :** ${data.phaseLabel}`,
-    '',
-    `## Scores MGI`,
-    '',
-    data.mgi !== null ? `- **MGI global :** ${Math.round(data.mgi)}` : '',
-    data.demand !== null ? `- **Demande (D) :** ${Math.round(data.demand)}` : '',
-    data.supply !== null ? `- **Offre qualifi\u00e9e (O_q) :** ${Number(data.supply).toFixed(1)}` : '',
-    data.frustrationScore !== null ? `- **Frustration (F) :** ${(Number(data.frustrationScore) * 100).toFixed(0)} %` : '',
-    data.monetization !== null ? `- **Mon\u00e9tisation (P) :** \u00d7${Number(data.monetization).toFixed(1)}` : '',
-    '',
-    `## Angle choisi`,
-    '',
-    `**Titre :** ${angle.title}`,
-    `**Hook :** ${angle.hook}`,
-    `**Rationale :** ${angle.rationale}`,
-    '',
-    `## Frustrations sources (top ${Math.min(data.frustrations.length, 10)})`,
-    '',
-  ].filter(Boolean);
-
-  for (const f of data.frustrations.slice(0, 10)) {
-    const angleNote = f.requestedAngle ? ` \u2192 ${f.requestedAngle}` : '';
-    const link = f.videoId
-      ? ` ([commentaire](https://www.youtube.com/watch?v=${f.videoId}&lc=${f.commentId}))`
-      : '';
-    lines.push(`- [${f.likeCount} likes] ${f.text.slice(0, 200)}${angleNote}${link}`);
-  }
-
-  lines.push('', `## Vid\u00e9os concurrentes (top ${Math.min(data.competitors.length, 5)})`, '');
-  for (const c of data.competitors.slice(0, 5)) {
-    const views = c.views >= 1000 ? `${(c.views / 1000).toFixed(1)}k` : String(c.views);
-    lines.push(
-      `- ${c.title} (${c.channelTitle}) \u2014 ${views} vues ([lien](https://www.youtube.com/watch?v=${c.videoId}))`,
-    );
-  }
-
-  return lines.join('\n');
-}
-
-function downloadMd(filename: string, content: string) {
-  const blob = new Blob([content], { type: 'text/markdown' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
+export type { BriefData };
 
 export function AngleSection({
   topicId,
@@ -111,7 +34,9 @@ export function AngleSection({
   /** Génération d'angles (IA payante) : réservée à l'administration. */
   canGenerate?: boolean;
 }) {
+  const router = useRouter();
   const [isPending, startTransition] = useTransition();
+  const [choosing, startChoose] = useTransition();
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [showConfirm, setShowConfirm] = useState(false);
   const [selectedAngleId, setSelectedAngleId] = useState<string | null>(null);
@@ -143,21 +68,39 @@ export function AngleSection({
   }
 
   async function handleCopyBrief(angle: Angle) {
-    const brief = buildBrief(angle, briefData);
-    await navigator.clipboard.writeText(brief);
-    setCopiedId(angle.id);
-    toast.success('Brief copi\u00e9 dans le presse-papiers.');
-    setTimeout(() => setCopiedId(null), 2000);
+    if (await copyBrief(angle, briefData)) {
+      setCopiedId(angle.id);
+      setTimeout(() => setCopiedId(null), 2000);
+    }
   }
 
   function handleDownloadBrief(angle: Angle) {
-    const brief = buildBrief(angle, briefData);
-    const slug = briefData.topicLabel
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .slice(0, 40);
-    downloadMd(`brief-${slug}.md`, brief);
-    toast.success('Brief t\u00e9l\u00e9charg\u00e9.');
+    downloadBrief(angle, briefData);
+  }
+
+  /** « Choisir » : same action as « Créer cette vidéo », with this angle. */
+  function handleChoose(angle: Angle) {
+    if (choosing) return;
+    startChoose(async () => {
+      const res = await createVideoFromTopic(topicId, angle.id);
+      if ('error' in res && res.error) {
+        toast.error(res.error);
+        return;
+      }
+      const created = res as { videoId: string; existing?: boolean };
+      if (created.existing) {
+        toast('Ce sujet est déjà dans Mes vidéos', {
+          action: { label: 'Ouvrir', onClick: () => router.push('/pipeline') },
+        });
+        return;
+      }
+      toast.success('Vidéo ajoutée à Mes vidéos', {
+        description: angle.title,
+        action: { label: 'Annuler', onClick: () => void undoCreateVideo(created.videoId).then(() => router.refresh()) },
+        cancel: { label: 'Ouvrir', onClick: () => router.push('/pipeline') },
+      });
+      router.refresh();
+    });
   }
 
   const overBudget = budget ? budget.remainingUSD < estimatedCost : false;
@@ -168,7 +111,7 @@ export function AngleSection({
     return (
       <div
         key={a.id}
-        className={`px-5 py-4 border-b border-[--glass-border] flex flex-col gap-2 last:border-0 hover:bg-[--bg-surface-1]/30 transition-colors ${
+        className={`px-5 py-4 border-b border-border flex flex-col gap-2 last:border-0 hover:bg-muted/40 transition-colors ${
           isSelected ? 'bg-primary/5' : ''
         }`}
       >
@@ -184,19 +127,21 @@ export function AngleSection({
         <div className="flex gap-2 pt-1.5 pl-9">
           <button
             type="button"
+            onClick={() => (isSelected ? undefined : handleChoose(a))}
+            disabled={choosing}
+            aria-pressed={isSelected}
             className={`haptic-btn h-[28px] px-3 rounded-md text-[12px] font-semibold transition-colors cursor-pointer shadow-sm ${
               isSelected
                 ? 'bg-primary text-primary-foreground border border-primary/20'
-                : 'bg-[--bg-surface-2] border border-[--glass-border] text-foreground hover:bg-[--bg-surface-1]'
+                : 'bg-background border border-border text-foreground hover:bg-muted'
             }`}
           >
             {isSelected ? 'Retenu' : 'Choisir'}
           </button>
           <button
             type="button"
-            data-action="copy-brief"
             onClick={() => handleCopyBrief(a)}
-            className="haptic-btn h-[28px] px-3 bg-[--bg-surface-2] border border-[--glass-border] rounded-md text-[12px] font-semibold text-muted-foreground hover:text-foreground transition-colors cursor-pointer flex items-center gap-1.5 shadow-sm"
+            className="haptic-btn h-[28px] px-3 bg-background border border-border rounded-md text-[12px] font-semibold text-muted-foreground hover:text-foreground transition-colors cursor-pointer flex items-center gap-1.5 shadow-sm"
           >
             {copiedId === a.id ? (
               <>
@@ -213,15 +158,15 @@ export function AngleSection({
           <button
             type="button"
             onClick={() => handleDownloadBrief(a)}
-            className="haptic-btn h-[28px] px-3 bg-[--bg-surface-2] border border-[--glass-border] rounded-md text-[12px] font-semibold text-muted-foreground hover:text-foreground transition-colors cursor-pointer flex items-center gap-1.5 shadow-sm"
+            className="haptic-btn h-[28px] px-3 bg-background border border-border rounded-md text-[12px] font-semibold text-muted-foreground hover:text-foreground transition-colors cursor-pointer flex items-center gap-1.5 shadow-sm"
           >
             <Download className="w-3.5 h-3.5" />
-            .md
+            Télécharger
           </button>
           <button
             type="button"
             onClick={() => setSelectedAngleId(a.id)}
-            className="haptic-btn h-[28px] px-3 ml-auto bg-[--bg-surface-2] border border-[--glass-border] rounded-md text-[12px] font-semibold text-primary hover:bg-primary/5 transition-colors cursor-pointer flex items-center gap-1.5 shadow-sm"
+            className="haptic-btn h-[28px] px-3 ml-auto bg-background border border-border rounded-md text-[12px] font-semibold text-primary hover:bg-primary/5 transition-colors cursor-pointer flex items-center gap-1.5 shadow-sm"
           >
             Détails
           </button>
@@ -321,7 +266,7 @@ export function AngleSection({
             
             <div className="flex flex-col gap-2.5">
               <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Accroche (Hook)</span>
-              <p className="text-[14px] text-foreground/90 leading-relaxed bg-[--bg-surface-1] p-3.5 rounded-md border border-[--glass-border] shadow-sm">
+              <p className="text-[14px] text-foreground/90 leading-relaxed bg-muted p-3.5 rounded-md border border-border shadow-sm">
                 {selectedAngle.hook}
               </p>
             </div>
@@ -329,17 +274,17 @@ export function AngleSection({
             {selectedAngle.rationale && (
               <div className="flex flex-col gap-2.5">
                 <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Justification & Stratégie</span>
-                <p className="text-[13.5px] text-muted-foreground/90 leading-relaxed whitespace-pre-wrap bg-[--bg-surface-1]/50 p-3.5 rounded-md border border-[--glass-border]">
+                <p className="text-[13.5px] text-muted-foreground/90 leading-relaxed whitespace-pre-wrap bg-muted/40 p-3.5 rounded-md border border-border">
                   {selectedAngle.rationale}
                 </p>
               </div>
             )}
             
-            <div className="flex gap-2 justify-end mt-2 pt-5 border-t border-[--glass-border]">
+            <div className="flex gap-2 justify-end mt-2 pt-5 border-t border-border">
               <button
                 type="button"
                 onClick={() => setSelectedAngleId(null)}
-                className="haptic-btn h-9 px-4 rounded-md text-[13px] font-semibold text-foreground bg-[--bg-surface-2] border border-[--glass-border] hover:bg-muted transition-colors cursor-pointer shadow-sm"
+                className="haptic-btn h-9 px-4 rounded-md text-[13px] font-semibold text-foreground bg-background border border-border hover:bg-muted transition-colors cursor-pointer shadow-sm"
               >
                 Fermer
               </button>
@@ -352,7 +297,7 @@ export function AngleSection({
       {showAllAngles && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4">
           <div className="bg-card border border-border rounded-[10px] shadow-lg w-full max-w-2xl flex flex-col max-h-[90vh] overflow-hidden relative animate-in fade-in zoom-in-95 duration-200">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-[--glass-border] bg-[--bg-surface-1]/50 sticky top-0 z-10">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-muted/40 sticky top-0 z-10">
               <h2 className="text-headline">Tous les angles proposés ({angles.length})</h2>
               <button 
                 type="button" 
@@ -369,15 +314,15 @@ export function AngleSection({
         </div>
       )}
 
-      <section className="bento-card !p-0 flex flex-col">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-[--glass-border] bg-[--bg-surface-1]/50">
+      <section className="rounded-xl bg-card overflow-hidden flex flex-col">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-muted/40">
           <h2 className="text-headline">Angles proposés</h2>
           {canGenerate && (
           <button
             type="button"
             onClick={handleGenerateClick}
             disabled={isPending}
-            className="haptic-btn h-[28px] px-3 bg-[--bg-surface-2] border border-[--glass-border] rounded-md text-foreground text-[12px] font-semibold hover:bg-[--bg-surface-1] transition-colors disabled:opacity-50 cursor-pointer shadow-sm"
+            className="haptic-btn h-[28px] px-3 bg-background border border-border rounded-md text-foreground text-[12px] font-semibold hover:bg-muted transition-colors disabled:opacity-50 cursor-pointer shadow-sm"
           >
             {isPending ? 'Génération…' : angles.length > 0 ? 'Régénérer' : `Générer 5 angles (~$${estimatedCost.toFixed(3)})`}
           </button>
@@ -394,7 +339,7 @@ export function AngleSection({
               {angleCards.slice(0, 3)}
             </div>
             {angles.length > 3 && (
-              <div className="p-3 bg-[--bg-surface-1]/30 flex justify-center border-t border-[--glass-border]">
+              <div className="p-3 bg-muted/40 flex justify-center border-t border-border">
                 <button
                   type="button"
                   onClick={() => setShowAllAngles(true)}

@@ -43,6 +43,20 @@ export async function createVideoFromTopic(topicId: string, angleId?: string | n
 
   const ready = await isDbReady();
 
+  // Idempotent: an open video (in production) on this topic for this user is returned as is,
+  // so a double click or the P shortcut never creates a duplicate.
+  if (ready) {
+    const { data: open } = await db
+      .from('angles')
+      .select('id')
+      .eq('topic_id', topicId)
+      .eq('user_id', user.id)
+      .eq('status', 'in_production')
+      .limit(1)
+      .maybeSingle();
+    if (open) return { success: true, videoId: open.id as string, existing: true };
+  }
+
   // Chaîne de la vidéo : celle choisie dans « Afficher » si le sujet est de sa thématique,
   // sinon la seule chaîne vérifiée du client sur cette thématique.
   let userChannelId: string | null = null;
@@ -70,7 +84,8 @@ export async function createVideoFromTopic(topicId: string, angleId?: string | n
   if (!ready) await db.from('topics').update({ status: 'in_production' }).eq('id', topicId).eq('status', 'active');
 
   refreshClient();
-  return { success: true, videoId: data.id as string };
+  revalidatePath(`/topics/${topicId}`);
+  return { success: true, videoId: data.id as string, existing: false };
 }
 
 /** Annule « Créer cette vidéo ». */

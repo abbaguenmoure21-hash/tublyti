@@ -33,7 +33,14 @@ export function TopicActions({ topicId, topicLabel, inProduction, angles, afterI
         toast.error(res.error);
         return;
       }
-      const created = res as { videoId: string };
+      const created = res as { videoId: string; existing?: boolean };
+      if (created.existing) {
+        toast('Ce sujet est déjà dans Mes vidéos', {
+          action: { label: 'Ouvrir', onClick: () => router.push('/pipeline') },
+        });
+        router.refresh();
+        return;
+      }
       toast.success('Vidéo ajoutée à Mes vidéos', {
         description: topicLabel,
         action: { label: 'Annuler', onClick: () => void undoCreateVideo(created.videoId).then(() => router.refresh()) },
