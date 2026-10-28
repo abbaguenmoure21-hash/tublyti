@@ -1,5 +1,6 @@
 import { cookies } from 'next/headers';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { isMissingSchemaError } from '@/lib/auth/session';
 
 /** Cookie qui mémorise la chaîne affichée partout dans l'app. */
 export const SCOPE_COOKIE = 'tublyti-scope';
@@ -57,7 +58,8 @@ export async function listScopeNiches(
     db.from('user_niches').select('niche_id, niches(name, category)').eq('user_id', userId),
   ]);
   let channelsRes = firstChannelsRes;
-  if (channelsRes.error) {
+  // Fallbacks only for a genuinely older schema; a transient error grants nothing (fail closed).
+  if (channelsRes.error && isMissingSchemaError(channelsRes.error) && channelsRes.error.code !== '42P01' && channelsRes.error.code !== 'PGRST205') {
     // Avant la migration 00021 (pas de colonne verified_at) : toutes les chaînes comptent.
     channelsRes = (await db
       .from('user_channels')
@@ -65,7 +67,11 @@ export async function listScopeNiches(
       .eq('user_id', userId)
       .order('title')) as unknown as typeof channelsRes;
   }
-  if (channelsRes.error) return legacyScopeNiches(db);
+  if (channelsRes.error) {
+    // Before 00018 (no user_channels table): single owner, channels read from the niche catalogue.
+    const tableMissing = channelsRes.error.code === '42P01' || channelsRes.error.code === 'PGRST205';
+    return tableMissing ? legacyScopeNiches(db) : [];
+  }
   const channels = ((channelsRes.data ?? []) as unknown as {
     id: string; title: string; niche_id: string; verified_at?: string | null; niches: { name: string; category: string } | null;
   }[])
