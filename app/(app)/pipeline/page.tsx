@@ -131,19 +131,28 @@ export default async function PipelinePage({
     // Get channel medians (last 20 videos per channel)
     const channelIds = [...new Set((videos ?? []).map((v: Record<string, unknown>) => v.channel_id as string).filter(Boolean))];
 
-    for (const chId of channelIds) {
-      const { data: channelVideos } = await db
-        .from('videos')
-        .select('id')
-        .eq('channel_id', chId)
-        .order('published_at', { ascending: false })
-        .limit(20);
+    // Last 20 videos of every channel in parallel, then one snapshot read for all of them (was N+1 in series).
+    const perChannel = await Promise.all(
+      channelIds.map(async (chId) => {
+        const { data: channelVideos } = await db
+          .from('videos')
+          .select('id')
+          .eq('channel_id', chId)
+          .order('published_at', { ascending: false })
+          .limit(20);
+        return { chId, ids: (channelVideos ?? []).map((v: Record<string, unknown>) => v.id as string) };
+      }),
+    );
+    const chSnaps = await getLatestSnapshots(db, perChannel.flatMap((c) => c.ids));
 
-      const chVidIds = (channelVideos ?? []).map((v: Record<string, unknown>) => v.id as string);
+    for (const { chId, ids: chVidIds } of perChannel) {
       if (chVidIds.length === 0) continue;
 
       const chViews: number[] = [];
-      for (const s of (await getLatestSnapshots(db, chVidIds)).values()) chViews.push(s.views ?? 0);
+      for (const id of chVidIds) {
+        const s = chSnaps.get(id);
+        if (s) chViews.push(s.views ?? 0);
+      }
 
       if (chViews.length === 0) continue;
       chViews.sort((a, b) => a - b);
