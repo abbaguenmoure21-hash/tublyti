@@ -227,7 +227,7 @@ function AnalyticsBlock({ data, hasMonetary, channelId, reach, reachNote, reachS
           <h3 className="text-[15px] font-semibold">Meilleures vidéos sur la période</h3>
           <p className="text-xs text-muted-foreground">
             Clique sur « Rétention » pour voir où les spectateurs décrochent.
-            {reachSince ? ` Impressions et CTR depuis le ${new Date(reachSince).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}.` : ''}
+            {reachSince ? ` Impressions et taux de clic depuis le ${new Date(reachSince).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}.` : ''}
           </p>
         </div>
         {reachNote && <p className="border-b border-muted bg-muted/40 px-4 py-2.5 text-[13px] leading-relaxed text-muted-foreground">{reachNote}</p>}
@@ -441,16 +441,16 @@ export default async function MyChannelPage({ searchParams }: { searchParams: Pr
     const { data: job, error: jobErr } = await db.from('reporting_jobs').select('created_at, last_sync_at, last_error').eq('user_channel_id', channelId).maybeSingle();
     if (jobErr) {
       console.error('[my-channel] reporting_jobs read failed', jobErr.message);
-      reachNote = 'Impressions et CTR : pas encore disponibles. Réessaie plus tard.';
+      reachNote = 'Impressions et taux de clic : pas encore disponibles. Réessaie plus tard.';
     }
-    else if (!job) reachNote = 'Impressions et CTR : la demande de rapport n’a pas été enregistrée. Clique sur « Déconnecter » puis reconnecte YouTube Analytics.';
+    else if (!job) reachNote = 'Impressions et taux de clic : la demande de rapport n’a pas été enregistrée. Clique sur « Déconnecter » puis reconnecte YouTube Analytics.';
     else if (job.last_error) {
       console.error('[my-channel] reporting job error', String(job.last_error).slice(0, 300));
-      reachNote = 'Impressions et CTR : YouTube n’a pas encore livré ce rapport. Réessaie demain.';
+      reachNote = 'Impressions et taux de clic : YouTube n’a pas encore livré ce rapport. Réessaie demain.';
     }
     else {
       const ready = new Date(new Date(job.created_at as string).getTime() + 48 * 3_600_000);
-      reachNote = `Impressions et CTR : demande envoyée à YouTube le ${new Date(job.created_at as string).toLocaleDateString('fr-FR')}. YouTube livre le premier rapport d’ici le ${ready.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })} (avec les 30 jours précédents) ; il est importé la nuit suivante.`;
+      reachNote = `Impressions et taux de clic : demande envoyée à YouTube le ${new Date(job.created_at as string).toLocaleDateString('fr-FR')}. YouTube livre le premier rapport d’ici le ${ready.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })} (avec les 30 jours précédents) ; il est importé la nuit suivante.`;
     }
   }
   if (!stats) {
@@ -468,42 +468,7 @@ export default async function MyChannelPage({ searchParams }: { searchParams: Pr
   const status = sp.analytics ? STATUS[sp.analytics] : null;
   const canConnect = googleEnabled() && encryptionReady();
 
-  return (
-    <div className="flex min-h-full flex-1 flex-col gap-8 px-4 pb-16 pt-5 md:px-8">
-      <header className="flex flex-wrap items-center gap-4">
-        {c.thumbnailUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={c.thumbnailUrl} alt="" referrerPolicy="no-referrer" className="elev-1 h-16 w-16 rounded-full object-cover" />
-        ) : (
-          <span className="flex h-16 w-16 items-center justify-center rounded-full bg-primary-soft text-primary-ink"><Tv className="h-7 w-7" aria-hidden="true" /></span>
-        )}
-        <div className="flex min-w-0 flex-1 flex-col gap-1">
-          <h1 className="truncate text-[28px] font-semibold leading-tight tracking-[-0.02em] md:text-[32px]">{c.title}</h1>
-          <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[15px] text-muted-foreground">
-            {c.handle && <span>{c.handle}</span>}
-            {c.nicheName && <span>{c.nicheName}</span>}
-            {c.youtubeId.startsWith('UC') && (
-              <a href={`https://www.youtube.com/channel/${c.youtubeId}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary">
-                Voir sur YouTube <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
-              </a>
-            )}
-          </p>
-        </div>
-        {c.youtubeId.startsWith('UC') && <RefreshPublicButton id={channelId} />}
-      </header>
-
-      <div className="grid grid-cols-3 gap-3 md:max-w-2xl">
-        <Tile label="Abonnés" value={c.subscribers === null ? (c.checkedAt ? 'Masqués' : '—') : compact.format(c.subscribers)} hint={c.subscribers === null || c.subscribers < 10_000 ? undefined : nf.format(c.subscribers)} />
-        <Tile label="Vues totales" value={c.totalViews === null ? '—' : compact.format(c.totalViews)} hint={c.totalViews === null || c.totalViews < 10_000 ? undefined : nf.format(c.totalViews)} />
-        <Tile label="Vidéos" value={c.videoCount === null ? '—' : nf.format(c.videoCount)} hint={c.checkedAt ? `Mis à jour ${ago(c.checkedAt)}` : undefined} />
-      </div>
-
-      {status && (
-        <p role="status" className={`rounded-xl px-4 py-3 text-sm ${status.tone === 'ok' ? 'bg-primary-soft text-primary-ink' : 'bg-[color-mix(in_oklch,var(--warning)_14%,transparent)]'}`}>
-          {status.text}
-        </p>
-      )}
-
+  const analyticsSection = (
       <Section
         id="analytics-titre"
         title="Statistiques YouTube Analytics"
@@ -553,10 +518,55 @@ export default async function MyChannelPage({ searchParams }: { searchParams: Pr
           </div>
         )}
       </Section>
-
+  );
+  const publicSection = (
       <Section id="public-titre" title="Chiffres publics" subtitle={stats.sample ? `Calculés par TubLyTI sur tes ${stats.sample} dernières vidéos lues, sans accès à ton compte.` : 'Calculés par TubLyTI à partir de tes vidéos publiques, sans accès à ton compte.'}>
         <PublicBlock s={stats} linked={c.youtubeId.startsWith('UC')} channelId={channelId} />
       </Section>
+  );
+
+  return (
+    <div className="flex min-h-full flex-1 flex-col gap-8 px-4 pb-16 pt-5 md:px-8">
+      <header className="flex flex-wrap items-center gap-4">
+        {c.thumbnailUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={c.thumbnailUrl} alt="" referrerPolicy="no-referrer" className="elev-1 h-16 w-16 rounded-full object-cover" />
+        ) : (
+          <span className="flex h-16 w-16 items-center justify-center rounded-full bg-primary-soft text-primary-ink"><Tv className="h-7 w-7" aria-hidden="true" /></span>
+        )}
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
+          <h1 className="truncate text-[28px] font-semibold leading-tight tracking-[-0.02em] md:text-[32px]">{c.title}</h1>
+          <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[15px] text-muted-foreground">
+            {c.handle && <span>{c.handle}</span>}
+            {c.nicheName && <span>{c.nicheName}</span>}
+            {c.youtubeId.startsWith('UC') && (
+              <a href={`https://www.youtube.com/channel/${c.youtubeId}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary">
+                Voir sur YouTube <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+              </a>
+            )}
+          </p>
+        </div>
+        {c.youtubeId.startsWith('UC') && <RefreshPublicButton id={channelId} />}
+      </header>
+
+      <div className="grid grid-cols-3 gap-3 md:max-w-2xl">
+        <Tile label="Abonnés" value={c.subscribers === null ? (c.checkedAt ? 'Masqués' : '—') : compact.format(c.subscribers)} hint={c.subscribers === null || c.subscribers < 10_000 ? undefined : nf.format(c.subscribers)} />
+        <Tile label="Vues totales" value={c.totalViews === null ? '—' : compact.format(c.totalViews)} hint={c.totalViews === null || c.totalViews < 10_000 ? undefined : nf.format(c.totalViews)} />
+        <Tile label="Vidéos" value={c.videoCount === null ? '—' : nf.format(c.videoCount)} hint={c.checkedAt ? `Mis à jour ${ago(c.checkedAt)}` : undefined} />
+      </div>
+
+      {status && (
+        <p role="status" className={`rounded-xl px-4 py-3 text-sm ${status.tone === 'ok' ? 'bg-primary-soft text-primary-ink' : 'bg-[color-mix(in_oklch,var(--warning)_14%,transparent)]'}`}>
+          {status.text}
+        </p>
+      )}
+
+      {/* Without Analytics, the public figures (the only ones available) come first. */}
+      {analytics.status === 'ok' ? (
+        <>{analyticsSection}{publicSection}</>
+      ) : (
+        <>{publicSection}{analyticsSection}</>
+      )}
     </div>
   );
 }
