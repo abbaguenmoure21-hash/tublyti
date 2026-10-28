@@ -18,8 +18,12 @@ import { DossierExport } from './_components/dossier-export';
 import { getFavoriteIds } from '@/lib/actions/collections';
 import { computeFeasibilityForUser, isNoChannelResult } from '@/lib/scoring/feasibility-for-user';
 import { getUserSubsByNiche } from '@/lib/scoring/user-subs';
+import { COMMENT_LABELS, FRUSTRATION_LABEL, RELIABILITY_LABELS } from '@/lib/lexique';
 import { FeasibilityBadge } from '@/components/tublyti/feasibility-badge';
 import type { FeasibilityGrade } from '@/lib/scoring/feasibility';
+
+/** Most-liked unanswered-question comments shown (the list is capped: display « 20+ »). */
+const FRUSTRATION_LIMIT = 20;
 
 // L'analyse vidéo (Gemini) peut prendre jusqu'à 2-3 minutes.
 export const maxDuration = 300;
@@ -31,18 +35,12 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   return { title: data?.label ? `${data.label} - Dossier` : 'Dossier Sujet' };
 }
 
-const LABEL_NAMES: Record<string, string> = {
-  no_one_explains: 'Explication manquante',
-  wish_video_on: 'Vidéo réclamée',
-  stopped_too_early: 'Sujet survolé',
-  searched_long: 'Recherche difficile',
-};
 
 const COMPETITOR_TAGS: Record<string, { label: string; color: string }> = {
-  qualified: { label: 'Qualifiée', color: 'text-phase-2-ink' },
-  old: { label: 'Ancienne', color: 'text-phase-1-ink' },
+  qualified: { label: 'Vidéo de qualité', color: 'text-muted-foreground' },
+  old: { label: 'Ancienne', color: 'text-muted-foreground' },
   off_topic: { label: 'Hors sujet', color: 'text-muted-foreground' },
-  short: { label: 'Short', color: 'text-muted-foreground' },
+  short: { label: 'Vidéo courte', color: 'text-muted-foreground' },
 };
 
 interface Competitor {
@@ -83,7 +81,7 @@ function formatRelativeDate(dateStr: string): string {
 }
 
 function formatDuration(sec: number): string {
-  if (sec < 60) return 'Short';
+  if (sec < 60) return 'moins d’1 min';
   const m = Math.floor(sec / 60);
   return `${m} min`;
 }
@@ -176,7 +174,7 @@ export default async function TopicPage({
 
   // Get latest views
   const videoIds = (videos ?? []).map((v: Record<string, unknown>) => v.id as string);
-  let videoViews: Record<string, number> = {};
+  const videoViews: Record<string, number> = {};
   if (videoIds.length > 0) {
     const { data: snaps } = await db
       .from('video_snapshots')
@@ -194,7 +192,7 @@ export default async function TopicPage({
   }
 
   // Fetch outlier scores for these videos
-  let videoOutliers: Record<string, { score: number; ageDays: number; method: string; baseline: number }> = {};
+  const videoOutliers: Record<string, { score: number; ageDays: number; method: string; baseline: number }> = {};
   if (videoIds.length > 0) {
     const { data: outliers } = await db
       .from('video_outliers')
@@ -241,7 +239,7 @@ export default async function TopicPage({
     .neq('label', 'none')
     .gte('confidence', 0.7)
     .order('comments(like_count)', { ascending: false })
-    .limit(20);
+    .limit(FRUSTRATION_LIMIT);
 
   const frustrationList: FrustrationComment[] = (frustrations ?? []).map((f: Record<string, unknown>) => {
     const comment = f.comments as unknown as {
@@ -358,11 +356,6 @@ export default async function TopicPage({
     ? { id: chosenAngle.id as string, title: String(chosenAngle.title ?? ''), hook: String(chosenAngle.hook ?? ''), rationale: String(chosenAngle.rationale ?? '') }
     : null;
 
-  // Estimate total comments from frustration ratio
-  let totalComments = 0;
-  if (score && Number(score.frustration) > 0) {
-    totalComments = Math.round(totalFrustrated / Number(score.frustration));
-  }
 
   return (
     <div className="flex-1 flex flex-col min-w-0">
@@ -425,7 +418,7 @@ export default async function TopicPage({
                 <span className="text-[30px] font-semibold leading-none tabular-nums tracking-[-0.02em]">{Math.round(mgiVal)}</span>
                 <span className="text-sm text-muted-foreground">/ 100</span>
                 {mgiDelta !== null && Math.round(mgiDelta) !== 0 && (
-                  <span className={`text-[13px] font-medium ${mgiDelta >= 0 ? 'text-phase-2-ink' : 'text-phase-3-ink'}`}>
+                  <span className={`text-[13px] font-medium ${mgiDelta >= 0 ? 'text-success' : 'text-destructive'}`}>
                     {mgiDelta >= 0 ? '+' : ''}{Math.round(mgiDelta)} en 7 j
                   </span>
                 )}
@@ -434,7 +427,7 @@ export default async function TopicPage({
                 <span className="block h-full rounded-full bg-primary" style={{ width: `${Math.min(mgiVal, 100)}%` }} />
               </span>
               <span className="text-xs text-muted-foreground" title={confidenceData?.reason}>
-                {confidenceData ? (confidenceData.level === 'high' ? 'Fiable' : confidenceData.level === 'medium' ? 'Assez fiable' : 'Peu de données') : ''}
+                {confidenceData ? (RELIABILITY_LABELS[confidenceData.level as 'high' | 'medium' | 'low'] ?? RELIABILITY_LABELS.low) : ''}
                 {confidenceData ? ' · ' : ''}
                 {formatScoredAtFreshness(score.scored_at)}
               </span>
@@ -446,10 +439,10 @@ export default async function TopicPage({
               sub={Number(score.supply_q) < 0.8 ? 'Moins que la moyenne : peu de concurrence' : Number(score.supply_q) <= 1.25 ? 'Dans la moyenne de la thématique' : 'Plus que la moyenne : concurrence forte'}
             />
             <ScoreCard
-              label="Public frustré"
+              label={FRUSTRATION_LABEL}
               value={`${Math.round(Number(score.frustration) * 100)}`}
               unit="%"
-              sub={totalComments > 0 ? `des ${totalComments.toLocaleString('fr-FR')} commentaires analysés` : 'des commentaires analysés'}
+              sub="des commentaires analysés sur ce sujet"
             />
             <ScoreCard
               label="Revenus publicitaires"
@@ -495,12 +488,12 @@ export default async function TopicPage({
               <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-muted/40">
                 <h2 className="text-headline">Ce que réclame le public</h2>
                 <span className="text-[13px] font-medium text-muted-foreground bg-muted px-2 py-0.5 rounded border border-border">
-                  {totalFrustrated} commentaire{totalFrustrated !== 1 ? 's' : ''}
+                  {totalFrustrated >= FRUSTRATION_LIMIT ? `${FRUSTRATION_LIMIT}+` : totalFrustrated} commentaire{totalFrustrated !== 1 ? 's' : ''}
                 </span>
               </div>
               {frustrationList.length === 0 ? (
                 <div className="px-5 py-10 text-center text-[14px] text-muted-foreground font-medium">
-                  Aucun commentaire de frustration détecté.
+                  Aucune question du public repérée pour l’instant sur ce sujet.
                 </div>
               ) : (
                 frustrationList.slice(0, 8).map((f) => (
@@ -508,7 +501,7 @@ export default async function TopicPage({
                     <p className="line-clamp-4 text-[15px] leading-relaxed text-foreground">« {f.text} »</p>
                     <div className="flex flex-wrap items-center gap-2.5 text-[12px] text-muted-foreground">
                       <span className="inline-flex h-6 shrink-0 items-center rounded-md bg-muted px-2 font-medium text-muted-foreground">
-                        {LABEL_NAMES[f.label] ?? f.label}
+                        {COMMENT_LABELS[f.label] ?? f.label}
                       </span>
                       {f.requestedAngle && (
                         <span>
