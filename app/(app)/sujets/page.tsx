@@ -15,6 +15,7 @@ import { getUserSubsByNiche } from '@/lib/scoring/user-subs';
 import { ReliabilityMark, PotentialMeter } from './_components/reliability';
 import { SearchField } from './_components/search-field';
 import { ListKeyboard } from './_components/list-keyboard';
+import { LinkPending } from './_components/link-pending';
 import { Inspector } from './_components/inspector';
 import { TopicActions } from './_components/topic-actions';
 import { sujetsHref, type SujetsParams } from './_components/url';
@@ -157,7 +158,7 @@ export default async function SujetsPage({ searchParams }: { searchParams: Promi
                       href={sujetsHref(params, { sujet: selected ? null : r.id })}
                       scroll={false}
                       aria-current={selected ? 'true' : undefined}
-                      className={`grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-2 px-4 py-3.5 transition-colors ${COLS} md:px-5 ${
+                      className={`relative grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-2 px-4 py-3.5 transition-colors ${COLS} md:px-5 ${
                         selected ? 'bg-primary-soft/50 shadow-[inset_3px_0_0_var(--primary)]' : 'hover:bg-muted/60'
                       }`}
                     >
@@ -183,6 +184,7 @@ export default async function SujetsPage({ searchParams }: { searchParams: Promi
                         {!panelOpen && <ReliabilityMark value={r.reliability} />}
                       </span>
                       <ChevronRight className="hidden h-4 w-4 text-muted-foreground md:block" aria-hidden="true" />
+                      <LinkPending />
                     </Link>
                   </li>
                 );
