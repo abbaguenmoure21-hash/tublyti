@@ -45,6 +45,14 @@ function fail(text: string): TextResult {
   return { content: [{ type: 'text' as const, text }], isError: true };
 }
 
+/**
+ * PostgREST filter: shared angles (user_id null) plus the token owner's own videos.
+ * Other clients' private videos ("Mes vidéos") are never visible.
+ */
+function anglesVisibleTo(token: McpTokenInfo): string {
+  return token.userId ? `user_id.is.null,user_id.eq.${token.userId}` : 'user_id.is.null';
+}
+
 const OUT_OF_SCOPE = 'Ce contenu ne fait pas partie de tes thematiques. Ajoute la thematique dans Reglages > Mes chaines.';
 
 async function guard(
@@ -422,6 +430,7 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
         .from('angles')
         .select('id, title, hook, status')
         .eq('topic_id', topic_id)
+        .or(anglesVisibleTo(token))
         .order('created_at', { ascending: false })
         .limit(5);
 
@@ -738,6 +747,7 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
           .from('angles')
           .select('title, hook, rationale, formula, frustration_resolved')
           .eq('topic_id', topTopic.id)
+          .or(anglesVisibleTo(token))
           .order('created_at', { ascending: false })
           .limit(5);
 
@@ -941,6 +951,7 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
         .from('angles')
         .select('id, title, hook, rationale')
         .eq('topic_id', topic_id)
+        .or(anglesVisibleTo(token))
         .order('created_at', { ascending: false })
         .limit(5);
 
@@ -1022,6 +1033,8 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
         .select('id, title, topic_id')
         .eq('id', angle_id)
         .eq('topic_id', topic_id)
+        // Only a shared proposed angle can be copied, never another client's video.
+        .or(token.userId ? 'user_id.is.null' : anglesVisibleTo(token))
         .single();
 
       if (!angle) return fail('Angle introuvable ou ne correspond pas au sujet.');
