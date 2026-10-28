@@ -110,7 +110,8 @@ export function AppearanceTab({ collections }: { collections: CollectionData[] }
                   type="button"
                   onClick={() => handleDeleteCollection(col.id)}
                   disabled={isPending}
-                  className="w-7 h-7 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 flex items-center justify-center cursor-pointer"
+                  aria-label={`Supprimer la collection ${col.name}`}
+                  className="relative after:absolute after:-inset-2 md:after:hidden w-7 h-7 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 flex items-center justify-center cursor-pointer"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>

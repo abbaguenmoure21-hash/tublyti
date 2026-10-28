@@ -223,8 +223,9 @@ export function AlertsTab({
           <div className="px-5 py-4 border-b border-border bg-muted/30 space-y-3">
             {/* Rule type */}
             <div>
-              <label className="text-[12px] font-medium text-muted-foreground">Type</label>
+              <label htmlFor="alert-field-1" className="text-[12px] font-medium text-muted-foreground">Type</label>
               <select
+                id="alert-field-1"
                 value={newType}
                 onChange={(e) => setNewType(e.target.value as AlertRuleType)}
                 className="mt-1 w-full h-9 px-2.5 border border-border rounded-md bg-card text-[13px] text-foreground"
@@ -241,8 +242,9 @@ export function AlertsTab({
             {/* Type-specific params */}
             {newType === 'phase_change' && (
               <div>
-                <label className="text-[12px] font-medium text-muted-foreground">Niche (optionnel)</label>
+                <label htmlFor="alert-field-2" className="text-[12px] font-medium text-muted-foreground">Niche (optionnel)</label>
                 <select
+                  id="alert-field-2"
                   value={newNicheId}
                   onChange={(e) => setNewNicheId(e.target.value)}
                   className="mt-1 w-full h-9 px-2.5 border border-border rounded-md bg-card text-[13px] text-foreground"
@@ -257,8 +259,9 @@ export function AlertsTab({
 
             {newType === 'collection_phase_change' && (
               <div>
-                <label className="text-[12px] font-medium text-muted-foreground">Collection (optionnel)</label>
+                <label htmlFor="alert-field-3" className="text-[12px] font-medium text-muted-foreground">Collection (optionnel)</label>
                 <select
+                  id="alert-field-3"
                   value={newCollectionId}
                   onChange={(e) => setNewCollectionId(e.target.value)}
                   className="mt-1 w-full h-9 px-2.5 border border-border rounded-md bg-card text-[13px] text-foreground"
@@ -274,8 +277,9 @@ export function AlertsTab({
             {newType === 'video_outlier' && (
               <div className="flex gap-3">
                 <div className="flex-1">
-                  <label className="text-[12px] font-medium text-muted-foreground">Multiplicateur min.</label>
+                  <label htmlFor="alert-field-4" className="text-[12px] font-medium text-muted-foreground">Multiplicateur min.</label>
                   <input
+                    id="alert-field-4"
                     type="number"
                     min={2}
                     max={50}
@@ -285,8 +289,9 @@ export function AlertsTab({
                   />
                 </div>
                 <div className="flex-1">
-                  <label className="text-[12px] font-medium text-muted-foreground">Abonnés max.</label>
+                  <label htmlFor="alert-field-5" className="text-[12px] font-medium text-muted-foreground">Abonnés max.</label>
                   <input
+                    id="alert-field-5"
                     type="number"
                     min={1000}
                     step={1000}
@@ -300,8 +305,9 @@ export function AlertsTab({
 
             {newType === 'window_closing' && (
               <div>
-                <label className="text-[12px] font-medium text-muted-foreground">Vidéos qualifiées min. en 72 h</label>
+                <label htmlFor="alert-field-6" className="text-[12px] font-medium text-muted-foreground">Vidéos qualifiées min. en 72 h</label>
                 <input
+                  id="alert-field-6"
                   type="number"
                   min={2}
                   max={20}
@@ -314,8 +320,9 @@ export function AlertsTab({
 
             {/* Label */}
             <div>
-              <label className="text-[12px] font-medium text-muted-foreground">Nom (optionnel)</label>
+              <label htmlFor="alert-field-7" className="text-[12px] font-medium text-muted-foreground">Nom (optionnel)</label>
               <input
+                id="alert-field-7"
                 type="text"
                 value={newLabel}
                 onChange={(e) => setNewLabel(e.target.value)}
@@ -392,15 +399,18 @@ export function AlertsTab({
                 onClick={() => handleToggle(rule.id, !rule.enabled)}
                 disabled={isPending}
                 title={rule.enabled ? 'Suspendre' : 'Activer'}
-                className="w-7 h-7 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted flex items-center justify-center cursor-pointer"
+                aria-label={`${rule.enabled ? 'Suspendre' : 'Activer'} l’alerte ${rule.label}`}
+                aria-pressed={rule.enabled}
+                className="relative after:absolute after:-inset-2 md:after:hidden w-7 h-7 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted flex items-center justify-center cursor-pointer"
               >
-                {rule.enabled ? <Power className="w-3.5 h-3.5" /> : <PowerOff className="w-3.5 h-3.5" />}
+                {rule.enabled ? <Power className="w-3.5 h-3.5" aria-hidden="true" /> : <PowerOff className="w-3.5 h-3.5" aria-hidden="true" />}
               </button>
               <button
                 type="button"
                 onClick={() => handleDelete(rule.id)}
                 disabled={isPending}
-                className="w-7 h-7 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 flex items-center justify-center cursor-pointer"
+                aria-label={`Supprimer l’alerte ${rule.label}`}
+                className="relative after:absolute after:-inset-2 md:after:hidden w-7 h-7 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 flex items-center justify-center cursor-pointer"
               >
                 <Trash2 className="w-3.5 h-3.5" />
               </button>

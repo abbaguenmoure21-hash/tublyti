@@ -80,12 +80,13 @@ export function NichesTab({ niches }: { niches: NicheData[] }) {
                 {isEditing ? (
                   <>
                     <div className="flex-1 flex flex-col gap-2">
-                      <div className="grid grid-cols-4 gap-2">
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                         <input
                           type="text"
                           value={editForm.name ?? ''}
                           onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))}
                           placeholder="Nom"
+                          aria-label="Nom"
                           className="h-8 px-2.5 border border-border rounded-md text-[13px] bg-card text-foreground"
                         />
                         <input
@@ -93,6 +94,7 @@ export function NichesTab({ niches }: { niches: NicheData[] }) {
                           value={editForm.category ?? ''}
                           onChange={(e) => setEditForm((f) => ({ ...f, category: e.target.value }))}
                           placeholder="Catégorie"
+                          aria-label="Catégorie"
                           className="h-8 px-2.5 border border-border rounded-md text-[13px] bg-card text-foreground"
                         />
                         <input
@@ -103,6 +105,7 @@ export function NichesTab({ niches }: { niches: NicheData[] }) {
                             setEditForm((f) => ({ ...f, rpmCoefficient: Number(e.target.value) }))
                           }
                           placeholder="Coeff. RPM"
+                          aria-label="Coeff. RPM"
                           className="h-8 px-2.5 border border-border rounded-md text-[13px] bg-card text-foreground"
                         />
                         <input
@@ -110,10 +113,11 @@ export function NichesTab({ niches }: { niches: NicheData[] }) {
                           value={editForm.ownerChannel ?? ''}
                           onChange={(e) => setEditForm((f) => ({ ...f, ownerChannel: e.target.value }))}
                           placeholder="Chaîne liée"
+                          aria-label="Chaîne liée"
                           className="h-8 px-2.5 border border-border rounded-md text-[13px] bg-card text-foreground"
                         />
                       </div>
-                      <div className="grid grid-cols-3 gap-2">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                         <input
                           type="number"
                           step="0.5"
@@ -122,6 +126,7 @@ export function NichesTab({ niches }: { niches: NicheData[] }) {
                             setEditForm((f) => ({ ...f, rpmLow: e.target.value ? Number(e.target.value) : null }))
                           }
                           placeholder="RPM bas ($)"
+                          aria-label="RPM bas ($)"
                           className="h-8 px-2.5 border border-border rounded-md text-[13px] bg-card text-foreground"
                         />
                         <input
@@ -132,6 +137,7 @@ export function NichesTab({ niches }: { niches: NicheData[] }) {
                             setEditForm((f) => ({ ...f, rpmHigh: e.target.value ? Number(e.target.value) : null }))
                           }
                           placeholder="RPM haut ($)"
+                          aria-label="RPM haut ($)"
                           className="h-8 px-2.5 border border-border rounded-md text-[13px] bg-card text-foreground"
                         />
                         <input
@@ -141,6 +147,7 @@ export function NichesTab({ niches }: { niches: NicheData[] }) {
                             setEditForm((f) => ({ ...f, rpmSource: e.target.value || null }))
                           }
                           placeholder="Source RPM (ex. YouTube Studio)"
+                          aria-label="Source RPM (ex. YouTube Studio)"
                           className="h-8 px-2.5 border border-border rounded-md text-[13px] bg-card text-foreground"
                         />
                       </div>
@@ -149,22 +156,24 @@ export function NichesTab({ niches }: { niches: NicheData[] }) {
                       type="button"
                       onClick={() => handleSave(niche.id)}
                       disabled={isPending}
-                      className="w-7 h-7 rounded-md text-phase-2 hover:bg-muted flex items-center justify-center cursor-pointer"
+                      aria-label="Enregistrer la niche"
+                      className="relative after:absolute after:-inset-2 md:after:hidden w-7 h-7 rounded-md text-phase-2 hover:bg-muted flex items-center justify-center cursor-pointer"
                     >
-                      <Check className="w-3.5 h-3.5" />
+                      <Check className="w-3.5 h-3.5" aria-hidden="true" />
                     </button>
                     <button
                       type="button"
                       onClick={cancelEdit}
-                      className="w-7 h-7 rounded-md text-muted-foreground hover:bg-muted flex items-center justify-center cursor-pointer"
+                      aria-label="Annuler la modification"
+                      className="relative after:absolute after:-inset-2 md:after:hidden w-7 h-7 rounded-md text-muted-foreground hover:bg-muted flex items-center justify-center cursor-pointer"
                     >
-                      <X className="w-3.5 h-3.5" />
+                      <X className="w-3.5 h-3.5" aria-hidden="true" />
                     </button>
                   </>
                 ) : (
                   <>
                     <div className="flex-1 flex flex-col gap-0.5 text-[13px]">
-                      <div className="grid grid-cols-4 gap-2">
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                         <span className="font-medium">{niche.name}</span>
                         <span className="text-muted-foreground">{niche.category}</span>
                         <span className="tabular-nums">
@@ -185,9 +194,10 @@ export function NichesTab({ niches }: { niches: NicheData[] }) {
                     <button
                       type="button"
                       onClick={() => startEdit(niche)}
-                      className="w-7 h-7 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted flex items-center justify-center cursor-pointer"
+                      aria-label={`Modifier ${niche.name}`}
+                      className="relative after:absolute after:-inset-2 md:after:hidden w-7 h-7 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted flex items-center justify-center cursor-pointer"
                     >
-                      <Pencil className="w-3.5 h-3.5" />
+                      <Pencil className="w-3.5 h-3.5" aria-hidden="true" />
                     </button>
                   </>
                 )}

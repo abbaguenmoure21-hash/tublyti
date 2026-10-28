@@ -110,8 +110,9 @@ export function ApiTokensTab({ tokens }: { tokens: TokenData[] }) {
             ) : (
               <div className="flex items-end gap-3">
                 <div className="flex-1">
-                  <label className="text-[12px] text-muted-foreground block mb-1">Nom</label>
+                  <label htmlFor="token-field-1" className="text-[12px] text-muted-foreground block mb-1">Nom</label>
                   <input
+                    id="token-field-1"
                     type="text"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
@@ -196,7 +197,8 @@ export function ApiTokensTab({ tokens }: { tokens: TokenData[] }) {
                   type="button"
                   onClick={() => handleRevoke(token.id)}
                   disabled={isPending}
-                  className="w-7 h-7 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 flex items-center justify-center cursor-pointer"
+                  aria-label={`Supprimer l’accès ${token.name}`}
+                  className="relative after:absolute after:-inset-2 md:after:hidden w-7 h-7 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 flex items-center justify-center cursor-pointer"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>

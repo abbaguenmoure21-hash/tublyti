@@ -34,8 +34,9 @@ export function DeleteChannelButton({
       className="text-muted-foreground hover:text-destructive"
       disabled={isPending}
       onClick={handleDelete}
+      aria-label={`Supprimer la chaîne ${channelTitle}`}
     >
-      <Trash2 className="size-3.5" />
+      <Trash2 className="size-3.5" aria-hidden="true" />
     </Button>
   );
 }
