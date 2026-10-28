@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
 import { cookies } from 'next/headers';
-import { Toaster } from 'sonner';
+import { AppToaster } from '@/components/app-toaster';
 import { NuqsAdapter } from 'nuqs/adapters/next/app';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { Sidebar } from '@/components/app-shell/sidebar';
@@ -86,7 +86,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         </div>
         <MobileTabBar />
         <KeyboardProvider isAdmin={user.role === 'admin'} />
-        <Toaster position="bottom-center" toastOptions={{ className: 'rounded-xl' }} />
+        <AppToaster />
       </TooltipProvider>
     </NuqsAdapter>
   );
