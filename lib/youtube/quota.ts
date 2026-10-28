@@ -105,9 +105,17 @@ export function getActiveLedger(): QuotaLedger | null {
 /** Header RealYouTubeClient sets on requests it already charged (stripped before the request leaves). */
 export const METERED_HEADER = 'x-tublyti-quota-metered';
 
+/** The DAILY quota is gone (not a transient per-second rate limit). */
 function isQuotaExhaustedBody(text: string): boolean {
-  return /quotaExceeded|dailyLimitExceeded|rateLimitExceeded/.test(text);
+  return /quotaExceeded|dailyLimitExceeded/.test(text);
 }
+
+function isRateLimitedBody(text: string): boolean {
+  return /rateLimitExceeded|userRateLimitExceeded/.test(text);
+}
+
+/** Wait before retrying a rate-limited request (overridable in tests). */
+export const quotaMeterTiming = { rateLimitRetryMs: 2000 };
 
 /**
  * Route every googleapis YouTube Data API request of the process through `ledger`:
@@ -129,9 +137,16 @@ export function installQuotaMeter(ledger: QuotaLedger): () => void {
     } else {
       ledger.spend(ytRequestCost(url));
     }
-    const res = await original(input instanceof Request ? new Request(input, { headers }) : input, { ...init, headers });
+    const send = () => original(input instanceof Request ? new Request(input, { headers }) : input, { ...init, headers });
+    let res = await send();
     if (res.status === 403) {
-      const text = await res.clone().text().catch(() => '');
+      let text = await res.clone().text().catch(() => '');
+      if (isRateLimitedBody(text) && !isQuotaExhaustedBody(text)) {
+        // Transient rate limit: wait and retry once (same request, already charged), then let the caller handle it.
+        await new Promise((r) => setTimeout(r, quotaMeterTiming.rateLimitRetryMs));
+        res = await send();
+        text = res.status === 403 ? await res.clone().text().catch(() => '') : '';
+      }
       if (isQuotaExhaustedBody(text)) {
         ledger.exhausted = true;
         throw new QuotaSoftLimitReached(ledger.total(), ledger.softLimit, `YouTube daily quota exhausted (403): ${text.slice(0, 200)}`);

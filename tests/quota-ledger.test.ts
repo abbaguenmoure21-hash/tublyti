@@ -4,6 +4,7 @@ import {
   QuotaSoftLimitReached,
   installQuotaMeter,
   pacificDay,
+  quotaMeterTiming,
   ytRequestCost,
 } from '@/lib/youtube/quota';
 import { RealYouTubeClient } from '@/lib/youtube/client';
@@ -65,6 +66,23 @@ describe('quota ledger', () => {
     expect(ledger.exhausted).toBe(true);
     await expect(fetch(`${YT}/videos?id=a`)).rejects.toThrow(QuotaSoftLimitReached);
     expect(network).toHaveBeenCalledTimes(1);
+  });
+
+  it('a 403 rateLimitExceeded is retried once and never marks the day exhausted', async () => {
+    quotaMeterTiming.rateLimitRetryMs = 1;
+    const responses = [
+      new Response(JSON.stringify({ error: { errors: [{ reason: 'rateLimitExceeded' }] } }), { status: 403 }),
+      new Response(JSON.stringify({ items: [] }), { status: 200 }),
+    ];
+    const network = vi.fn(async () => responses.shift()!);
+    globalThis.fetch = network as unknown as typeof fetch;
+    const ledger = new QuotaLedger(8000);
+    uninstall = installQuotaMeter(ledger);
+    const res = await fetch(`${YT}/videos?id=a`);
+    expect(res.status).toBe(200);
+    expect(ledger.exhausted).toBe(false);
+    expect(network).toHaveBeenCalledTimes(2);
+    expect(ledger.total()).toBe(1);
   });
 
   it('does not touch other hosts', async () => {
