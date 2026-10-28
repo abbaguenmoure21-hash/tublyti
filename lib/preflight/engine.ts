@@ -3,6 +3,7 @@ import { scoreTitles, topNicheOutliers, type TitleScore } from './titles';
 import { scoreScript, scoreThumbnail, type ScriptScore, type ThumbnailScore } from './creative';
 import { geminiEnabled } from '../ai/gemini';
 import { deleteFile, fileState, scoreVideoFile, type VideoFileScore } from './video-file';
+import { viewsAt, type Snap } from '../predictor/context';
 import { loadModel, plannedContext, predictWithModel, probAbove, type ModelPrediction } from '../predictor/predict';
 
 const nf = (n: number) => new Intl.NumberFormat('fr-FR').format(n);
@@ -56,15 +57,8 @@ export interface PreflightInput {
 
 // ── Vues à un âge donné (instantanés quotidiens) ─────────────────────
 
-type Snap = { at: number; views: number };
+// Same rules as the model training (lib/predictor/context.ts).
 
-function viewsAt(snaps: Snap[], publishedMs: number, ageDays: number): number | null {
-  const target = publishedMs + ageDays * 86_400_000;
-  const tol = Math.max(1.5, ageDays * 0.25) * 86_400_000;
-  let best: Snap | null = null;
-  for (const s of snaps) if (Math.abs(s.at - target) <= tol && (!best || Math.abs(s.at - target) < Math.abs(best.at - target))) best = s;
-  return best ? best.views : null;
-}
 
 const median = (xs: number[]) => {
   if (!xs.length) return 0;
@@ -110,8 +104,12 @@ async function loadOwnVideos(db: SupabaseClient, ytChannelId: string, limit = 40
 
 /** Vues habituelles de la chaîne au même âge, d'après les vidéos publiées avant celle-ci. */
 function baselineAt(videos: OwnVideo[], before: number, ageDays: number): number | null {
-  const prev = videos.filter((v) => v.publishedMs < before - ageDays * 86_400_000).slice(0, 12);
-  const vals = prev.map((v) => viewsAt(v.snaps, v.publishedMs, ageDays)).filter((x): x is number => x !== null && x > 0);
+  // 12 most recent measured videos (filter first, then take 12: same as the training baseline).
+  const vals = videos
+    .filter((v) => v.publishedMs <= before - ageDays * 86_400_000)
+    .map((v) => viewsAt(v.snaps, v.publishedMs, ageDays))
+    .filter((x): x is number => x !== null && x > 0)
+    .slice(0, 12);
   return vals.length >= 3 ? median(vals) : null;
 }
 

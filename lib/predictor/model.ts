@@ -3,9 +3,13 @@
  * (vues d'une vidéo ÷ vues habituelles de sa chaîne au même âge), entraînée chaque semaine
  * sur toutes les vidéos suivies par TubLyTI (scripts/train-predictor.ts).
  *
+ * Version 2 : cible à horizon fixe (vues à 7 jours ÷ vues habituelles à 7 jours, comme la mesure réelle
+ * après publication) et chaque paramètre lu tel qu'il était connu AU MOMENT de la publication
+ * (lib/predictor/context.ts). Le nombre d'abonnés est retiré : on n'a pas son historique daté.
+ *
  * Paramètres utilisés (ceux qu'on sait mesurer sur des milliers de vidéos) :
  *  - le moment : jour de la semaine, heure, saison ;
- *  - la chaîne : abonnés, vues habituelles, élan des 5 dernières vidéos, jours depuis la vidéo précédente ;
+ *  - la chaîne : vues habituelles, élan des 5 dernières vidéos, jours depuis la vidéo précédente ;
  *  - le sujet : phase, potentiel (MGI), nombre de vidéos concurrentes publiées dans les 7 jours avant ;
  *  - le format : durée, Short ou non ;
  *  - l'emballage : forme du titre, longueur du titre.
@@ -15,12 +19,13 @@
 
 import { titleChecks } from '../preflight/titles';
 
-export const MODEL_KEY = 'predictor_model_v1';
+/** v1 (predictor_model_v1) is ignored: trained with look-ahead features and a mixed-age target. */
+export const MODEL_KEY = 'predictor_model_v2';
+export const MODEL_VERSION = 2;
 
 export interface FeatureContext {
   durationS: number | null;
   publishedAt: Date;
-  subscribers: number | null;
   baselineViews: number | null;
   /** Moyenne du log des scores des 5 vidéos précédentes de la chaîne (élan). */
   momentum: number | null;
@@ -44,7 +49,6 @@ export const FEATURE_LABELS: Record<string, string> = {
   hour_cos: 'Heure de publication',
   month_sin: 'Saison',
   month_cos: 'Saison',
-  subs_log: 'Taille de la chaîne',
   baseline_log: 'Vues habituelles de la chaîne',
   momentum: 'Élan des dernières vidéos',
   momentum_missing: 'Historique de la chaîne',
@@ -82,7 +86,6 @@ export function vectorize(c: FeatureContext): number[] {
     hour_cos: Math.cos((2 * Math.PI * hour) / 24),
     month_sin: Math.sin((2 * Math.PI * month) / 12),
     month_cos: Math.cos((2 * Math.PI * month) / 12),
-    subs_log: Math.log10((c.subscribers ?? 0) + 1),
     baseline_log: Math.log10((c.baselineViews ?? 0) + 1),
     momentum: c.momentum ?? 0,
     momentum_missing: c.momentum === null ? 1 : 0,
@@ -101,7 +104,7 @@ export function vectorize(c: FeatureContext): number[] {
 }
 
 export interface TrainedModel {
-  version: 1;
+  version: 2;
   trainedAt: string;
   n: number;
   features: string[];
@@ -109,9 +112,9 @@ export interface TrainedModel {
   std: number[];
   weights: number[];
   intercept: number;
-  /** Quantiles des résidus (log) : servent à transformer la prédiction en probabilités. */
+  /** Quantiles des résidus (log) sur le jeu de test temporel : transforment la prédiction en probabilités. */
   residuals: number[];
-  metrics: { testN: number; r2: number; maeLog: number; brierP2x: number; baseBrierP2x: number; baseP2x: number };
+  metrics: { testN: number; r2: number; maeLog: number; brierP2x: number; baseBrierP2x: number; baseP2x: number; horizonDays?: number };
 }
 
 /** Résout (A + λI) w = b par élimination de Gauss (A symétrique, petite taille). */
@@ -155,9 +158,14 @@ export function fitRidge(X: number[][], y: number[], lambda = 2): Omit<TrainedMo
   for (let a = 0; a < k; a++) for (let c = 0; c < a; c++) A[a][c] = A[c][a];
   for (let a = 0; a < k; a++) A[a][a] += lambda;
   const weights = solve(A, b);
-  const residualsAll = X.map((row, i) => y[i] - predictRaw({ mean, std, weights, intercept: yMean }, row)).sort((a, b) => a - b);
-  const residuals = Array.from({ length: 101 }, (_, q) => residualsAll[Math.min(residualsAll.length - 1, Math.round((q / 100) * (residualsAll.length - 1)))]);
+  const residuals = residualQuantiles(X.map((row, i) => y[i] - predictRaw({ mean, std, weights, intercept: yMean }, row)));
   return { n, features: FEATURES, mean, std, weights, intercept: yMean, residuals };
+}
+
+/** 101 quantiles of a residual sample. */
+export function residualQuantiles(res: number[]): number[] {
+  const r = [...res].sort((a, b) => a - b);
+  return Array.from({ length: 101 }, (_, q) => r[Math.min(r.length - 1, Math.round((q / 100) * (r.length - 1)))]);
 }
 
 export function predictRaw(m: Pick<TrainedModel, 'mean' | 'std' | 'weights' | 'intercept'>, x: number[]): number {
