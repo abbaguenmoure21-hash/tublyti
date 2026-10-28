@@ -1,21 +1,40 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { geminiJson, type GeminiPart } from '../ai/gemini';
+import { HOOK_TYPES } from './hook-types';
 
 /**
  * Note de la miniature et du script par Gemini, comparés aux vidéos qui ont sur-performé dans la niche.
  */
 
+export type ThumbCategory = 'transformation' | 'mystery' | 'comparison' | 'wealth' | 'other';
+
 export interface ThumbnailScore {
   score: number;
+  /** Ressort émotionnel principal de la miniature, et celui qui conviendrait le mieux au sujet. */
+  category: ThumbCategory;
+  suggestedCategory: ThumbCategory;
+  categoryNote: string;
+  /** Nombre d'éléments visuels distincts (3 au maximum recommandé). */
+  elements: number | null;
   criteria: { key: string; label: string; score: number; note: string }[];
   strengths: string[];
   fixes: string[];
   compared_with: number;
 }
 
+export { HOOK_TYPES };
+
 export interface ScriptScore {
   score: number;
-  hook: { score: number; verdict: string; rewrite: string };
+  hook: {
+    score: number;
+    verdict: string;
+    rewrite: string;
+    /** Type d'accroche utilisé (clé de HOOK_TYPES). */
+    type: string;
+    /** Deux autres types d'accroche adaptés au sujet, avec la phrase réécrite. */
+    alternatives: { type: string; line: string }[];
+  };
   criteria: { key: string; label: string; score: number; note: string }[];
   risks: { at_pct: number; issue: string; fix: string }[];
   strengths: string[];
@@ -35,7 +54,9 @@ async function fetchThumb(videoId: string): Promise<string | null> {
 }
 
 const THUMB_CRITERIA: [string, string][] = [
-  ['mobile', 'Lisible en petit (mobile)'],
+  ['tiny', 'Se comprend en tout petit (18 %)'],
+  ['elements', '3 éléments au maximum'],
+  ['mobile', 'Lisible sur mobile'],
   ['focus', 'Un seul point focal clair'],
   ['contrast', 'Contraste et couleurs'],
   ['emotion', 'Émotion / intrigue'],
@@ -46,7 +67,7 @@ const THUMB_CRITERIA: [string, string][] = [
 
 export async function scoreThumbnail(
   db: SupabaseClient,
-  image: { mimeType: string; base64: string },
+  image: { mimeType: string; base64: string; tinyBase64?: string | null },
   title: string,
   winners: { id: string; title: string; score: number }[],
 ): Promise<ThumbnailScore> {
@@ -63,20 +84,31 @@ export async function scoreThumbnail(
       text: `You are a YouTube packaging expert. Judge the CANDIDATE thumbnail for a video titled "${title}".
 ${compared ? `Compare it with ${compared} thumbnails that strongly over-performed in the same niche (shown first).` : 'No reference thumbnails available: judge against YouTube best practices.'}
 Score each criterion 0-100, be strict and specific (a 50 is average YouTube, 80+ is top 10% of the niche).
+- "tiny": judge the SMALL copy of the candidate (about 18% of full size, like a phone feed): can you still tell what it is about in one second?
+- "elements": count the distinct visual elements (faces, objects, text blocks, logos). 3 or fewer is ideal; more looks cluttered.
+Also classify the main emotional lever: "transformation" (shows a result / before-after), "mystery" (tension, hidden or blurred thing, unanswered problem), "comparison" (two things head-to-head), "wealth" (money, price tags, extravagance) or "other"; and say which lever would fit THIS title best.
 Write every text in FRENCH (tutoiement, concrete, actionable, mention real elements of the image).
 Answer JSON only:
-{"criteria": {${THUMB_CRITERIA.map(([k]) => `"${k}": {"score": 0, "note": ""}`).join(', ')}}, "score": 0, "strengths": ["..."], "fixes": ["concrete change 1", "..."]}`,
+{"criteria": {${THUMB_CRITERIA.map(([k]) => `"${k}": {"score": 0, "note": ""}`).join(', ')}}, "elements_count": 0, "category": "other", "suggested_category": "other", "category_note": "", "score": 0, "strengths": ["..."], "fixes": ["concrete change 1", "..."]}`,
     },
     ...refs,
-    { text: 'CANDIDATE thumbnail:' },
+    { text: 'CANDIDATE thumbnail (full size):' },
     { inlineData: { mimeType: image.mimeType, data: image.base64 } },
+    ...(image.tinyBase64 ? [{ text: 'Same CANDIDATE at about 18% size (phone feed):' }, { inlineData: { mimeType: 'image/jpeg', data: image.tinyBase64 } }] : []),
   ];
   const { data } = await geminiJson<Record<string, unknown>>(db, parts, { action: 'preflight_thumbnail', maxOutputTokens: 1500, meta: { title } });
   const c = (data.criteria ?? {}) as Record<string, { score?: number; note?: string }>;
   const criteria = THUMB_CRITERIA.map(([key, label]) => ({ key, label, score: clamp(c[key]?.score), note: str(c[key]?.note, 240) }));
   const avg = Math.round(criteria.reduce((s, x) => s + x.score, 0) / criteria.length);
+  const cats: ThumbCategory[] = ['transformation', 'mystery', 'comparison', 'wealth', 'other'];
+  const cat = (v: unknown): ThumbCategory => (cats.includes(v as ThumbCategory) ? (v as ThumbCategory) : 'other');
+  const elements = Number(data.elements_count);
   return {
     score: data.score != null ? Math.round((clamp(data.score) + avg) / 2) : avg,
+    category: cat(data.category),
+    suggestedCategory: cat(data.suggested_category),
+    categoryNote: str(data.category_note, 300),
+    elements: Number.isFinite(elements) && elements > 0 ? Math.round(elements) : null,
     criteria,
     strengths: strs(data.strengths, 4),
     fixes: strs(data.fixes, 5),
@@ -113,10 +145,11 @@ export async function scoreScript(db: SupabaseClient, script: string, title: str
       text: `You are a YouTube scriptwriter who specializes in audience retention. Evaluate this script for a video titled "${title}".
 ${patterns ? `What worked in over-performing videos of the same niche:\n${patterns}\n` : ''}
 Judge the HOOK (first ~30 seconds = first ~75 words) hardest: it must confirm the title's promise immediately, create a strong open loop and give a reason to stay.
+Classify the hook type with one of: ${Object.keys(HOOK_TYPES).join(', ')}. Then propose 2 OTHER hook types that would fit this topic better or as well, each with a ready-to-say opening line (in the script's language).
 Then find the places where viewers are likely to leave (give their position as % of the script) and how to fix each one.
 Score 0-100, strict (50 = average YouTube, 80+ = top 10%). Write all text in FRENCH (tutoiement, concrete). The hook rewrite must stay in the SCRIPT's language.
 Answer JSON only:
-{"hook": {"score": 0, "verdict": "", "rewrite": "improved first 2-4 sentences"}, "criteria": {${SCRIPT_CRITERIA.map(([k]) => `"${k}": {"score": 0, "note": ""}`).join(', ')}}, "risks": [{"at_pct": 0, "issue": "", "fix": ""}], "score": 0, "strengths": [""], "fixes": [""]}
+{"hook": {"score": 0, "type": "curiosity", "verdict": "", "rewrite": "improved first 2-4 sentences", "alternatives": [{"type": "contrarian", "line": ""}, {"type": "stakes", "line": ""}]}, "criteria": {${SCRIPT_CRITERIA.map(([k]) => `"${k}": {"score": 0, "note": ""}`).join(', ')}}, "risks": [{"at_pct": 0, "issue": "", "fix": ""}], "score": 0, "strengths": [""], "fixes": [""]}
 
 SCRIPT:
 ${text}`,
@@ -124,14 +157,21 @@ ${text}`,
   ];
   const { data } = await geminiJson<Record<string, unknown>>(db, parts, { action: 'preflight_script', maxOutputTokens: 3000, meta: { title } });
   const c = (data.criteria ?? {}) as Record<string, { score?: number; note?: string }>;
-  const h = (data.hook ?? {}) as { score?: number; verdict?: string; rewrite?: string };
+  const h = (data.hook ?? {}) as { score?: number; verdict?: string; rewrite?: string; type?: string; alternatives?: { type?: string; line?: string }[] };
+  const hookType = (t: unknown) => (typeof t === 'string' && t in HOOK_TYPES ? t : 'other');
   const criteria = SCRIPT_CRITERIA.map(([key, label]) => ({ key, label, score: clamp(c[key]?.score), note: str(c[key]?.note, 240) }));
   const hookScore = clamp(h.score);
   const avg = criteria.reduce((s, x) => s + x.score, 0) / criteria.length;
   return {
     // L'accroche compte double : c'est elle qui décide de la rétention des 30 premières secondes.
     score: Math.round((hookScore * 2 + avg * criteria.length) / (criteria.length + 2)),
-    hook: { score: hookScore, verdict: str(h.verdict, 400), rewrite: str(h.rewrite, 900) },
+    hook: {
+      score: hookScore,
+      verdict: str(h.verdict, 400),
+      rewrite: str(h.rewrite, 900),
+      type: hookType(h.type),
+      alternatives: Array.isArray(h.alternatives) ? h.alternatives.slice(0, 2).map((a) => ({ type: hookType(a.type), line: str(a.line, 400) })).filter((a) => a.line) : [],
+    },
     criteria,
     risks: Array.isArray(data.risks)
       ? (data.risks as { at_pct?: number; issue?: string; fix?: string }[]).slice(0, 6).map((r) => ({ at_pct: clamp(r.at_pct), issue: str(r.issue, 300), fix: str(r.fix, 300) }))

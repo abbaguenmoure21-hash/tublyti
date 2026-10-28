@@ -46,7 +46,7 @@ export interface PreflightInput {
   nicheId: string;
   titles: string[];
   script?: string | null;
-  thumbnail?: { mimeType: string; base64: string } | null;
+  thumbnail?: { mimeType: string; base64: string; tinyBase64?: string | null } | null;
   /** Vidéo finie, déjà envoyée à Gemini par le navigateur. */
   video?: { name: string; uri: string; mimeType: string; durationS?: number | null } | null;
   baselineViews?: number | null;
@@ -405,7 +405,7 @@ export async function refreshAndFollow(db: SupabaseClient, userId: string, userC
     const ctr = ctrById.get(v.id) ?? null;
     let advice: string;
     if (status === 'above') advice = 'Elle décolle : prépare vite une suite ou un sujet proche, et réponds aux commentaires pour entretenir l’élan.';
-    else if (status === 'below' && ctr !== null && ctr < 0.04) advice = `CTR faible (${(ctr * 100).toFixed(1)} %) : change la miniature ou le titre (outil « Tester et comparer » de YouTube Studio).`;
+    else if (status === 'below' && ctr !== null && ctr < 0.04) advice = `CTR faible (${(ctr * 100).toFixed(1)} %) : change la miniature ou le titre avec « Tester et comparer » de YouTube Studio : d’abord 3 miniatures très différentes, puis 3 petites variantes de la gagnante.`;
     else if (status === 'below' && ctr !== null) advice = `Les gens cliquent (CTR ${(ctr * 100).toFixed(1)} %) mais YouTube ne pousse pas : regarde la rétention dans Ma chaîne et analyse la vidéo pour trouver le décrochage.`;
     else if (status === 'below') advice = 'En dessous de tes vues habituelles à cet âge : vérifie d’abord la miniature et le titre, puis la rétention des 30 premières secondes.';
     else if (status === 'normal') advice = 'Dans tes vues habituelles.';

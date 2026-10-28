@@ -91,6 +91,10 @@ export const LABELS = [
 
 export const FAQ = [
   {
+    q: 'Comment choisir entre deux mots ou deux sujets ?',
+    a: 'Avant de publier → « Quel mot attire le plus ? ». Écris 2 à 4 mots (ex. Rome, Égypte, Aztèques). TubLyTI compare les vidéos qui les ont dans leur titre, dans ta niche ou dans toutes les niches, et surtout combien elles font par rapport aux vues habituelles de leur chaîne : c’est la demande propre au mot, indépendamment de la taille des chaînes. Le mot gagnant mérite d’être dans ton titre.',
+  },
+  {
     q: 'Comment savoir si un sujet ou une idée est saturé ?',
     a: 'Sur la fiche d’un sujet, la carte « Saturation du sujet » donne un niveau (Ouvert, Se remplit, Saturé) et un score sur 100. Il combine le nombre de chaînes qui ont publié ces 30 derniers jours, l’accélération du rythme de publication, et surtout si les nouvelles vidéos font moins bien que celles d’il y a 1 à 4 mois. À côté de chaque vidéo qui a sur-performé, le bouton « Copiée ? » cherche les vidéos très proches publiées depuis dans ta niche : combien, par combien de chaînes, et si elles marchent encore.',
   },

@@ -7,6 +7,7 @@ import { getPublicStats } from '@/lib/youtube/public-stats';
 import { runPreflight, type PreflightResult } from '@/lib/preflight/engine';
 import { fileState, startUpload } from '@/lib/preflight/video-file';
 import { geminiEnabled } from '@/lib/ai/gemini';
+import { compareKeywords, type KeywordComparison } from '@/lib/keywords';
 
 const DAILY_LIMIT = Number(process.env.PREFLIGHT_DAILY ?? 30);
 const MAX_THUMB_BYTES = 2_500_000;
@@ -29,7 +30,7 @@ export async function evaluateBeforePublish(input: {
   userChannelId: string;
   titles: string[];
   script?: string;
-  thumbnail?: { mimeType: string; base64: string } | null;
+  thumbnail?: { mimeType: string; base64: string; tinyBase64?: string | null } | null;
   video?: { name: string; uri: string; mimeType: string; durationS?: number | null } | null;
   /** Date de publication prévue (ISO). */
   publishAt?: string | null;
@@ -111,5 +112,20 @@ export async function videoUploadState(name: string): Promise<{ state: string; u
     return await fileState(name);
   } catch (e) {
     return { state: 'FAILED', error: (e as Error).message };
+  }
+}
+
+/** « Quel mot attire le plus ? » : 2 à 4 mots comparés sur les vidéos de la niche (ou de toutes les niches). */
+export async function compareKeywordsAction(userChannelId: string, terms: string[], scope: 'niche' | 'all'): Promise<{ ok: true; data: KeywordComparison } | { ok: false; message: string }> {
+  const user = await getSessionUser();
+  if (!user) return { ok: false, message: 'Connecte-toi.' };
+  const clean = (terms ?? []).map((t) => String(t ?? '').trim().slice(0, 60)).filter((t) => t.length >= 2);
+  if (clean.length < 2) return { ok: false, message: 'Écris au moins deux mots à comparer.' };
+  const { db, ch } = await ownChannel(user.id, userChannelId);
+  if (!ch) return { ok: false, message: 'Choisis une de tes chaînes vérifiées.' };
+  try {
+    return { ok: true, data: await compareKeywords(db, clean, scope === 'all' ? null : [ch.niche_id]) };
+  } catch (e) {
+    return { ok: false, message: (e as Error).message.slice(0, 200) };
   }
 }

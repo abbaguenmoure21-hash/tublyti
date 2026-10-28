@@ -6,13 +6,14 @@ import { Line, LineChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YA
 import { evaluateBeforePublish, startVideoUpload, videoUploadState } from '@/lib/actions/preflight';
 import type { PreflightResult } from '@/lib/preflight/engine';
 import type { TitleScore } from '@/lib/preflight/titles';
+import { HOOK_TYPES } from '@/lib/preflight/hook-types';
 
 const nf = new Intl.NumberFormat('fr-FR');
 const pct = (x: number) => `${Math.round(x * 100)} %`;
 const times = (m: number) => `×${m.toLocaleString('fr-FR', { maximumFractionDigits: 1 })}`;
 
 /** Réduit l'image côté navigateur (1280 px de large, JPEG) pour un envoi léger. */
-async function shrink(file: File): Promise<{ mimeType: string; base64: string; preview: string }> {
+async function shrink(file: File): Promise<{ mimeType: string; base64: string; tinyBase64: string; preview: string }> {
   const url = URL.createObjectURL(file);
   const img = await new Promise<HTMLImageElement>((resolve, reject) => {
     const i = new Image();
@@ -27,7 +28,12 @@ async function shrink(file: File): Promise<{ mimeType: string; base64: string; p
   canvas.getContext('2d')?.drawImage(img, 0, 0, canvas.width, canvas.height);
   URL.revokeObjectURL(url);
   const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-  return { mimeType: 'image/jpeg', base64: dataUrl.split(',')[1], preview: dataUrl };
+  // Copie à ~18 % de la taille (fil d'actualité sur téléphone) pour le test « se comprend en tout petit ».
+  const tiny = document.createElement('canvas');
+  tiny.width = Math.max(1, Math.round(canvas.width * 0.18));
+  tiny.height = Math.max(1, Math.round(canvas.height * 0.18));
+  tiny.getContext('2d')?.drawImage(canvas, 0, 0, tiny.width, tiny.height);
+  return { mimeType: 'image/jpeg', base64: dataUrl.split(',')[1], tinyBase64: tiny.toDataURL('image/jpeg', 0.9).split(',')[1], preview: dataUrl };
 }
 
 function tone(score: number) {
@@ -45,7 +51,7 @@ function Bar({ value }: { value: number }) {
 export function PreflightForm({ userChannelId, aiEnabled }: { userChannelId: string; aiEnabled: boolean }) {
   const [titles, setTitles] = useState<string[]>(['']);
   const [script, setScript] = useState('');
-  const [thumb, setThumb] = useState<{ mimeType: string; base64: string; preview: string } | null>(null);
+  const [thumb, setThumb] = useState<{ mimeType: string; base64: string; tinyBase64: string; preview: string } | null>(null);
   const [video, setVideo] = useState<UploadState | null>(null);
   const [publishAt, setPublishAt] = useState(() => {
     const d = new Date(Date.now() + 86_400_000);
@@ -72,7 +78,7 @@ export function PreflightForm({ userChannelId, aiEnabled }: { userChannelId: str
         userChannelId,
         titles,
         script: script.trim() || undefined,
-        thumbnail: thumb ? { mimeType: thumb.mimeType, base64: thumb.base64 } : null,
+        thumbnail: thumb ? { mimeType: thumb.mimeType, base64: thumb.base64, tinyBase64: thumb.tinyBase64 } : null,
         video: video?.status === 'ready' && video.file ? { ...video.file, durationS: video.durationS } : null,
         publishAt: publishAt ? new Date(publishAt).toISOString() : null,
       });
@@ -271,6 +277,12 @@ function ResultView({ r }: { r: PreflightResult }) {
           <p className="text-[13px] text-muted-foreground">
             {r.thumbnail.compared_with ? `Comparée à ${r.thumbnail.compared_with} miniatures qui ont sur-performé dans ta niche.` : 'Comparée aux bonnes pratiques YouTube (pas encore de miniatures gagnantes dans ta niche).'}
           </p>
+          <p className="text-[13px] leading-relaxed">
+            <span className="font-medium">Ressort : </span>{CATEGORY[r.thumbnail.category]}
+            {r.thumbnail.suggestedCategory !== r.thumbnail.category && r.thumbnail.suggestedCategory !== 'other' ? <> · <span className="font-medium">mieux pour ce titre : </span>{CATEGORY[r.thumbnail.suggestedCategory]}</> : null}
+            {r.thumbnail.elements ? ` · ${r.thumbnail.elements} élément${r.thumbnail.elements > 1 ? 's' : ''} à l’image${r.thumbnail.elements > 3 ? ' (trop : vise 3 maximum)' : ''}` : ''}
+            {r.thumbnail.categoryNote && <span className="block text-muted-foreground">{r.thumbnail.categoryNote}</span>}
+          </p>
           <Criteria items={r.thumbnail.criteria} />
           <TwoLists good={r.thumbnail.strengths} fix={r.thumbnail.fixes} />
         </section>
@@ -288,8 +300,22 @@ function ResultView({ r }: { r: PreflightResult }) {
               Accroche (30 premières secondes) <span className={`rounded-full px-2 text-[12px] font-semibold ${tone(r.script.hook.score)}`}>{r.script.hook.score}</span>
             </span>
             <p className="text-[14px] leading-relaxed">{r.script.hook.verdict}</p>
+            {r.script.hook.type && r.script.hook.type !== 'other' && (
+              <p className="text-[13px] text-muted-foreground">Type d’accroche : <span className="font-medium text-foreground">{HOOK_TYPES[r.script.hook.type] ?? r.script.hook.type}</span></p>
+            )}
             {r.script.hook.rewrite && (
               <blockquote className="border-l-2 border-primary pl-3 text-[14px] italic leading-relaxed">{r.script.hook.rewrite}</blockquote>
+            )}
+            {r.script.hook.alternatives?.length > 0 && (
+              <div className="flex flex-col gap-1.5 pt-1">
+                <span className="text-[12px] font-semibold uppercase tracking-[0.04em] text-muted-foreground">Autres accroches à essayer</span>
+                {r.script.hook.alternatives.map((a) => (
+                  <p key={a.line} className="text-[14px] leading-relaxed">
+                    <span className="mr-1.5 rounded-md bg-primary-soft px-1.5 py-0.5 text-[12px] font-medium text-primary-ink">{HOOK_TYPES[a.type] ?? a.type}</span>
+                    {a.line}
+                  </p>
+                ))}
+              </div>
             )}
           </div>
           <Criteria items={r.script.criteria} />
@@ -651,3 +677,11 @@ function ModelSection({ r }: { r: PreflightResult }) {
     </section>
   );
 }
+
+const CATEGORY: Record<string, string> = {
+  transformation: 'transformation (montre le résultat)',
+  mystery: 'mystère (tension, élément caché)',
+  comparison: 'comparaison (deux choses face à face)',
+  wealth: 'richesse (argent, prix, démesure)',
+  other: 'autre',
+};

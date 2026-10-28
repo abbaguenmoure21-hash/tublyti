@@ -12,6 +12,7 @@ import { getVideoReach } from '@/lib/youtube/reporting';
 import { getChannelAnalytics, getVideoRetention, getVideoTotals, PERIODS, type Period } from '@/lib/youtube/analytics';
 import { analyzeVideo, parseVideoId, retentionContextFrom, type RetentionContext } from '@/lib/video/analyze';
 import { linkSaturation, topicSaturation } from '@/lib/saturation';
+import { compareKeywords } from '@/lib/keywords';
 
 // ── Constants ──────────────────────────────────────────────────────────
 
@@ -1628,6 +1629,21 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
       const r = await linkSaturation(db, id);
       if ('error' in r) return fail(r.error);
       return json(r);
+    },
+  );
+
+  mcp.tool(
+    'compare_keywords',
+    'Quel mot attire le plus ? (JSON) Compare 2 a 4 mots-cles sur les videos du catalogue qui les ont dans leur titre : nombre de videos, vues medianes, sur-performance mediane (vues / vues habituelles de la chaine), part a 2x et plus, meilleures videos, gagnant et verdict. scope "niche" (thematiques du jeton) ou "all".',
+    {
+      terms: z.array(z.string().min(2).max(60)).min(2).max(4).describe('Mots ou sujets a comparer'),
+      scope: z.enum(['niche', 'all']).optional().describe('niche (par defaut) ou all'),
+    },
+    async ({ terms, scope }) => {
+      const blocked = await guard(token, 'compare_keywords');
+      if (blocked) return fail(blocked);
+      const nicheIds = scope === 'all' ? null : token.nicheIds;
+      return json(await compareKeywords(createServiceClient(), terms, nicheIds && nicheIds.length ? nicheIds : null));
     },
   );
 
