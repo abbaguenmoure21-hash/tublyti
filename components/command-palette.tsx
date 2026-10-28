@@ -55,7 +55,9 @@ interface SearchResult {
 export function CommandPalette({ isAdmin = false }: { isAdmin?: boolean }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<SearchResult[]>([]);
+  const [rawResults, setResults] = useState<SearchResult[]>([]);
+  // Short queries show nothing; derived instead of reset in an effect.
+  const results = query.length < 2 ? [] : rawResults;
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
   const { setTheme } = useTheme();
@@ -74,10 +76,7 @@ export function CommandPalette({ isAdmin = false }: { isAdmin?: boolean }) {
 
   // Search Supabase when query changes
   useEffect(() => {
-    if (!query || query.length < 2) {
-      setResults([]);
-      return;
-    }
+    if (!query || query.length < 2) return;
 
     const controller = new AbortController();
     const timeout = setTimeout(async () => {

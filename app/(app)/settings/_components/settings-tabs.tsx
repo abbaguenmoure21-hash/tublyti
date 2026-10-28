@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { SlidersHorizontal, Globe, Cpu } from 'lucide-react';
 import { ScoringTab } from './scoring-tab';
@@ -87,11 +87,14 @@ export function SettingsTabs({
     tabParam && TABS.some((t) => t.id === tabParam) ? (tabParam as TabId) : 'scoring',
   );
 
-  useEffect(() => {
+  // Follow ?tab= changes (adjust state during render instead of an effect).
+  const [prevTabParam, setPrevTabParam] = useState(tabParam);
+  if (tabParam !== prevTabParam) {
+    setPrevTabParam(tabParam);
     if (tabParam && TABS.some((t) => t.id === tabParam)) {
       setActiveTab(tabParam as TabId);
     }
-  }, [tabParam]);
+  }
 
   return (
     <div className="space-y-6">
