@@ -202,7 +202,7 @@ function Stamp({ id, s }: { id: string; s: number }) {
 }
 
 function Bullets({ items, tone = 'default' }: { items: string[]; tone?: 'default' | 'good' | 'bad' | 'do' }) {
-  const dot = tone === 'good' ? 'bg-phase-2' : tone === 'bad' ? 'bg-warning' : tone === 'do' ? 'bg-primary' : 'bg-muted-foreground';
+  const dot = tone === 'good' ? 'bg-success' : tone === 'bad' ? 'bg-warning' : tone === 'do' ? 'bg-primary' : 'bg-muted-foreground';
   return (
     <ul className="flex flex-col gap-2">
       {items.map((x, i) => (
