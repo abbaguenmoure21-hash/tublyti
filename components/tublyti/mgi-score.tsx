@@ -1,12 +1,9 @@
 'use client';
 
 import { getMgiBand, type ConfidenceResult } from '@/lib/scoring/mgi';
+import { RELIABILITY_LABELS } from '@/lib/lexique';
 
-const CONFIDENCE_LABELS: Record<string, string> = {
-  high: 'Élevée',
-  medium: 'Moyenne',
-  low: 'Faible',
-};
+const CONFIDENCE_LABELS: Record<string, string> = RELIABILITY_LABELS;
 
 const CONFIDENCE_DOTS: Record<string, string> = {
   high: 'bg-[var(--success)]',

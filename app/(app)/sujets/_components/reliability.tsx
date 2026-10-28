@@ -1,9 +1,11 @@
 import type { Reliability } from '@/lib/sujets/queries';
+import { RELIABILITY_LABELS } from '@/lib/lexique';
 
+// One scale, one hue (LEXIQUE: « Fiabilité haute, moyenne, faible »).
 const CONFIG: Record<Reliability, { label: string; dots: number; className: string }> = {
-  high: { label: 'Fiable', dots: 3, className: 'text-phase-2-ink' },
-  medium: { label: 'Assez fiable', dots: 2, className: 'text-primary-ink' },
-  low: { label: 'Peu de données', dots: 1, className: 'text-muted-foreground' },
+  high: { label: RELIABILITY_LABELS.high, dots: 3, className: 'text-primary-ink' },
+  medium: { label: RELIABILITY_LABELS.medium, dots: 2, className: 'text-primary-ink' },
+  low: { label: RELIABILITY_LABELS.low, dots: 1, className: 'text-muted-foreground' },
 };
 
 /** Indicateur de fiabilité : 3 points + libellé (jamais la couleur seule). */

@@ -1,3 +1,4 @@
+import { COMMENT_LABELS } from '@/lib/lexique';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Card, CardContent } from '@/components/ui/card';
 
@@ -29,22 +30,17 @@ interface FrustrationItem {
   nicheName: string;
 }
 
-const LABEL_NAMES: Record<string, string> = {
-  no_one_explains: 'Personne ne traite',
-  wish_video_on: 'Souhait de vidéo',
-  stopped_too_early: 'Trop court',
-  searched_long: 'Longue recherche',
-  none: 'Aucun',
-};
+const LABEL_NAMES: Record<string, string> = { ...COMMENT_LABELS, none: 'Aucun' };
 
 function LabelBadge({ label }: { label: string }) {
   const name = LABEL_NAMES[label] ?? label;
 
+  // Neutral: phase colors are reserved for phases (DESIGN.md).
   const LABEL_CLASSES: Record<string, string> = {
-    no_one_explains: 'bg-phase-3-soft text-phase-3-ink',
-    wish_video_on: 'bg-primary-soft text-primary-ink',
-    stopped_too_early: 'bg-phase-1-soft text-phase-1-ink',
-    searched_long: 'bg-phase-0-soft text-phase-0-ink',
+    no_one_explains: 'bg-muted text-foreground',
+    wish_video_on: 'bg-muted text-foreground',
+    stopped_too_early: 'bg-muted text-foreground',
+    searched_long: 'bg-muted text-foreground',
   };
 
   const classes = LABEL_CLASSES[label];
@@ -311,15 +307,15 @@ export default async function FrustrationsPage({
               <MessageSquareWarning className="size-7" />
             </div>
             <p className="text-title-3 mb-2">
-              Aucune frustration détectée pour l&apos;instant
+              Aucune question du public repérée pour l’instant
             </p>
             <p className="text-[14px] text-muted-foreground max-w-md">
               TubLyTI analyse les commentaires YouTube pour détecter les besoins
               non satisfaits des spectateurs.
             </p>
             <p className="text-[13px] text-muted-foreground mt-3">
-              Les frustrations apparaîtront automatiquement après la prochaine
-              collecte et classification.
+              Elles apparaîtront automatiquement après la prochaine collecte
+              de nuit.
             </p>
           </div>
         </div>
@@ -344,31 +340,31 @@ export default async function FrustrationsPage({
   const LABEL_GROUPS = [
     {
       id: 'wish_video_on',
-      title: 'Vidéos réclamées',
+      title: COMMENT_LABELS.wish_video_on,
       description: 'Le public demande explicitement une vidéo sur ce sujet. Crée-la pour répondre à une demande directe.',
       icon: Lightbulb,
       colorClass: 'text-primary'
     },
     {
       id: 'no_one_explains',
-      title: 'Explications manquantes',
+      title: COMMENT_LABELS.no_one_explains,
       description: 'Personne n\'explique ce point clairement. Une vidéo claire te place comme la référence.',
       icon: Target,
-      colorClass: 'text-purple-500 dark:text-purple-400'
+      colorClass: 'text-primary'
     },
     {
       id: 'stopped_too_early',
-      title: 'Sujets survolés',
+      title: COMMENT_LABELS.stopped_too_early,
       description: 'Le créateur est passé trop vite sur un point. Fais une vidéo entière dessus pour approfondir.',
       icon: Clock,
-      colorClass: 'text-orange-500 dark:text-orange-400'
+      colorClass: 'text-primary'
     },
     {
       id: 'searched_long',
-      title: 'Recherches difficiles',
+      title: COMMENT_LABELS.searched_long,
       description: 'Le public a cherché longtemps avant de trouver. Reprends ces mots exacts dans tes titres pour être trouvé.',
       icon: Search,
-      colorClass: 'text-emerald-500 dark:text-emerald-400'
+      colorClass: 'text-primary'
     }
   ];
 
@@ -576,8 +572,14 @@ export default async function FrustrationsPage({
                               <span className="flex items-center gap-1.5 text-[12px] font-bold text-muted-foreground bg-black/5 dark:bg-white/5 px-2.5 py-1.5 rounded-lg">
                                 <ThumbsUp className="w-[14px] h-[14px]" />
                                 {item.likeCount}
-                                <span className="opacity-40 px-1">·</span>
-                                {Math.round(item.confidence * 100)}% {item.model === 'human' && <span className="opacity-40 px-1">·</span>} {item.model === 'human' && ' corrigé'}
+                                {/* Model certainty: admin only (meaningless for a client). */}
+                                {isAdmin && (
+                                  <>
+                                    <span className="opacity-40 px-1">·</span>
+                                    <span title="Certitude de l’analyse">{Math.round(item.confidence * 100)} %</span>
+                                    {item.model === 'human' && <><span className="opacity-40 px-1">·</span> corrigé</>}
+                                  </>
+                                )}
                               </span>
 
                               {isAdmin && (

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
 import { PhaseBadge, SensitiveBadge } from '@/components/tublyti';
-import { FRUSTRATION_LABEL } from '@/lib/lexique';
+import { FRUSTRATION_LABEL, RELIABILITY_LABELS } from '@/lib/lexique';
 import { FeasibilityBadge } from '@/components/tublyti/feasibility-badge';
 import type { FeasibilityGrade } from '@/lib/scoring/feasibility';
 
@@ -241,7 +241,7 @@ function Detail({ topic, isBest }: { topic: CarteTopic; isBest: boolean }) {
         <div className="flex flex-wrap items-center gap-2">
           <PhaseBadge phase={topic.phase} />
           {topic.sensitive && <SensitiveBadge />}
-          {topic.measured && !topic.reliable && <span className="text-xs text-muted-foreground">Peu de données</span>}
+          {topic.measured && !topic.reliable && <span className="text-xs text-muted-foreground">{RELIABILITY_LABELS.low}</span>}
         </div>
       </div>
 
