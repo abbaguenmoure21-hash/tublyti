@@ -9,9 +9,26 @@
   /* Core */
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans), var(--font-inter), ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-jetbrains), var(--font-geist-mono), ui-monospace, monospace;
-  --font-heading: var(--font-geist-sans), var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  /* DESIGN.md : Geist pour tout, Geist Mono pour les identifiants techniques uniquement. */
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+  --font-heading: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+
+  /* Type scale (DESIGN.md · Typographie). Use text-caption … text-kpi instead of text-[Npx]. */
+  --text-caption: 0.75rem;
+  --text-caption--line-height: 1.5;
+  --text-small: 0.8125rem;
+  --text-small--line-height: 1.5;
+  --text-ui: 0.875rem;
+  --text-ui--line-height: 1.5;
+  --text-body: 1rem;
+  --text-body--line-height: 1.5;
+  --text-card-title: 1.125rem;
+  --text-card-title--line-height: 1.2;
+  --text-page-title: 1.5rem;
+  --text-page-title--line-height: 1.2;
+  --text-kpi: 2.25rem;
+  --text-kpi--line-height: 1.2;
 
   /* Sidebar */
   --color-sidebar-ring: var(--sidebar-ring);
@@ -282,48 +299,40 @@
   }
 }
 
-/* ─── Typography Scale (SF Pro / Inter Display hierarchy) ─── */
+/* ─── Legacy typography helpers, aligned on DESIGN.md (Geist, weights ≤ 600) ───
+   Prefer the @theme scale (text-page-title, text-card-title, text-kpi…). */
 .text-display-giant {
-  font-size: 48px;
-  font-weight: 800;
-  letter-spacing: -0.03em;
+  font-size: var(--text-kpi);
+  font-weight: 600;
+  letter-spacing: -0.02em;
   line-height: 1.1;
-  font-family: var(--font-inter), var(--font-geist-sans), system-ui, sans-serif;
 }
 
 .text-title-1 {
-  font-size: 32px;
-  font-weight: 700;
+  font-size: 2rem;
+  font-weight: 600;
   letter-spacing: -0.02em;
-  line-height: 1.15;
-  font-family: var(--font-inter), var(--font-geist-sans), system-ui, sans-serif;
+  line-height: 1.2;
 }
 
 .text-title-2 {
-  font-size: 22px;
+  font-size: var(--text-page-title);
   font-weight: 600;
   letter-spacing: -0.015em;
-  line-height: 1.25;
-  font-family: var(--font-inter), var(--font-geist-sans), system-ui, sans-serif;
+  line-height: 1.2;
 }
 
 .text-headline {
-  font-size: 16px;
+  font-size: var(--text-body);
   font-weight: 600;
   letter-spacing: -0.01em;
   line-height: 1.35;
 }
 
-.text-body {
-  font-size: 14px;
-  font-weight: 400;
-  line-height: 1.5;
-}
-
+/* Scores et compteurs : chiffres tabulaires en Geist (le mono reste aux identifiants). */
 .text-mono-metric {
-  font-family: var(--font-jetbrains), var(--font-geist-mono), ui-monospace, monospace;
   font-variant-numeric: tabular-nums;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.01em;
 }
 
 /* ─── Glassmorphism Material — Apple Ultra-Thin ─── */
