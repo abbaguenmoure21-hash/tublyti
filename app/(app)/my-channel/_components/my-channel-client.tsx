@@ -110,7 +110,7 @@ export function MyChannelClient({
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-card rounded-2xl border border-[--glass-border] p-5 shadow-sm">
+        <div className="bg-card rounded-2xl border border-border p-5 shadow-sm">
           <div className="flex items-center gap-2 text-muted-foreground mb-3 text-[13px] font-medium uppercase tracking-wider">
             <Eye className="w-4 h-4" />
             Vues Totales (vidéos suivies)
@@ -120,7 +120,7 @@ export function MyChannelClient({
           </div>
         </div>
         
-        <div className="bg-card rounded-2xl border border-[--glass-border] p-5 shadow-sm">
+        <div className="bg-card rounded-2xl border border-border p-5 shadow-sm">
           <div className="flex items-center gap-2 text-muted-foreground mb-3 text-[13px] font-medium uppercase tracking-wider">
             <Video className="w-4 h-4" />
             Vidéos Suivies
@@ -132,7 +132,7 @@ export function MyChannelClient({
       </div>
 
       {/* Evolution Chart */}
-      <div className="bg-card rounded-2xl border border-[--glass-border] p-5 md:p-6 shadow-sm">
+      <div className="bg-card rounded-2xl border border-border p-5 md:p-6 shadow-sm">
         <h3 className="text-[16px] font-semibold mb-6">Évolution des vues</h3>
         
         {chartData.length > 1 ? (
@@ -189,8 +189,8 @@ export function MyChannelClient({
       </div>
 
       {/* Recent Videos */}
-      <div className="bg-card rounded-2xl border border-[--glass-border] shadow-sm overflow-hidden">
-        <div className="px-5 py-4 border-b border-[--glass-border]">
+      <div className="bg-card rounded-2xl border border-border shadow-sm overflow-hidden">
+        <div className="px-5 py-4 border-b border-border">
           <h3 className="text-[16px] font-semibold">Vidéos récentes</h3>
         </div>
         

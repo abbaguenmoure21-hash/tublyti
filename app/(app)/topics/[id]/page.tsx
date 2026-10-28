@@ -408,7 +408,7 @@ export default async function TopicPage({
             <span className={`inline-flex items-center justify-center h-8 w-8 rounded-[8px] text-[16px] font-bold ${
               userFeasibility.grade === 'A' ? 'bg-[#30D158]/15 text-[#30D158]'
               : userFeasibility.grade === 'B' ? 'bg-[#0A84FF]/15 text-[#0A84FF]'
-              : userFeasibility.grade === 'C' ? 'bg-[--bg-surface-2] text-muted-foreground'
+              : userFeasibility.grade === 'C' ? 'bg-muted text-muted-foreground'
               : userFeasibility.grade === 'D' ? 'bg-[#FF9F0A]/15 text-[#FF9F0A]'
               : 'bg-[#FF453A]/15 text-[#FF453A]'
             }`}>
@@ -444,9 +444,9 @@ export default async function TopicPage({
 
             {/* Frustrations */}
             <section className="bento-card !p-0 flex flex-col">
-              <div className="flex items-center justify-between px-5 py-4 border-b border-[--glass-border] bg-[--bg-surface-1]/50">
+              <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-muted/50">
                 <h2 className="text-headline">Ce que réclame le public</h2>
-                <span className="text-[13px] font-medium text-muted-foreground bg-[--bg-surface-2] px-2 py-0.5 rounded border border-[--glass-border]">
+                <span className="text-[13px] font-medium text-muted-foreground bg-muted px-2 py-0.5 rounded border border-border">
                   {totalFrustrated} commentaire{totalFrustrated !== 1 ? 's' : ''}
                 </span>
               </div>
@@ -456,7 +456,7 @@ export default async function TopicPage({
                 </div>
               ) : (
                 frustrationList.slice(0, 8).map((f) => (
-                  <div key={f.commentId} className="px-5 py-4 border-b border-[--glass-border] flex flex-col gap-2.5 last:border-0 hover:bg-[--bg-surface-1]/30 transition-colors">
+                  <div key={f.commentId} className="px-5 py-4 border-b border-border flex flex-col gap-2.5 last:border-0 hover:bg-muted transition-colors">
                     <p className="line-clamp-4 text-[15px] leading-relaxed text-foreground">« {f.text} »</p>
                     <div className="flex items-center gap-2.5 text-[12px] text-muted-foreground">
                       <span className="inline-flex h-6 shrink-0 items-center rounded-md bg-muted px-2 font-medium text-muted-foreground">
@@ -514,7 +514,7 @@ export default async function TopicPage({
 
             {/* Competitors */}
             <section className="bento-card !p-0 flex flex-col">
-              <div className="px-5 py-4 border-b border-[--glass-border] bg-[--bg-surface-1]/50">
+              <div className="px-5 py-4 border-b border-border bg-muted/50">
                 <h2 className="text-headline">Vidéos déjà publiées sur ce sujet</h2>
               </div>
               {competitors.length === 0 ? (
@@ -525,7 +525,7 @@ export default async function TopicPage({
                 competitors.map((c) => {
                   const tagInfo = COMPETITOR_TAGS[c.tag] ?? { label: c.tag, color: 'text-muted-foreground' };
                   return (
-                    <div key={c.id} className="px-5 py-3.5 border-b border-[--glass-border] flex gap-3.5 items-center last:border-0 hover:bg-[--bg-surface-1]/30 transition-colors">
+                    <div key={c.id} className="px-5 py-3.5 border-b border-border flex gap-3.5 items-center last:border-0 hover:bg-muted transition-colors">
                       <a href={`https://youtube.com/watch?v=${c.id}`} target="_blank" rel="noopener noreferrer" className="shrink-0 relative group">
                         <img 
                           src={`https://i.ytimg.com/vi/${c.id}/mqdefault.jpg`} 
