@@ -1,4 +1,6 @@
+import { Suspense } from 'react';
 import Link from 'next/link';
+import { Skeleton } from '@/components/ui/skeleton';
 import { createServiceClient } from '@/lib/supabase/server';
 import { requireUser } from '@/lib/auth/session';
 import { resolveScope } from '@/lib/scope';
@@ -417,37 +419,9 @@ export default async function MyChannelPage({ searchParams }: { searchParams: Pr
   }
   const channelId = current.channelId as string;
 
-  const [stats, analytics] = await Promise.all([getPublicStats(db, channelId), getChannelAnalytics(db, channelId, period)]);
-  // Impressions et CTR des miniatures (rapports quotidiens YouTube, depuis la connexion + 30 jours d'historique).
-  const reach = new Map<string, { impressions: number; ctr: number | null }>();
-  if (analytics.status === 'ok' && analytics.data.topVideos.length) {
-    const { data: rows } = await db
-      .from('video_reach_daily')
-      .select('video_id, impressions, ctr')
-      .eq('user_channel_id', channelId)
-      .in('video_id', analytics.data.topVideos.map((v) => v.id))
-      .limit(5000);
-    const acc = new Map<string, { imp: number; clicks: number }>();
-    for (const r of (rows ?? []) as { video_id: string; impressions: number; ctr: number | null }[]) {
-      const cur = acc.get(r.video_id) ?? { imp: 0, clicks: 0 };
-      cur.imp += Number(r.impressions);
-      cur.clicks += Number(r.impressions) * Number(r.ctr ?? 0);
-      acc.set(r.video_id, cur);
-    }
-    for (const [k, v] of acc) reach.set(k, { impressions: v.imp, ctr: v.imp ? v.clicks / v.imp : null });
-  }
-  // Où en est le rapport quotidien des miniatures (affiché tant qu'aucun chiffre n'est arrivé).
-  let reachNote: string | null = null;
-  if (analytics.status === 'ok' && reach.size === 0) {
-    const { data: job, error: jobErr } = await db.from('reporting_jobs').select('created_at, last_sync_at, last_error').eq('user_channel_id', channelId).maybeSingle();
-    if (jobErr) reachNote = 'Impressions et CTR : il manque la migration 00027 dans Supabase.';
-    else if (!job) reachNote = 'Impressions et CTR : la demande de rapport n’a pas été enregistrée. Clique sur « Déconnecter » puis reconnecte YouTube Analytics.';
-    else if (job.last_error) reachNote = `Impressions et CTR : YouTube a répondu une erreur (${String(job.last_error).slice(0, 140)}).`;
-    else {
-      const ready = new Date(new Date(job.created_at as string).getTime() + 48 * 3_600_000);
-      reachNote = `Impressions et CTR : demande envoyée à YouTube le ${new Date(job.created_at as string).toLocaleDateString('fr-FR')}. YouTube livre le premier rapport d’ici le ${ready.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })} (avec les 30 jours précédents) ; il est importé la nuit suivante.`;
-    }
-  }
+  // Only the public stats (read from our DB) block the first byte. YouTube Analytics (live API calls
+  // when its cache is stale) streams in below, inside its own Suspense boundary.
+  const stats = await getPublicStats(db, channelId);
   if (!stats) return null;
   const c = stats.channel;
   const status = sp.analytics ? STATUS[sp.analytics] : null;
@@ -489,7 +463,69 @@ export default async function MyChannelPage({ searchParams }: { searchParams: Pr
         </p>
       )}
 
-      <Section
+      <Suspense key={period} fallback={<AnalyticsSkeleton />}>
+        <AnalyticsSection channelId={channelId} period={period} canConnect={canConnect} linked={c.youtubeId.startsWith('UC')} />
+      </Suspense>
+
+      <Section id="public-titre" title="Chiffres publics" subtitle={stats.sample ? `Calculés par TubLyTI sur tes ${stats.sample} dernières vidéos lues, sans accès à ton compte.` : 'Calculés par TubLyTI à partir de tes vidéos publiques, sans accès à ton compte.'}>
+        <PublicBlock s={stats} linked={c.youtubeId.startsWith('UC')} channelId={channelId} />
+      </Section>
+    </div>
+  );
+}
+
+/** Placeholder shown while YouTube Analytics answers (same section title, reserved height). */
+function AnalyticsSkeleton() {
+  return (
+    <Section id="analytics-titre" title="Statistiques YouTube Analytics" subtitle="Les chiffres privés de YouTube Studio : durée de visionnage, revenus, public.">
+      <div className="flex flex-col gap-4" aria-busy="true" aria-label="Chargement des statistiques YouTube Analytics">
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+          {Array.from({ length: 6 }, (_, i) => (
+            <Skeleton key={i} className="h-[92px] rounded-xl" />
+          ))}
+        </div>
+        <Skeleton className="h-72 rounded-2xl" />
+      </div>
+    </Section>
+  );
+}
+
+/** YouTube Analytics block: may call the live API (cache stale), so it is streamed under Suspense. */
+async function AnalyticsSection({ channelId, period, canConnect, linked }: { channelId: string; period: Period; canConnect: boolean; linked: boolean }) {
+  const db = createServiceClient();
+  const analytics = await getChannelAnalytics(db, channelId, period);
+  // Impressions et CTR des miniatures (rapports quotidiens YouTube, depuis la connexion + 30 jours d'historique).
+  const reach = new Map<string, { impressions: number; ctr: number | null }>();
+  if (analytics.status === 'ok' && analytics.data.topVideos.length) {
+    const { data: rows } = await db
+      .from('video_reach_daily')
+      .select('video_id, impressions, ctr')
+      .eq('user_channel_id', channelId)
+      .in('video_id', analytics.data.topVideos.map((v) => v.id))
+      .limit(5000);
+    const acc = new Map<string, { imp: number; clicks: number }>();
+    for (const r of (rows ?? []) as { video_id: string; impressions: number; ctr: number | null }[]) {
+      const cur = acc.get(r.video_id) ?? { imp: 0, clicks: 0 };
+      cur.imp += Number(r.impressions);
+      cur.clicks += Number(r.impressions) * Number(r.ctr ?? 0);
+      acc.set(r.video_id, cur);
+    }
+    for (const [k, v] of acc) reach.set(k, { impressions: v.imp, ctr: v.imp ? v.clicks / v.imp : null });
+  }
+  // Où en est le rapport quotidien des miniatures (affiché tant qu'aucun chiffre n'est arrivé).
+  let reachNote: string | null = null;
+  if (analytics.status === 'ok' && reach.size === 0) {
+    const { data: job, error: jobErr } = await db.from('reporting_jobs').select('created_at, last_sync_at, last_error').eq('user_channel_id', channelId).maybeSingle();
+    if (jobErr) reachNote = 'Impressions et CTR : il manque la migration 00027 dans Supabase.';
+    else if (!job) reachNote = 'Impressions et CTR : la demande de rapport n’a pas été enregistrée. Clique sur « Déconnecter » puis reconnecte YouTube Analytics.';
+    else if (job.last_error) reachNote = `Impressions et CTR : YouTube a répondu une erreur (${String(job.last_error).slice(0, 140)}).`;
+    else {
+      const ready = new Date(new Date(job.created_at as string).getTime() + 48 * 3_600_000);
+      reachNote = `Impressions et CTR : demande envoyée à YouTube le ${new Date(job.created_at as string).toLocaleDateString('fr-FR')}. YouTube livre le premier rapport d’ici le ${ready.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })} (avec les 30 jours précédents) ; il est importé la nuit suivante.`;
+    }
+  }
+  return (
+    <Section
         id="analytics-titre"
         title="Statistiques YouTube Analytics"
         subtitle={
@@ -525,7 +561,7 @@ export default async function MyChannelPage({ searchParams }: { searchParams: Pr
                 Durée de visionnage, abonnés gagnés et perdus, sources de trafic, pays, âge du public et, si ta chaîne est monétisée, tes revenus, RPM et CPM réels. Lecture seule : TubLyTI ne peut rien modifier sur ta chaîne, et tu peux retirer l’accès à tout moment.
               </p>
             </div>
-            {canConnect && c.youtubeId.startsWith('UC') ? (
+            {canConnect && linked ? (
               <a
                 href={`/api/youtube/connect?mode=analytics&chaine=${channelId}`}
                 className="inline-flex h-11 shrink-0 items-center rounded-[10px] bg-primary px-5 text-[15px] font-medium text-primary-foreground hover:opacity-90"
@@ -537,11 +573,6 @@ export default async function MyChannelPage({ searchParams }: { searchParams: Pr
             )}
           </div>
         )}
-      </Section>
-
-      <Section id="public-titre" title="Chiffres publics" subtitle={stats.sample ? `Calculés par TubLyTI sur tes ${stats.sample} dernières vidéos lues, sans accès à ton compte.` : 'Calculés par TubLyTI à partir de tes vidéos publiques, sans accès à ton compte.'}>
-        <PublicBlock s={stats} linked={c.youtubeId.startsWith('UC')} channelId={channelId} />
-      </Section>
-    </div>
+    </Section>
   );
 }
