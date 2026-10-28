@@ -260,7 +260,13 @@
 /* ─── Base Layer ─── */
 @layer base {
   * {
-    @apply border-border outline-ring/50;
+    @apply border-border;
+  }
+  /* Anneau de focus clavier : --ring plein, 2 px, décalé de 2 px (DESIGN.md).
+     outline-none / ring-* sur un élément restent prioritaires (couche utilities). */
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
   }
   body {
     @apply bg-background text-foreground;
