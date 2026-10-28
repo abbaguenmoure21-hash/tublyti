@@ -4,6 +4,10 @@ import { createServiceClient } from '@/lib/supabase/server';
 import { handleCors, jsonWithCors } from '@/lib/ext/cors';
 import { authenticateExtRequest, isAuthError } from '@/lib/ext/auth';
 import { canWrite, canSeeNiche } from '@/lib/mcp/auth';
+import { generateAnglesForTopic } from '@/lib/services/angles';
+
+// generate_angles calls Claude Sonnet.
+export const maxDuration = 60;
 
 const bodySchema = z.object({
   action: z.enum(['mark_production', 'generate_angles', 'save_favorite']),
@@ -82,31 +86,15 @@ export async function POST(request: NextRequest) {
         if (!auth.isAdmin) {
           return jsonWithCors(request, { error: 'La génération d’angles est faite par l’équipe TubLyTI.' }, { status: 403 });
         }
-        // Delegate to the existing angle generation API route
-        const baseUrl = process.env.NEXT_PUBLIC_SITE_URL
-          ?? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
-
-        const angleRes = await fetch(`${baseUrl}/api/topics/${topic_id}/angles`, {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${process.env.CRON_SECRET}`
-          }
-        });
-
-        if (!angleRes.ok) {
-          const err = await angleRes.json().catch(() => ({}));
-          return jsonWithCors(
-            request,
-            { error: (err as { error?: string }).error ?? 'Erreur lors de la generation.' },
-            { status: angleRes.status },
-          );
+        // Direct call to the shared service (no internal HTTP round-trip, no secret sent around).
+        const gen = await generateAnglesForTopic(db, topic_id);
+        if (!gen.ok) {
+          return jsonWithCors(request, { error: gen.message, code: gen.code }, { status: gen.status });
         }
-
-        const angleData = await angleRes.json() as { angles?: unknown[] };
         return jsonWithCors(request, {
           ok: true,
-          message: `${angleData.angles?.length ?? 0} angles generes pour "${topic.label}".`,
-          count: angleData.angles?.length ?? 0,
+          message: `${gen.angles.length} angles generes pour "${topic.label}".`,
+          count: gen.angles.length,
         });
       }
 

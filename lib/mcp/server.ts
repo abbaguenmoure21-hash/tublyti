@@ -13,6 +13,7 @@ import { getChannelAnalytics, getVideoRetention, getVideoTotals, PERIODS, type P
 import { analyzeVideo, parseVideoId, retentionContextFrom, type RetentionContext } from '@/lib/video/analyze';
 import { linkSaturation, topicSaturation } from '@/lib/saturation';
 import { compareKeywords } from '@/lib/keywords';
+import { generateAnglesForTopic } from '@/lib/services/angles';
 
 // ── Constants ──────────────────────────────────────────────────────────
 
@@ -928,15 +929,11 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
       const blocked = await guard(token, 'generate_angles', { write: true, admin: true });
       if (blocked) return fail(blocked);
 
-      const baseUrl = process.env.NEXT_PUBLIC_SITE_URL ?? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
-      const res = await fetch(`${baseUrl}/api/topics/${topic_id}/angles`, { method: 'POST' });
-      const data = await res.json();
-
-      if (!res.ok) {
-        return fail(data.error ?? 'Erreur lors de la generation des angles.');
-      }
-
       const db = createServiceClient();
+      // Direct call to the shared service (the HTTP route requires CRON_SECRET, which we no longer forward).
+      const data = await generateAnglesForTopic(db, topic_id);
+      if (!data.ok) return fail(data.message);
+
       const { data: angles } = await db
         .from('angles')
         .select('id, title, hook, rationale')
