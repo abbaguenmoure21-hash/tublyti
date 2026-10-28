@@ -1,16 +1,19 @@
 import Link from 'next/link';
-import { Tv, ExternalLink } from 'lucide-react';
+import { Tv, ExternalLink, ArrowDown } from 'lucide-react';
 
 // Données lues à chaque visite (jamais calculées pendant pnpm build).
 export const dynamic = 'force-dynamic';
 
-export const metadata = { title: 'Chaînes suivies' };
+export const metadata = { title: 'Chaînes analysées' };
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { createServiceClient } from '@/lib/supabase/server';
+import { isoDaysAgo } from '@/lib/admin/coverage';
 import { AddChannelForm } from './_components/add-channel-form';
 import { DeleteChannelButton } from './_components/delete-channel-button';
+
+const PAGE_SIZE = 50;
 
 interface Channel {
   id: string;
@@ -26,169 +29,190 @@ interface Niche {
   name: string;
 }
 
-function formatDate(d: string | null) {
-  if (!d) return 'Prochaine collecte';
-  return new Date(d).toLocaleString('fr-FR', {
-    day: '2-digit',
-    month: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+type Sort = 'verification' | 'abonnes';
+
+function formatChecked(d: string | null, staleBefore: string) {
+  if (!d) return { text: 'Jamais vérifiée', stale: true };
+  const text = new Date(d).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', timeZone: 'Europe/Paris' });
+  return { text, stale: d < staleBefore };
 }
 
-export default async function ChannelsPage() {
+function buildHref(params: { q?: string; niche?: string; tri?: Sort; page?: number }) {
+  const sp = new URLSearchParams();
+  if (params.q) sp.set('q', params.q);
+  if (params.niche) sp.set('niche', params.niche);
+  if (params.tri && params.tri !== 'verification') sp.set('tri', params.tri);
+  if (params.page && params.page > 1) sp.set('page', String(params.page));
+  const s = sp.toString();
+  return s ? `/channels?${s}` : '/channels';
+}
+
+export default async function ChannelsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ q?: string; niche?: string; tri?: string; page?: string }>;
+}) {
+  const sp = await searchParams;
+  const q = (sp.q ?? '').trim().slice(0, 100);
+  const niche = sp.niche ?? '';
+  const tri: Sort = sp.tri === 'abonnes' ? 'abonnes' : 'verification';
+  const page = Math.max(1, parseInt(sp.page ?? '1', 10) || 1);
+  const from = (page - 1) * PAGE_SIZE;
+
   const db = createServiceClient();
 
-  const [channelsResult, nichesResult, candidatesResult] = await Promise.all([
-    db
-      .from('channels')
-      .select('id, title, subscriber_count, last_checked_at, niche_id, niches(name)')
-      .order('last_checked_at', { ascending: true, nullsFirst: true }),
+  let listQ = db
+    .from('channels')
+    .select('id, title, subscriber_count, last_checked_at, niche_id, niches(name)', { count: 'exact' });
+  if (q) listQ = listQ.ilike('title', `%${q.replace(/[%_\\]/g, (c) => `\\${c}`)}%`);
+  if (niche) listQ = listQ.eq('niche_id', niche);
+  listQ =
+    tri === 'abonnes'
+      ? listQ.order('subscriber_count', { ascending: false, nullsFirst: false })
+      : listQ.order('last_checked_at', { ascending: true, nullsFirst: true });
+
+  const [channelsResult, nichesResult] = await Promise.all([
+    listQ.order('id').range(from, from + PAGE_SIZE - 1),
     db.from('niches').select('id, name').order('name'),
-    db
-      .from('candidate_channels')
-      .select('*', { count: 'exact', head: true })
-      .eq('status', 'pending'),
   ]);
+  if (channelsResult.error) throw new Error(channelsResult.error.message);
+  if (nichesResult.error) throw new Error(nichesResult.error.message);
 
   const channels = (channelsResult.data ?? []) as unknown as Channel[];
   const niches = (nichesResult.data ?? []) as unknown as Niche[];
-  const candidatesCount = candidatesResult.count ?? 0;
-  const fetchError = channelsResult.error?.message ?? null;
+  const total = channelsResult.count ?? channels.length;
+  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const filtered = Boolean(q || niche);
+  const staleBefore = isoDaysAgo(7);
 
   return (
-    <div className="flex-1 flex flex-col min-h-full relative overflow-x-clip">
-      {/* Background gradients multi-niveaux */}
-      <div className="absolute inset-0 pointer-events-none -z-10">
-      </div>
+    <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-6 md:px-8 md:py-8">
+      <header className="flex flex-col gap-1.5">
+        <h1 className="text-[28px] font-semibold leading-tight tracking-[-0.02em]">Chaînes analysées</h1>
+        <p className="max-w-2xl text-[15px] text-muted-foreground">
+          Les chaînes dont TubLyTI collecte les vidéos et les commentaires chaque nuit. Ce catalogue est commun à tous les clients.
+        </p>
+      </header>
 
-      <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-6 px-4 py-6 md:px-8">
-        {/* En-tête (les chaînes candidates ont leur propre onglet dans la console) */}
-        <header className="flex flex-col gap-1.5">
-          <h1 className="text-[28px] font-semibold leading-tight tracking-[-0.02em]">Chaînes analysées</h1>
-          <p className="max-w-2xl text-[15px] leading-relaxed text-muted-foreground">
-            Les chaînes dont TubLyTI collecte les vidéos et les commentaires chaque nuit. Ce catalogue est commun à tous les clients.
-          </p>
-        </header>
-
-      {/* Add channel form (client island) */}
       <AddChannelForm niches={niches} />
 
-      {/* Channel list */}
-      {fetchError && channels.length === 0 ? (
-        <div className="bento-card !py-16 text-center flex flex-col items-center justify-center">
-          <p className="text-[14px] font-semibold text-destructive">
-            Impossible de charger les chaînes
-          </p>
-          <p className="text-[13px] text-muted-foreground mt-1.5">{fetchError}</p>
-        </div>
-      ) : channels.length === 0 ? (
-        <div className="bg-white/60 dark:bg-white/5 backdrop-blur-2xl border border-white/40 dark:border-white/10 shadow-[0_4px_20px_rgb(0,0,0,0.03)] rounded-[24px] overflow-hidden py-24 flex flex-col items-center justify-center text-center">
-          <div className="flex items-center justify-center w-[64px] h-[64px] rounded-full bg-gradient-to-b from-primary/20 to-blue-600/20 text-primary mb-6 shadow-[0_4px_16px_rgba(10,132,255,0.15)] ring-1 ring-primary/20">
-            <Tv className="w-8 h-8" />
-          </div>
-          <p className="text-[20px] font-bold text-foreground tracking-tight">
-            Aucune chaîne suivie pour l'instant
-          </p>
-          <p className="text-[15px] text-muted-foreground mt-3 max-w-[460px] leading-relaxed">
-            Collez l'URL ou l'ID d'une chaîne YouTube dans le formulaire ci-dessus,
-            choisissez sa niche, et cliquez sur Ajouter. TubLyTI commencera à analyser
-            ses vidéos et les commentaires de son audience.
-          </p>
-          <div className="flex flex-col items-start gap-4 mt-10 text-[14px] text-muted-foreground font-medium bg-black/5 dark:bg-white/5 p-6 rounded-[20px] border border-black/5 dark:border-white/10">
-            <p className="flex items-center gap-3">
-              <span className="flex items-center justify-center w-6 h-6 rounded-full bg-background border border-border text-foreground text-[12px] font-bold shadow-sm">1</span>
-              Copiez l'URL d'une chaîne YouTube
-            </p>
-            <p className="flex items-center gap-3">
-              <span className="flex items-center justify-center w-6 h-6 rounded-full bg-background border border-border text-foreground text-[12px] font-bold shadow-sm">2</span>
-              Sélectionnez la niche correspondante
-            </p>
-            <p className="flex items-center gap-3">
-              <span className="flex items-center justify-center w-6 h-6 rounded-full bg-background border border-border text-foreground text-[12px] font-bold shadow-sm">3</span>
-              Cliquez sur Ajouter — c'est tout !
-            </p>
-          </div>
+      {/* Search + niche filter: plain GET form, state lives in the URL. */}
+      <form method="get" action="/channels" className="flex flex-col gap-2 sm:flex-row" role="search">
+        <label className="sr-only" htmlFor="ch-q">Rechercher une chaîne</label>
+        <Input id="ch-q" name="q" defaultValue={q} placeholder="Rechercher par nom" className="h-10 flex-1" />
+        <label className="sr-only" htmlFor="ch-niche">Niche</label>
+        <select
+          id="ch-niche"
+          name="niche"
+          defaultValue={niche}
+          className="well h-10 rounded-[10px] bg-muted px-3 text-sm text-foreground sm:min-w-44"
+        >
+          <option value="">Toutes les niches</option>
+          {niches.map((n) => (
+            <option key={n.id} value={n.id}>{n.name}</option>
+          ))}
+        </select>
+        {tri !== 'verification' && <input type="hidden" name="tri" value={tri} />}
+        <Button type="submit" variant="outline" className="h-10">Filtrer</Button>
+        {filtered && (
+          <Link href={buildHref({ tri })} className="flex h-10 items-center px-2 text-sm font-medium text-primary">Effacer</Link>
+        )}
+      </form>
+
+      {channels.length === 0 ? (
+        <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border px-6 py-16 text-center">
+          <Tv className="mb-3 size-8 text-muted-foreground" aria-hidden="true" />
+          {filtered ? (
+            <p className="text-sm text-muted-foreground">Aucune chaîne ne correspond à ce filtre.</p>
+          ) : (
+            <>
+              <p className="text-base font-semibold">Aucune chaîne analysée pour l’instant</p>
+              <p className="mt-1 max-w-md text-sm text-muted-foreground">
+                Colle l’adresse d’une chaîne YouTube ci-dessus, choisis sa niche, puis Ajouter. TubLyTI analysera ses vidéos dès la prochaine nuit.
+              </p>
+            </>
+          )}
         </div>
       ) : (
-        <div className="bg-white/60 dark:bg-white/5 backdrop-blur-2xl border border-white/40 dark:border-white/10 shadow-[0_4px_20px_rgb(0,0,0,0.03)] rounded-[24px] overflow-hidden flex flex-col">
-          <div className="px-6 py-5 border-b border-black/5 dark:border-white/10 bg-black/5 dark:bg-white/5">
-            <h2 className="text-[18px] font-bold text-foreground">
-              {channels.length} chaîne{channels.length > 1 ? 's' : ''} surveillée{channels.length > 1 ? 's' : ''}
-            </h2>
-          </div>
+        <section aria-labelledby="ch-list" className="overflow-hidden rounded-xl border border-border bg-card">
+          <h2 id="ch-list" className="px-4 py-3 text-sm font-semibold">
+            {total.toLocaleString('fr-FR')} chaîne{total > 1 ? 's' : ''} analysée{total > 1 ? 's' : ''}
+            {filtered && <span className="font-normal text-muted-foreground"> pour ce filtre</span>}
+          </h2>
           <div className="overflow-x-auto">
-            <table className="w-full text-[14px]">
-              <thead>
-                <tr className="bg-black/5 dark:bg-black/20 text-muted-foreground text-left text-[13px] font-medium">
-                  <th className="px-6 py-4">Chaîne</th>
-                  <th className="px-6 py-4">Niche</th>
-                  <th className="px-6 py-4">Abonnés</th>
-                  <th className="px-6 py-4">Dernière vérification</th>
-                  <th className="px-6 py-4 w-10"></th>
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-background text-left text-xs text-muted-foreground">
+                <tr>
+                  <th className="px-4 py-2.5 font-medium">Chaîne</th>
+                  <th className="hidden px-4 py-2.5 font-medium sm:table-cell">Niche</th>
+                  <th className="px-4 py-2.5 text-right font-medium" aria-sort={tri === 'abonnes' ? 'descending' : 'none'}>
+                    <Link href={buildHref({ q, niche, tri: 'abonnes' })} className="inline-flex items-center gap-1 hover:text-foreground">
+                      Abonnés {tri === 'abonnes' && <ArrowDown className="size-3" aria-hidden="true" />}
+                    </Link>
+                  </th>
+                  <th className="px-4 py-2.5 font-medium" aria-sort={tri === 'verification' ? 'ascending' : 'none'}>
+                    <Link href={buildHref({ q, niche, tri: 'verification' })} className="inline-flex items-center gap-1 hover:text-foreground">
+                      Dernière vérification {tri === 'verification' && <ArrowDown className="size-3" aria-hidden="true" />}
+                    </Link>
+                  </th>
+                  <th className="w-10 px-2 py-2.5"><span className="sr-only">Actions</span></th>
                 </tr>
               </thead>
               <tbody>
-                {channels.map((ch) => (
-                  <tr
-                    key={ch.id}
-                    className="border-b border-black/5 dark:border-white/10 last:border-0 hover:bg-white/50 dark:hover:bg-white/5 transition-colors group"
-                  >
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-3">
-                        <Avatar className="h-10 w-10 border border-black/10 dark:border-white/10 shadow-sm">
-                          <AvatarImage src={`https://unavatar.io/youtube/${ch.id}`} alt={ch.title ?? ch.id} />
-                          <AvatarFallback className="bg-gradient-to-br from-primary/20 to-blue-600/20 text-primary font-bold">
-                            {(ch.title ?? ch.id).substring(0, 2).toUpperCase()}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div className="flex flex-col">
-                          <Link
-                            href={`https://youtube.com/channel/${ch.id}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="font-bold text-foreground text-[14px] hover:text-primary transition-colors flex items-center gap-1.5"
-                          >
-                            <span className="truncate max-w-[250px] block">{ch.title ?? ch.id}</span>
-                            <ExternalLink className="w-3.5 h-3.5 opacity-0 group-hover:opacity-100 transition-opacity" />
-                          </Link>
-                          <span className="text-[12px] text-muted-foreground/70 font-medium">
-                            {ch.id.startsWith('UC') ? 'YouTube' : 'Source'}
-                          </span>
+                {channels.map((ch) => {
+                  const checked = formatChecked(ch.last_checked_at, staleBefore);
+                  return (
+                    <tr key={ch.id} className="group border-t border-muted hover:bg-muted">
+                      <td className="px-4 py-2.5">
+                        <div className="flex items-center gap-3">
+                          <Avatar className="size-8">
+                            <AvatarImage src={`https://unavatar.io/youtube/${ch.id}`} alt="" loading="lazy" />
+                            <AvatarFallback className="text-xs">{(ch.title ?? ch.id).substring(0, 2).toUpperCase()}</AvatarFallback>
+                          </Avatar>
+                          <div className="flex min-w-0 flex-col">
+                            <Link
+                              href={`https://youtube.com/channel/${ch.id}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center gap-1.5 font-medium hover:text-primary"
+                            >
+                              <span className="block max-w-[250px] truncate">{ch.title ?? ch.id}</span>
+                              <ExternalLink className="size-3.5 opacity-0 transition-opacity group-hover:opacity-100" aria-hidden="true" />
+                            </Link>
+                            <span className="text-xs text-muted-foreground sm:hidden">{ch.niches?.name ?? '—'}</span>
+                          </div>
                         </div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      {ch.niches?.name ? (
-                        <div className="inline-flex items-center bg-black/5 dark:bg-white/10 border border-black/5 dark:border-white/5 text-[12px] font-medium px-2.5 py-1 rounded-full text-foreground/70 max-w-[200px] truncate">
-                          <span className="truncate">{ch.niches.name}</span>
-                        </div>
-                      ) : (
-                        <span className="text-muted-foreground">--</span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 tabular-nums font-bold text-foreground/80">
-                      {ch.subscriber_count
-                        ? ch.subscriber_count.toLocaleString('fr-FR')
-                        : '--'}
-                    </td>
-                    <td className="px-6 py-4 text-muted-foreground font-medium text-[13px]">
-                      {formatDate(ch.last_checked_at)}
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <DeleteChannelButton
-                        channelId={ch.id}
-                        channelTitle={ch.title ?? ch.id}
-                      />
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td className="hidden px-4 py-2.5 text-muted-foreground sm:table-cell">{ch.niches?.name ?? '—'}</td>
+                      <td className="px-4 py-2.5 text-right tabular-nums">
+                        {ch.subscriber_count ? ch.subscriber_count.toLocaleString('fr-FR') : '—'}
+                      </td>
+                      <td className={`px-4 py-2.5 tabular-nums ${checked.stale ? 'font-medium text-phase-1-ink' : 'text-muted-foreground'}`}>
+                        {checked.text}
+                        {checked.stale && ch.last_checked_at && <span className="sr-only"> (plus de 7 jours)</span>}
+                      </td>
+                      <td className="px-2 py-1.5 text-right">
+                        <DeleteChannelButton channelId={ch.id} channelTitle={ch.title ?? ch.id} />
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
-        </div>
+          {pages > 1 && (
+            <nav aria-label="Pages" className="flex items-center justify-between gap-2 border-t border-border px-4 py-3 text-sm">
+              {page > 1 ? (
+                <Link href={buildHref({ q, niche, tri, page: page - 1 })} className="font-medium text-primary">Précédentes</Link>
+              ) : <span />}
+              <span className="tabular-nums text-muted-foreground">Page {page} sur {pages}</span>
+              {page < pages ? (
+                <Link href={buildHref({ q, niche, tri, page: page + 1 })} className="font-medium text-primary">Suivantes</Link>
+              ) : <span />}
+            </nav>
+          )}
+        </section>
       )}
-      </div>
     </div>
   );
 }
