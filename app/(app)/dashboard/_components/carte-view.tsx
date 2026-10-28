@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
 import { PhaseBadge, SensitiveBadge } from '@/components/tublyti';
 import { FRUSTRATION_LABEL, RELIABILITY_LABELS } from '@/lib/lexique';
+import { PotentialMeter } from '../../sujets/_components/reliability';
 import { FeasibilityBadge } from '@/components/tublyti/feasibility-badge';
 import type { FeasibilityGrade } from '@/lib/scoring/feasibility';
 
@@ -409,11 +410,9 @@ export function CarteView({
                     <span><PhaseBadge phase={t.phase} /></span>
                     {t.measured ? (
                       <>
-                        <span className="flex items-center gap-2">
-                          <span className="w-7 text-[15px] font-semibold tabular-nums">{t.potential}</span>
-                          <span className="hidden h-1.5 w-14 overflow-hidden rounded-full bg-muted md:block">
-                            <span className="block h-full rounded-full bg-primary" style={{ width: `${t.potential}%` }} />
-                          </span>
+                        <span className="flex items-center">
+                          <span className="text-[15px] font-semibold tabular-nums md:hidden">{t.potential}</span>
+                          <span className="hidden md:inline-flex"><PotentialMeter value={t.potential} /></span>
                         </span>
                         <span className="hidden text-[15px] tabular-nums md:block">{t.demand}</span>
                         <span className="hidden text-[15px] tabular-nums md:block">{formatSupply(t.supply)}</span>

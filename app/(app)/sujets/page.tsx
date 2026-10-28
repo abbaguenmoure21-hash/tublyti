@@ -218,7 +218,7 @@ export default async function SujetsPage({ searchParams }: { searchParams: Promi
                       </span>
                       <span className="md:block"><PhaseBadge phase={r.phase} /></span>
                       <span className="col-span-2 flex items-center gap-4 md:contents">
-                        <PotentialMeter value={r.potential} />
+                        <PotentialMeter value={r.potential} showLabel />
                         {!panelOpen && <ReliabilityMark value={r.reliability} />}
                       </span>
                       <ChevronRight className="hidden h-4 w-4 text-muted-foreground md:block" aria-hidden="true" />
