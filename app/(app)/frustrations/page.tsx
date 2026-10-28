@@ -298,37 +298,6 @@ export default async function FrustrationsPage({
   }
 
   /* ---------------------------------------------------------------- */
-  /*  Empty state                                                      */
-  /* ---------------------------------------------------------------- */
-  if (items.length === 0) {
-    return (
-      <div className="flex-1 flex flex-col min-h-full relative overflow-x-clip">
-        <div className="absolute inset-0 pointer-events-none -z-10">
-        </div>
-        <div className="flex-1 p-6 md:px-12 md:py-10 flex flex-col gap-8 w-full max-w-[1400px] mx-auto">
-          <h1 className="text-title-1 leading-tight">Que réclame ton public ?</h1>
-          <div className="rounded-xl bg-card py-16 flex flex-col items-center justify-center text-center">
-            <div className="flex items-center justify-center w-14 h-14 rounded-2xl bg-primary/10 text-primary mb-5">
-              <MessageSquareWarning className="size-7" />
-            </div>
-            <p className="text-title-3 mb-2">
-              Aucune question du public repérée pour l’instant
-            </p>
-            <p className="text-[14px] text-muted-foreground max-w-md">
-              TubLyTI analyse les commentaires YouTube pour détecter les besoins
-              non satisfaits des spectateurs.
-            </p>
-            <p className="text-[13px] text-muted-foreground mt-3">
-              Elles apparaîtront automatiquement après la prochaine collecte
-              de nuit.
-            </p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  /* ---------------------------------------------------------------- */
   /*  Filter & group by Label                                          */
   /* ---------------------------------------------------------------- */
   const filtered = filterNiche
@@ -491,8 +460,24 @@ export default async function FrustrationsPage({
         </div>
       )}
 
+      {/* Empty state: only in the comments tab, so « Petites chaînes » stays reachable. */}
+      {tab !== 'outliers' && filtered.length === 0 && (
+        <div className="mt-4 flex flex-col items-center gap-3 rounded-xl bg-card px-6 py-16 text-center">
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary-soft text-primary-ink">
+            <MessageSquareWarning className="size-6" aria-hidden="true" />
+          </div>
+          <p className="text-[15px] font-semibold">Aucune question du public repérée pour l’instant</p>
+          <p className="max-w-md text-sm text-muted-foreground">
+            TubLyTI lit les commentaires des vidéos de ta thématique. Les questions apparaîtront après la prochaine collecte de nuit.
+          </p>
+          <Link href="/sujets" className="mt-1 text-sm font-semibold text-primary">
+            Voir tes sujets
+          </Link>
+        </div>
+      )}
+
       {/* Frustrations tab content */}
-      {tab !== 'outliers' && (
+      {tab !== 'outliers' && filtered.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
           {LABEL_GROUPS.map((group) => {
             const groupItems = groupedByLabel.get(group.id) || [];
