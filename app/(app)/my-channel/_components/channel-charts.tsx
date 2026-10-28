@@ -6,6 +6,7 @@ import { Area, AreaChart, Bar, BarChart, CartesianGrid, ResponsiveContainer, Too
 import { RefreshCw } from 'lucide-react';
 import { disconnectAnalytics, refreshAnalytics, refreshChannelPublic } from '@/lib/actions/analytics';
 import type { Period } from '@/lib/youtube/analytics';
+import { buttonVariants } from '@/components/ui/button';
 
 const nf = new Intl.NumberFormat('fr-FR');
 const compact = new Intl.NumberFormat('fr-FR', { notation: 'compact', maximumFractionDigits: 1 });
@@ -78,8 +79,13 @@ export function DailyChart({ data, metric, label }: { data: { date: string; view
 }
 
 export function MonthlyChart({ data }: { data: { month: string; videos: number; views: number }[] }) {
+  const total = data.reduce((a, d) => a + d.views, 0);
+  const peak = data.reduce<{ month: string; views: number } | null>((b, d) => (!b || d.views > b.views ? d : b), null);
+  const summary = data.length && peak
+    ? `Vues actuelles des vidéos par mois de publication, de ${monthLabel(data[0].month)} à ${monthLabel(data[data.length - 1].month)} : ${nf.format(total)} vues au total, maximum en ${monthLabel(peak.month)} avec ${nf.format(peak.views)} vues.`
+    : 'Vues actuelles des vidéos par mois de publication : pas encore de données.';
   return (
-    <div className="h-52 w-full" role="img" aria-label="Vues actuelles des vidéos, par mois de publication">
+    <div className="h-52 w-full" role="img" aria-label={summary}>
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
           <CartesianGrid vertical={false} stroke="var(--border)" strokeOpacity={0.6} />
@@ -149,7 +155,7 @@ export function AnalyticsControls({ id, period }: { id: string; period: Period }
               type="button"
               disabled={pending}
               onClick={() => run(() => disconnectAnalytics(id))}
-              className="inline-flex h-9 items-center rounded-[10px] bg-destructive px-3 text-sm font-medium text-white disabled:opacity-60"
+              className={buttonVariants({ variant: 'destructive', size: 'lg' })}
             >
               Retirer l’accès
             </button>
