@@ -6,6 +6,7 @@ import { DEFAULT_SCORING } from '@/lib/scoring/scoring-config';
 import { listApiTokens } from '@/lib/actions/api-tokens';
 import { getCollections } from '@/lib/actions/collections';
 import { getAlertRules } from '@/lib/actions/alerts';
+import type { AlertRuleType } from '@/lib/alerts/evaluate';
 import { SettingsTabs } from '../../settings/_components/settings-tabs';
 
 export const metadata = { title: 'Niches et calcul · Console' };
@@ -87,7 +88,7 @@ export default async function AdminReglagesPage() {
           }))}
           alertRules={(alertRes.data ?? []).map((r: Record<string, unknown>) => ({
             id: r.id as string,
-            rule_type: r.rule_type as string,
+            rule_type: r.rule_type as AlertRuleType,
             params: (r.params as Record<string, unknown>) ?? {},
             label: r.label as string,
             instant_email: r.instant_email as boolean,

@@ -55,10 +55,19 @@ export async function createVideoFromTopic(topicId: string, angleId?: string | n
     }
   }
 
-  const base = { topic_id: topicId, title, hook, status: 'in_production', ...(ready ? { user_id: user.id } : {}) };
+  type AngleInsert = {
+    topic_id: string;
+    title: string;
+    hook: string | null;
+    status: string;
+    user_id?: string;
+    user_channel_id?: string;
+  };
+  const base: AngleInsert = { topic_id: topicId, title, hook, status: 'in_production', ...(ready ? { user_id: user.id } : {}) };
+  const row: AngleInsert = userChannelId ? { ...base, user_channel_id: userChannelId } : base;
   let { data, error } = await db
     .from('angles')
-    .insert(userChannelId ? { ...base, user_channel_id: userChannelId } : base)
+    .insert(row)
     .select('id')
     .single();
   if (error && userChannelId && (error.code === '42703' || error.code === 'PGRST204')) {
