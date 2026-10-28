@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { requireUser } from '@/lib/auth/session';
 import { resolveScope, labelsByNiche } from '@/lib/scope';
 import { createServiceClient } from '@/lib/supabase/server';
-import { getLatestScoreDate } from '@/lib/scoring/latest-score-date';
+import { getLatestScoreDateOrNull } from '@/lib/sujets/queries';
 import { isSensitiveTopic } from '@/lib/topics/sensitive';
 import { getFavoriteIds } from '@/lib/actions/collections';
 import { computeFeasibilityForUser, isNoChannelResult } from '@/lib/scoring/feasibility-for-user';
@@ -42,11 +42,12 @@ export default async function CartePage({ searchParams }: { searchParams: Promis
   const { scopeLabel, nicheIds, niches } = await resolveScope(db, user.id);
   const ids = nicheIds.length ? nicheIds : ['00000000-0000-0000-0000-000000000000'];
 
-  const scoredAt = await getLatestScoreDate(db);
+  // null = nothing scored yet (first night not run): no fake « mis à jour aujourd'hui ».
+  const scoredAt = await getLatestScoreDateOrNull(db);
   const { data: scores, error: scoresError } = await db
     .from('topic_scores')
     .select('mgi, demand, frustration, supply_q, phase, confidence, feasibility_grade, feasibility_reason, competitor_subs, topics!inner(id, label, status, niche_id)')
-    .eq('scored_at', scoredAt)
+    .eq('scored_at', scoredAt ?? '1970-01-01')
     .in('topics.status', ['active', 'in_production'])
     .in('topics.niche_id', ids)
     .order('mgi', { ascending: false })
@@ -135,7 +136,7 @@ export default async function CartePage({ searchParams }: { searchParams: Promis
     nicheName: labelByNiche.get(p.niche_id as string) ?? (p.niches as unknown as { name: string }).name,
   }));
 
-  const date = new Date(`${scoredAt}T00:00:00`).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' });
+  const date = scoredAt ? new Date(`${scoredAt}T00:00:00`).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' }) : null;
   const pill = (on: boolean) =>
     `flex h-8 items-center rounded-full px-3.5 text-[13px] font-medium transition-colors ${
       on ? 'bg-foreground text-background' : 'bg-card text-foreground ring-1 ring-inset ring-border hover:bg-muted'
@@ -149,7 +150,7 @@ export default async function CartePage({ searchParams }: { searchParams: Promis
         </h1>
         <p className="max-w-[760px] text-[15px] leading-relaxed text-muted-foreground">
           Chaque point est un sujet. Plus il est haut, plus le public le demande. Plus il est à gauche, moins il existe de bonnes vidéos dessus.
-          Les meilleures occasions sont en haut à gauche. Mis à jour le {date}.
+          Les meilleures occasions sont en haut à gauche.{date ? ` Mis à jour le ${date}.` : ''}
         </p>
       </header>
 
@@ -188,7 +189,9 @@ export default async function CartePage({ searchParams }: { searchParams: Promis
         selectedId={params.sujet ?? null}
         lowSupply={{ demand: LOW_SUPPLY_DEMAND * 100, supply: LOW_SUPPLY_MAX }}
         emptyHint={
-          lowSupplyOnly
+          !scoredAt
+            ? 'Tes premiers sujets arrivent après la collecte de cette nuit. Reviens demain matin.'
+            : lowSupplyOnly
             ? 'Aucun sujet n’est à la fois très demandé et peu traité en ce moment. Regarde ceux qui montent.'
             : favOnly
               ? 'Aucun favori ici. Clique sur l’étoile d’un sujet pour l’ajouter.'

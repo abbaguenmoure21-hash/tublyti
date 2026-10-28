@@ -52,10 +52,20 @@ export async function getUserTopicSets(db: SupabaseClient, userId: string) {
   };
 }
 
+/**
+ * Latest scoring date, or null when nothing has been scored yet (first night not run).
+ * (getLatestScoreDate falls back to today, which made the UI claim « mis à jour aujourd'hui ».)
+ */
+export async function getLatestScoreDateOrNull(db: SupabaseClient): Promise<string | null> {
+  const { data, error } = await db.from('topic_scores').select('scored_at').order('scored_at', { ascending: false }).limit(1).maybeSingle();
+  if (error) throw new Error(`latest score date failed: ${error.message}`);
+  return (data?.scored_at as string | undefined) ?? null;
+}
+
 /** Liste des sujets scorés, filtrée et triée (potentiel décroissant, sujets sensibles en fin de liste). */
-export async function listTopics(db: SupabaseClient, f: TopicFilters): Promise<{ rows: TopicRow[]; scoredAt: string }> {
-  const scoredAt = await getLatestScoreDate(db);
-  if (!f.nicheIds.length) return { rows: [], scoredAt };
+export async function listTopics(db: SupabaseClient, f: TopicFilters): Promise<{ rows: TopicRow[]; scoredAt: string | null }> {
+  const scoredAt = await getLatestScoreDateOrNull(db);
+  if (!f.nicheIds.length || !scoredAt) return { rows: [], scoredAt };
   const { ignored, mine } = await getUserTopicSets(db, f.userId);
   let q = db
     .from('topic_scores')

@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import { ChevronRight, SearchX } from 'lucide-react';
+import { ChevronRight, Moon, SearchX } from 'lucide-react';
 import { createServiceClient } from '@/lib/supabase/server';
 import { resolveScope, labelsByNiche } from '@/lib/scope';
 import { requireUser } from '@/lib/auth/session';
@@ -95,7 +95,9 @@ export default async function SujetsPage({ searchParams }: { searchParams: Promi
             {scopeLabel ? `Les meilleurs sujets pour ${scopeLabel}` : 'Tes meilleurs sujets cette semaine'}
           </h1>
           <p className="text-[15px] text-muted-foreground">
-            {nf.format(rows.length)} sujet{rows.length > 1 ? 's' : ''} classé{rows.length > 1 ? 's' : ''} par potentiel · mis à jour le {formatDate(scoredAt)}.{' '}
+            {scoredAt
+              ? <>{nf.format(rows.length)} sujet{rows.length > 1 ? 's' : ''} classé{rows.length > 1 ? 's' : ''} par potentiel · mis à jour le {formatDate(scoredAt)}.{' '}</>
+              : <>Tes sujets arrivent après la première collecte de nuit.{' '}</>}
             <span className="hidden md:inline">Clique sur un sujet pour le voir sans quitter la liste.</span>
           </p>
         </header>
@@ -135,7 +137,29 @@ export default async function SujetsPage({ searchParams }: { searchParams: Promi
           </div>
         </div>
 
-        {rows.length === 0 ? (
+        {rows.length === 0 && !scoredAt ? (
+          <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border px-6 py-16 text-center">
+            <Moon className="h-8 w-8 text-muted-foreground" aria-hidden="true" />
+            <p className="text-[15px] font-medium">Tes premiers sujets arrivent après la collecte de cette nuit.</p>
+            <p className="max-w-sm text-sm text-muted-foreground">
+              Chaque nuit, TubLyTI repère les vidéos de ta thématique et calcule le potentiel de chaque sujet. Reviens demain matin.
+            </p>
+            <Link href="/guide" className="mt-1 text-sm font-semibold text-primary">
+              Comprendre comment ça marche
+            </Link>
+          </div>
+        ) : rows.length === 0 && !filtered ? (
+          <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border px-6 py-16 text-center">
+            <SearchX className="h-8 w-8 text-muted-foreground" aria-hidden="true" />
+            <p className="text-[15px] font-medium">Aucun sujet à traiter pour l’instant.</p>
+            <p className="max-w-sm text-sm text-muted-foreground">
+              Les sujets que tu as ignorés n’apparaissent plus. Regarde tous les moments, y compris « Trop tard ».
+            </p>
+            <Link href={sujetsHref({}, { moment: 'tous' })} className="mt-1 text-sm font-semibold text-primary">
+              Voir tous les sujets
+            </Link>
+          </div>
+        ) : rows.length === 0 ? (
           <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border px-6 py-16 text-center">
             <SearchX className="h-8 w-8 text-muted-foreground" aria-hidden="true" />
             <p className="text-[15px] font-medium">Aucun sujet ne correspond à ces filtres.</p>
