@@ -164,7 +164,7 @@ function VideoRow({ v, rank, channelId }: { v: PublicVideo; rank?: number; chann
       {rank !== undefined && <span className="w-5 shrink-0 text-right text-sm tabular-nums text-muted-foreground">{rank}</span>}
       {v.thumbnailUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={v.thumbnailUrl} alt="" referrerPolicy="no-referrer" className="h-11 w-[78px] shrink-0 rounded-lg object-cover" />
+        <img src={v.thumbnailUrl} alt="" referrerPolicy="no-referrer" loading="lazy" decoding="async" className="h-11 w-[78px] shrink-0 rounded-lg object-cover" />
       ) : (
         <span className="h-11 w-[78px] shrink-0 rounded-lg bg-muted" />
       )}
