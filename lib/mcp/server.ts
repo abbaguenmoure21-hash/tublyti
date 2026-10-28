@@ -14,6 +14,7 @@ import { analyzeVideo, parseVideoId, retentionContextFrom, type RetentionContext
 import { linkSaturation, topicSaturation } from '@/lib/saturation';
 import { compareKeywords } from '@/lib/keywords';
 import { getLatestSnapshots } from '@/lib/youtube/latest-snapshots';
+import { isMissingFunction, markRpcMissing, rpcKnownMissing } from '@/lib/supabase/rpc-fallback';
 
 // ── Constants ──────────────────────────────────────────────────────────
 
@@ -276,7 +277,9 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
       const maxResults = Math.min(limit ?? 10, 20);
       const voyageKey = process.env.VOYAGE_API_KEY;
 
-      if (!voyageKey) {
+      // Text search when there is no embedding key, or when match_topics (migration 00031) is known to be missing:
+      // no paid Voyage call for a search that cannot run.
+      if (!voyageKey || rpcKnownMissing('match_topics')) {
         // Fallback to text search
         const db = createServiceClient();
         const { data: textResults } = await inScope(
@@ -324,9 +327,11 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
         query_embedding: vecStr,
         match_threshold: 0.3,
         match_count: maxResults,
+        p_niche_ids: token.nicheIds,
       });
 
       if (searchErr) {
+        if (isMissingFunction(searchErr)) markRpcMissing('match_topics');
         // Fallback to text search
         const { data: textResults } = await inScope(
           db
