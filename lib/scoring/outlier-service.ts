@@ -33,19 +33,22 @@ export async function computeChannelOutliers(
   if (videoErr) throw new Error(`Failed to fetch videos: ${videoErr.message}`);
   if (!videos || videos.length === 0) return { computed: 0, skipped: 0 };
 
-  // 2. Snapshots de ces vidéos, par lots de 100 vidéos et par pages de 1 000 lignes.
+  // 2. Snapshots de ces vidéos, par lots de vidéos et par pages de 1 000 lignes.
   // Avant : une seule requête, coupée à 1 000 lignes par Supabase et triée des plus anciennes
   // aux plus récentes — les vues récentes n'étaient jamais lues et les scores restaient figés.
   const videoIds = videos.map((v: Record<string, unknown>) => v.id as string);
   const allSnapshots: { video_id: string; captured_at: string; views: number }[] = [];
-  for (let i = 0; i < videoIds.length; i += 100) {
-    const chunk = videoIds.slice(i, i + 100);
-    for (let from = 0; from < 20_000; from += 1000) {
+  // Lots de 20 vidéos, pagination jusqu'au bout (l'ancien plafond de 20 000 lignes par lot
+  // était atteint après ~200 nuits de suivi : les relevés récents n'étaient plus lus).
+  for (let i = 0; i < videoIds.length; i += 20) {
+    const chunk = videoIds.slice(i, i + 20);
+    for (let from = 0; from < 2_000_000; from += 1000) {
       const { data: page, error: snapErr } = await db
         .from('video_snapshots')
         .select('video_id, captured_at, views')
         .in('video_id', chunk)
         .order('captured_at', { ascending: true })
+        .order('video_id', { ascending: true })
         .range(from, from + 999);
       if (snapErr) throw new Error(`Failed to fetch snapshots: ${snapErr.message}`);
       allSnapshots.push(...((page ?? []) as { video_id: string; captured_at: string; views: number }[]));

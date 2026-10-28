@@ -88,14 +88,17 @@ async function loadOwnVideos(db: SupabaseClient, ytChannelId: string, limit = 40
   const list = ((vids ?? []) as { id: string; title: string; published_at: string; duration_s: number | null }[]).filter((v) => (v.duration_s ?? 0) > 60);
   const snapsById = new Map<string, Snap[]>();
   const ids = list.map((v) => v.id);
-  for (let i = 0; i < ids.length; i += 50) {
-    for (let from = 0; from < 20_000; from += 1000) {
-      const { data } = await db
+  // Batches of 20 videos, paged to the end (the former 20 000-row cap dropped recent snapshots).
+  for (let i = 0; i < ids.length; i += 20) {
+    for (let from = 0; from < 2_000_000; from += 1000) {
+      const { data, error } = await db
         .from('video_snapshots')
         .select('video_id, captured_at, views')
-        .in('video_id', ids.slice(i, i + 50))
+        .in('video_id', ids.slice(i, i + 20))
         .order('captured_at', { ascending: true })
+        .order('video_id', { ascending: true })
         .range(from, from + 999);
+      if (error) throw new Error(`Lecture des relevés impossible : ${error.message}`);
       const rows = (data ?? []) as { video_id: string; captured_at: string; views: number }[];
       for (const r of rows) snapsById.set(r.video_id, [...(snapsById.get(r.video_id) ?? []), { at: new Date(r.captured_at).getTime(), views: Number(r.views) || 0 }]);
       if (rows.length < 1000) break;
