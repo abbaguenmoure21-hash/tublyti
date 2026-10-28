@@ -54,9 +54,9 @@ export function Inspector({ position, prevHref, nextHref, closeHref, children }:
   return (
     <motion.aside
       aria-label="Aperçu du sujet"
-      initial={reduce ? false : mobile ? { y: 48, opacity: 0 } : { x: 24, opacity: 0 }}
-      animate={{ x: 0, y: 0, opacity: 1 }}
-      transition={{ type: 'spring', stiffness: 420, damping: 38 }}
+      // Entrance is CSS (per breakpoint, so the very first mobile open already comes from the bottom,
+      // without a server/client mismatch); framer only handles the drag-to-close gesture.
+      initial={false}
       drag={canDrag ? 'y' : false}
       dragControls={dragControls}
       dragListener={false}
@@ -65,7 +65,7 @@ export function Inspector({ position, prevHref, nextHref, closeHref, children }:
       onDragEnd={(_, info) => {
         if (info.offset.y > 120 || info.velocity.y > 600) router.replace(closeHref, { scroll: false });
       }}
-      className="fixed inset-0 z-50 flex flex-col bg-card md:elev-3 md:sticky md:inset-auto md:top-2 md:z-auto md:my-2 md:mr-2 md:h-[calc(100vh-16px)] md:w-[440px] md:shrink-0 md:overflow-hidden md:rounded-[22px]"
+      className="fixed inset-0 z-50 flex flex-col bg-card animate-in fade-in slide-in-from-bottom-12 duration-200 motion-reduce:animate-none md:slide-in-from-bottom-0 md:slide-in-from-right-6 md:elev-3 md:sticky md:inset-auto md:top-2 md:z-auto md:my-2 md:mr-2 md:h-[calc(100vh-16px)] md:w-[440px] md:shrink-0 md:overflow-hidden md:rounded-[22px]"
     >
       <div
         onPointerDown={(e) => canDrag && dragControls.start(e)}
