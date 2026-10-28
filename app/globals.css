@@ -553,36 +553,42 @@
 @utility elev-3 { box-shadow: var(--elev-3); }
 @utility well { box-shadow: var(--well); }
 
-/* Toute surface « carte » de l'app reçoit le premier niveau de relief,
-   la bordure s'efface au profit du liseré d'ombre (plus net sur Retina). */
-.bg-card.border:not(.shadow-none),
-.bg-card.rounded-xl,
-.bg-card.rounded-2xl {
-  box-shadow: var(--elev-1);
-  border-color: transparent;
-}
-/* Les cartes cliquables se soulèvent légèrement au survol. */
-a.bg-card.rounded-xl:hover,
-a.bg-card.rounded-2xl:hover,
-button.bg-card.rounded-xl:hover {
-  box-shadow: var(--elev-2);
-}
-@media (prefers-reduced-motion: no-preference) {
+/* Ces règles vivent dans @layer components : les utilitaires Tailwind
+   (ring-*, focus-visible:*, shadow-*, border-*) gardent toujours la main.
+   Hors couche, elles effaçaient l'anneau de focus des boutons et des champs. */
+@layer components {
+  /* Toute surface « carte » de l'app reçoit le premier niveau de relief,
+     la bordure s'efface au profit du liseré d'ombre (plus net sur Retina).
+     Une classe border-* explicite (ex. border-input) reprend la main. */
+  .bg-card.border,
   .bg-card.rounded-xl,
   .bg-card.rounded-2xl {
-    transition: box-shadow 200ms cubic-bezier(0.25, 0.1, 0.25, 1);
+    box-shadow: var(--elev-1);
+    border-color: transparent;
   }
-}
+  /* Les cartes cliquables se soulèvent légèrement au survol. */
+  a.bg-card.rounded-xl:hover,
+  a.bg-card.rounded-2xl:hover,
+  button.bg-card.rounded-xl:hover {
+    box-shadow: var(--elev-2);
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .bg-card.rounded-xl,
+    .bg-card.rounded-2xl {
+      transition: box-shadow 200ms cubic-bezier(0.2, 0, 0, 1);
+    }
+  }
 
-/* Bouton principal : léger liseré de lumière et ombre teintée, comme un bouton macOS. */
-.bg-primary.text-primary-foreground {
-  background-image: linear-gradient(to bottom, rgb(255 255 255 / 0.12), rgb(255 255 255 / 0));
-  box-shadow: var(--button-shine);
-}
+  /* Bouton principal : léger liseré de lumière et ombre teintée, comme un bouton macOS. */
+  .bg-primary.text-primary-foreground {
+    background-image: linear-gradient(to bottom, rgb(255 255 255 / 0.12), rgb(255 255 255 / 0));
+    box-shadow: var(--button-shine);
+  }
 
-/* Champs de saisie et pistes de contrôles segmentés : creusés. */
-input:not([type='radio']):not([type='checkbox']):not([type='range']).border-input,
-select.border-input,
-textarea.border-input {
-  box-shadow: var(--well);
+  /* Champs de saisie et pistes de contrôles segmentés : creusés. */
+  input:not([type='radio']):not([type='checkbox']):not([type='range']).border-input,
+  select.border-input,
+  textarea.border-input {
+    box-shadow: var(--well);
+  }
 }
