@@ -20,7 +20,8 @@ const nf = new Intl.NumberFormat('fr-FR');
 const compact = new Intl.NumberFormat('fr-FR', { notation: 'compact', maximumFractionDigits: 1 });
 const usd = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 });
 const usd0 = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
-const pct = (v: number, d = 1) => `${v.toLocaleString('fr-FR', { maximumFractionDigits: d })} %`;
+/** Percent: no decimal from 10 % up, one decimal below (DESIGN number rule). */
+const pct = (v: number, d?: number) => `${v.toLocaleString('fr-FR', { maximumFractionDigits: d ?? (Math.abs(v) < 10 ? 1 : 0) })} %`;
 const regions = new Intl.DisplayNames(['fr'], { type: 'region' });
 
 function duration(s: number) {
@@ -74,7 +75,7 @@ const STATUS: Record<string, { tone: 'ok' | 'warn'; text: string }> = {
   'ok-sans-revenus': { tone: 'ok', text: 'YouTube Analytics est connecté, sans l’accès aux revenus. Reconnecte et coche « revenus » pour les voir.' },
   'autre-chaine': { tone: 'warn', text: 'Le compte Google choisi ne gère pas cette chaîne. Reconnecte-toi avec le compte propriétaire.' },
   erreur: { tone: 'warn', text: 'La connexion à YouTube Analytics n’a pas abouti. Réessaie.' },
-  migration: { tone: 'warn', text: 'Il manque la migration 00023 dans Supabase pour enregistrer l’accès.' },
+  migration: { tone: 'warn', text: 'Cette fonction n’est pas encore disponible. Réessaie plus tard.' },
   indisponible: { tone: 'warn', text: 'La connexion Google n’est pas encore configurée sur TubLyTI.' },
 };
 
@@ -189,7 +190,7 @@ function VideoRow({ v, rank, channelId }: { v: PublicVideo; rank?: number; chann
 
 /* ---------- sections ---------- */
 
-function AnalyticsBlock({ data, hasMonetary, channelId, reach, reachNote }: { data: AnalyticsData; hasMonetary: boolean; channelId: string; reach: Map<string, { impressions: number; ctr: number | null }>; reachNote: string | null }) {
+function AnalyticsBlock({ data, hasMonetary, channelId, reach, reachNote, reachSince }: { data: AnalyticsData; hasMonetary: boolean; channelId: string; reach: Map<string, { impressions: number; ctr: number | null }>; reachNote: string | null; reachSince: string | null }) {
   const t = data.totals;
   const subsNet = t.subscribersGained - t.subscribersLost;
   const engagement = t.views ? ((t.likes + t.comments + t.shares) / t.views) * 100 : 0;
@@ -200,8 +201,8 @@ function AnalyticsBlock({ data, hasMonetary, channelId, reach, reachNote }: { da
         <Tile label="Vues" value={compact.format(t.views)} hint={t.views >= 10_000 ? nf.format(t.views) : undefined} />
         <Tile label="Durée regardée" value={hours(t.minutesWatched)} hint={`${nf.format(Math.round(t.minutesWatched / 60))} heures`} />
         <Tile label="Durée moyenne" value={duration(t.averageViewDuration)} hint={`${pct(t.averageViewPercentage)} de la vidéo regardée`} />
-        <Tile label="Abonnés" value={`${subsNet >= 0 ? '+' : ''}${nf.format(subsNet)}`} hint={`+${nf.format(t.subscribersGained)} gagnés · −${nf.format(t.subscribersLost)} perdus`} />
-        <Tile label="Interactions" value={pct(engagement, 2)} hint={`${compact.format(t.likes)} j’aime · ${compact.format(t.comments)} comm. · ${compact.format(t.shares)} partages`} />
+        <Tile label="Nouveaux abonnés (net)" value={`${subsNet >= 0 ? '+' : ''}${nf.format(subsNet)}`} hint={`+${nf.format(t.subscribersGained)} gagnés · −${nf.format(t.subscribersLost)} perdus`} />
+        <Tile label="Interactions (avec partages)" value={pct(engagement)} hint={`${compact.format(t.likes)} j’aime · ${compact.format(t.comments)} comm. · ${compact.format(t.shares)} partages`} />
         <Tile label="Vues d’abonnés" value={subTotal ? pct((data.subscribed.subscribed / subTotal) * 100, 0) : '—'} hint="Le reste vient de nouveaux spectateurs" />
       </div>
 
@@ -238,7 +239,13 @@ function AnalyticsBlock({ data, hasMonetary, channelId, reach, reachNote }: { da
       </Panel>
 
       <div className="overflow-hidden rounded-2xl bg-card">
-        <h3 className="border-b border-border px-4 py-3 text-[15px] font-semibold">Meilleures vidéos sur la période <span className="font-normal text-muted-foreground">· clique sur « Rétention » pour voir où les spectateurs décrochent · impressions et CTR depuis le début des rapports YouTube (30 jours avant la connexion)</span></h3>
+        <div className="border-b border-border px-4 py-3">
+          <h3 className="text-[15px] font-semibold">Meilleures vidéos sur la période</h3>
+          <p className="text-xs text-muted-foreground">
+            Clique sur « Rétention » pour voir où les spectateurs décrochent.
+            {reachSince ? ` Impressions et CTR depuis le ${new Date(reachSince).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}.` : ''}
+          </p>
+        </div>
         {reachNote && <p className="border-b border-muted bg-muted/40 px-4 py-2.5 text-[13px] leading-relaxed text-muted-foreground">{reachNote}</p>}
         {data.topVideos.length ? (
           <TopVideos channelId={channelId} rows={data.topVideos.map((v) => ({ ...v, impressions: reach.get(v.id)?.impressions ?? null, ctr: reach.get(v.id)?.ctr ?? null }))} hasRevenue={Boolean(data.revenue)} />
@@ -316,7 +323,7 @@ function PublicBlock({ s, linked, channelId }: { s: PublicStats; linked: boolean
         <>
           <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
             <Tile label="Vues habituelles" value={compact.format(s.medianViews)} hint={`Médiane des vidéos longues · moyenne ${compact.format(Math.round(s.averageViews))}`} />
-            <Tile label="Interactions" value={pct(s.engagementRate, 2)} hint={`${pct(s.likeRate, 2)} j’aime · ${pct(s.commentRate, 2)} commentaires`} />
+            <Tile label="Interactions publiques" value={pct(s.engagementRate)} hint={`${pct(s.likeRate)} j’aime · ${pct(s.commentRate)} commentaires`} />
             <Tile label="Rythme" value={`${s.uploadsPerWeek.toLocaleString('fr-FR', { maximumFractionDigits: 1 })} / sem.`} hint={s.daysSinceLast === null ? undefined : `Dernière vidéo ${s.daysSinceLast === 0 ? 'aujourd’hui' : `il y a ${s.daysSinceLast} j`}`} />
             <Tile label="Meilleur jour" value={s.bestWeekday ? s.bestWeekday.day : '—'} hint={s.bestWeekday ? `${compact.format(s.bestWeekday.median)} vues habituelles` : 'Pas encore assez de vidéos'} />
             <Tile label="Vidéos longues" value={compact.format(s.long.median)} hint={`${s.long.count} vidéos · vues habituelles`} />
@@ -420,15 +427,22 @@ export default async function MyChannelPage({ searchParams }: { searchParams: Pr
   const [stats, analytics] = await Promise.all([getPublicStats(db, channelId), getChannelAnalytics(db, channelId, period)]);
   // Impressions et CTR des miniatures (rapports quotidiens YouTube, depuis la connexion + 30 jours d'historique).
   const reach = new Map<string, { impressions: number; ctr: number | null }>();
+  // First day covered by the thumbnail reports when it starts after the period start.
+  let reachSince: string | null = null;
   if (analytics.status === 'ok' && analytics.data.topVideos.length) {
     const { data: rows } = await db
       .from('video_reach_daily')
-      .select('video_id, impressions, ctr')
+      .select('video_id, day, impressions, ctr')
       .eq('user_channel_id', channelId)
       .in('video_id', analytics.data.topVideos.map((v) => v.id))
+      .gte('day', analytics.data.startDate)
+      .lte('day', analytics.data.endDate)
+      .order('day', { ascending: true })
       .limit(5000);
     const acc = new Map<string, { imp: number; clicks: number }>();
-    for (const r of (rows ?? []) as { video_id: string; impressions: number; ctr: number | null }[]) {
+    const typedRows = (rows ?? []) as { video_id: string; day: string; impressions: number; ctr: number | null }[];
+    if (typedRows.length && typedRows[0].day > analytics.data.startDate) reachSince = typedRows[0].day;
+    for (const r of typedRows) {
       const cur = acc.get(r.video_id) ?? { imp: 0, clicks: 0 };
       cur.imp += Number(r.impressions);
       cur.clicks += Number(r.impressions) * Number(r.ctr ?? 0);
@@ -440,15 +454,31 @@ export default async function MyChannelPage({ searchParams }: { searchParams: Pr
   let reachNote: string | null = null;
   if (analytics.status === 'ok' && reach.size === 0) {
     const { data: job, error: jobErr } = await db.from('reporting_jobs').select('created_at, last_sync_at, last_error').eq('user_channel_id', channelId).maybeSingle();
-    if (jobErr) reachNote = 'Impressions et CTR : il manque la migration 00027 dans Supabase.';
+    if (jobErr) {
+      console.error('[my-channel] reporting_jobs read failed', jobErr.message);
+      reachNote = 'Impressions et CTR : pas encore disponibles. Réessaie plus tard.';
+    }
     else if (!job) reachNote = 'Impressions et CTR : la demande de rapport n’a pas été enregistrée. Clique sur « Déconnecter » puis reconnecte YouTube Analytics.';
-    else if (job.last_error) reachNote = `Impressions et CTR : YouTube a répondu une erreur (${String(job.last_error).slice(0, 140)}).`;
+    else if (job.last_error) {
+      console.error('[my-channel] reporting job error', String(job.last_error).slice(0, 300));
+      reachNote = 'Impressions et CTR : YouTube n’a pas encore livré ce rapport. Réessaie demain.';
+    }
     else {
       const ready = new Date(new Date(job.created_at as string).getTime() + 48 * 3_600_000);
       reachNote = `Impressions et CTR : demande envoyée à YouTube le ${new Date(job.created_at as string).toLocaleDateString('fr-FR')}. YouTube livre le premier rapport d’ici le ${ready.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })} (avec les 30 jours précédents) ; il est importé la nuit suivante.`;
     }
   }
-  if (!stats) return null;
+  if (!stats) {
+    return (
+      <div className="mx-auto flex max-w-lg flex-col items-center gap-3 px-6 py-24 text-center">
+        <h1 className="text-[22px] font-semibold tracking-[-0.01em]">Impossible d’afficher ta chaîne</h1>
+        <p className="text-[15px] leading-relaxed text-muted-foreground">Ses chiffres n’ont pas pu être lus. Réessaie dans un instant.</p>
+        <Link href="/my-channel" className="mt-2 inline-flex h-11 items-center rounded-[10px] bg-primary px-5 text-[15px] font-medium text-primary-foreground hover:opacity-90">
+          Réessayer
+        </Link>
+      </div>
+    );
+  }
   const c = stats.channel;
   const status = sp.analytics ? STATUS[sp.analytics] : null;
   const canConnect = googleEnabled() && encryptionReady();
@@ -507,7 +537,7 @@ export default async function MyChannelPage({ searchParams }: { searchParams: Pr
         }
       >
         {analytics.status === 'ok' ? (
-          <AnalyticsBlock data={analytics.data} hasMonetary={analytics.hasMonetary} channelId={channelId} reach={reach} reachNote={reachNote} />
+          <AnalyticsBlock data={analytics.data} hasMonetary={analytics.hasMonetary} channelId={channelId} reach={reach} reachNote={reachNote} reachSince={reachSince} />
         ) : (
           <div className="flex flex-col items-start gap-3 rounded-2xl bg-card p-5 md:flex-row md:items-center">
             <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary-soft text-primary-ink">
