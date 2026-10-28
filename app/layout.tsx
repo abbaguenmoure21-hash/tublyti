@@ -24,12 +24,29 @@ const jetbrainsMono = JetBrains_Mono({
   display: "swap",
 });
 
+const SITE_TITLE = 'TubLyTI · Les sujets de vidéos que ton public attend';
+const SITE_DESCRIPTION = 'TubLyTI te montre les sujets que ton public réclame, avant que d’autres chaînes ne les traitent.';
+const siteUrl = process.env.NEXT_PUBLIC_APP_URL;
+
 export const metadata: Metadata = {
   title: {
     default: 'TubLyTI',
     template: '%s · TubLyTI',
   },
-  description: "Moteur de détection d'opportunités YouTube par analyse du déséquilibre demande/offre.",
+  description: SITE_DESCRIPTION,
+  ...(siteUrl ? { metadataBase: new URL(siteUrl) } : {}),
+  openGraph: {
+    siteName: 'TubLyTI',
+    title: SITE_TITLE,
+    description: SITE_DESCRIPTION,
+    locale: 'fr_FR',
+    type: 'website',
+  },
+  twitter: {
+    card: 'summary',
+    title: SITE_TITLE,
+    description: SITE_DESCRIPTION,
+  },
   icons: {
     icon: '/favicon.svg',
   },

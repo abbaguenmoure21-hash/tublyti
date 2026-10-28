@@ -4,7 +4,7 @@ import { Check, ArrowLeft } from 'lucide-react';
 import { WaitlistForm } from '@/components/landing/waitlist-form';
 
 export const metadata: Metadata = {
-  title: 'Rejoindre la liste d’attente · TubLyTI',
+  title: 'Rejoindre la liste d’attente',
   description: 'Inscris-toi pour recevoir ton accès à TubLyTI pendant la bêta.',
 };
 

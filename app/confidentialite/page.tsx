@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 
 export const metadata: Metadata = {
-  title: 'Confidentialité · TubLyTI',
+  title: 'Confidentialité',
   description: 'Les données que TubLyTI utilise, pourquoi, et comment les supprimer.',
 };
 

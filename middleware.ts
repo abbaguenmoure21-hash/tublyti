@@ -29,7 +29,7 @@ export async function middleware(request: NextRequest) {
 
   // If not logged in and trying to access protected routes, redirect to login
   const path = request.nextUrl.pathname;
-  const isPublic = path === '/' || path === '/liste-attente' || path === '/confidentialite' || path.startsWith('/login') || path.startsWith('/auth/');
+  const isPublic = path === '/' || path === '/liste-attente' || path === '/confidentialite' || path === '/robots.txt' || path === '/sitemap.xml' || path.startsWith('/login') || path.startsWith('/auth/');
 
   if (!user && !isPublic) {
     const url = request.nextUrl.clone();
