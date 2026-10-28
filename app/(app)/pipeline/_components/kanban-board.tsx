@@ -146,7 +146,7 @@ export function KanbanBoard({
   }
 
   /** Same rules for drag and drop, keyboard and the « Passer à » menu. */
-  function moveCard(cardId: string, targetColumn: PipelineColumn, { undoable = true } = {}) {
+  function moveCard(cardId: string, targetColumn: PipelineColumn) {
     const sourceColumn = findCardColumn(cardId);
     if (!sourceColumn || sourceColumn === targetColumn) return;
 
@@ -204,12 +204,39 @@ export function KanbanBoard({
         });
       } else {
         // Undo only between Idée and En production (no server action to unpublish).
-        const canUndo = undoable && (sourceColumn === 'idea' || sourceColumn === 'in_production');
+        const canUndo = sourceColumn === 'idea' || sourceColumn === 'in_production';
         toast.success(`Vidéo passée dans « ${COLUMN_LABEL[targetColumn]} ».`, canUndo
-          ? { action: { label: 'Annuler', onClick: () => moveCard(cardId, sourceColumn, { undoable: false }) } }
+          ? { action: { label: 'Annuler', onClick: () => undoMove(card, sourceColumn) } }
           : undefined);
         router.refresh();
       }
+    });
+  }
+
+  /**
+   * Undo from the toast. Captures only the card and its former column, and uses
+   * functional state updates: never relies on the (stale) columns of the render
+   * where the move happened.
+   */
+  function undoMove(card: PipelineCard, backTo: 'idea' | 'in_production') {
+    const relocate = (to: PipelineColumn, c: PipelineCard) =>
+      setColumns((prev) => {
+        const next = { ...prev };
+        for (const col of Object.keys(next) as PipelineColumn[]) {
+          next[col] = prev[col].filter((x) => x.angleId !== c.angleId);
+        }
+        next[to] = [c, ...next[to]];
+        return next;
+      });
+    relocate(backTo, { ...card, status: backTo });
+    startTransition(async () => {
+      const result = backTo === 'idea' ? await moveAngleToIdea(card.angleId) : await moveAngleToProduction(card.angleId);
+      if (result.error) {
+        toast.error(result.error);
+      } else {
+        toast.success(`Vidéo remise dans « ${COLUMN_LABEL[backTo]} ».`);
+      }
+      router.refresh();
     });
   }
 
