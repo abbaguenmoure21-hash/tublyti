@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { PhaseBadge } from '@/components/tublyti';
 import { createServiceClient } from '@/lib/supabase/server';
+import { requireAdmin } from '@/lib/auth/session';
 import { ReviewActions } from './_components/review-actions';
 
 interface VideoInfo {
@@ -36,6 +37,8 @@ interface MergeTarget {
 }
 
 export default async function TopicsReviewPage() {
+  // Guard at the data level, not only in the layout (RSC requests can skip layouts).
+  await requireAdmin();
   const db = createServiceClient();
 
   const [proposedResult, activeResult] = await Promise.all([
