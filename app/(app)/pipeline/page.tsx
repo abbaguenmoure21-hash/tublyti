@@ -20,7 +20,10 @@ export interface PipelineCard {
   videoId: string | null;
   createdAt: string;
   publishedDaysAgo: number | null;
-  performanceVsMedian: number | null;
+  /** Latest view count of the published video. */
+  views: number | null;
+  /** Views / usual views of the channel (median of its other recent videos), for measured cards. */
+  viewsVsUsual: number | null;
 }
 
 export type PipelineColumn = 'idea' | 'in_production' | 'published' | 'measured';
@@ -29,7 +32,6 @@ function classifyColumn(card: {
   status: string;
   videoId: string | null;
   publishedDaysAgo: number | null;
-  performanceVsMedian: number | null;
 }): PipelineColumn {
   if (card.status === 'idea') return 'idea';
   if (card.status === 'in_production') return 'in_production';
@@ -67,7 +69,9 @@ export default async function PipelinePage({
     .order('created_at', { ascending: false });
   if (ready) query = query.eq('user_id', user.id);
 
-  const { data: angles } = await query;
+  const { data: angles, error: anglesError } = await query;
+  // Never show an empty board when the database fails: error.tsx takes over.
+  if (anglesError) throw new Error('pipeline: angles query failed');
 
   // Chaîne de chaque vidéo (migration 00022) : avec une chaîne choisie dans « Afficher »,
   // on garde ses vidéos et celles qui ne sont rattachées à aucune chaîne de la même thématique.
@@ -86,7 +90,7 @@ export default async function PipelinePage({
     return topic.id;
   }))];
 
-  let scoreMap: Record<string, number> = {};
+  const scoreMap: Record<string, number> = {};
   if (topicIds.length > 0) {
     const { data: scores } = await db
       .from('topic_scores')
@@ -109,8 +113,9 @@ export default async function PipelinePage({
     .filter((a: Record<string, unknown>) => a.status === 'published' && a.video_id)
     .map((a: Record<string, unknown>) => a.video_id as string);
 
-  let videoPublishDates: Record<string, string> = {};
-  let videoPerformance: Record<string, number | null> = {};
+  const videoPublishDates: Record<string, string> = {};
+  const videoPerformance: Record<string, number | null> = {};
+  const latestViews: Record<string, number> = {};
 
   if (publishedAngleIds.length > 0) {
     // Get video publish dates
@@ -130,7 +135,6 @@ export default async function PipelinePage({
       .in('video_id', publishedAngleIds)
       .order('captured_at', { ascending: false });
 
-    const latestViews: Record<string, number> = {};
     const seenVids = new Set<string>();
     for (const s of snapshots ?? []) {
       if (!seenVids.has(s.video_id)) {
@@ -159,32 +163,29 @@ export default async function PipelinePage({
         .in('video_id', chVidIds)
         .order('captured_at', { ascending: false });
 
-      const chViews: number[] = [];
+      const chViews: { id: string; views: number }[] = [];
       const seenCh = new Set<string>();
       for (const s of chSnaps ?? []) {
         if (!seenCh.has(s.video_id)) {
           seenCh.add(s.video_id);
-          chViews.push(s.views ?? 0);
+          chViews.push({ id: s.video_id, views: s.views ?? 0 });
         }
       }
 
-      if (chViews.length === 0) continue;
-      chViews.sort((a, b) => a - b);
-      const median = chViews[Math.floor(chViews.length / 2)];
-
-      // Calculate performance vs median for each published video in this channel
+      // Ratio to the channel's usual views (median of its OTHER recent videos).
       for (const v of videos ?? []) {
-        if (v.channel_id === chId && latestViews[v.id] !== undefined && median > 0) {
-          videoPerformance[v.id] = Math.round(
-            ((latestViews[v.id] - median) / median) * 100,
-          );
-        }
+        if (v.channel_id !== chId || latestViews[v.id] === undefined) continue;
+        const others = chViews.filter((c) => c.id !== v.id).map((c) => c.views).sort((a, b) => a - b);
+        if (others.length === 0) continue;
+        const median = others[Math.floor(others.length / 2)];
+        if (median > 0) videoPerformance[v.id] = latestViews[v.id] / median;
       }
     }
   }
 
 
   // Build cards
+  const now = new Date().getTime();
   const cards: PipelineCard[] = (angles ?? []).map((a: Record<string, unknown>) => {
     const topic = a.topics as unknown as {
       id: string;
@@ -198,7 +199,7 @@ export default async function PipelinePage({
     let publishedDaysAgo: number | null = null;
     if (vid && videoPublishDates[vid]) {
       publishedDaysAgo = Math.floor(
-        (Date.now() - new Date(videoPublishDates[vid]).getTime()) / 86_400_000,
+        (now - new Date(videoPublishDates[vid]).getTime()) / 86_400_000,
       );
     }
 
@@ -217,7 +218,8 @@ export default async function PipelinePage({
       videoId: vid,
       createdAt: a.created_at as string,
       publishedDaysAgo,
-      performanceVsMedian: vid ? (videoPerformance[vid] ?? null) : null,
+      views: vid ? (latestViews[vid] ?? null) : null,
+      viewsVsUsual: vid ? (videoPerformance[vid] ?? null) : null,
     };
   })
     .filter((c: PipelineCard) => scopeNicheIds.includes(c.nicheId))

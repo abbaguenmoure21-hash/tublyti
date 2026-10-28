@@ -17,6 +17,9 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { COLUMNS } from './columns';
 
+const ratioFormat = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 1 });
+const viewsFormat = new Intl.NumberFormat('fr-FR');
+
 function daysSince(dateStr: string): number {
   return Math.floor((Date.now() - new Date(dateStr).getTime()) / 86_400_000);
 }
@@ -131,22 +134,25 @@ export function KanbanCardComponent({
         )}
       </div>
 
-      {/* Performance (only for measured cards) */}
-      {card.performanceVsMedian !== null && (
+      {/* Results: neutral view count while young, ratio to usual views once measured (30 d+) */}
+      {column === 'measured' && card.viewsVsUsual !== null ? (
         <div className={`mt-3 flex items-center gap-1.5 text-[12px] font-semibold ${
-          card.performanceVsMedian >= 0 ? 'text-phase-2-ink' : 'text-muted-foreground'
+          card.viewsVsUsual >= 1 ? 'text-phase-2-ink' : 'text-muted-foreground'
         }`}>
-          {card.performanceVsMedian >= 0 ? (
+          {card.viewsVsUsual >= 1 ? (
             <TrendingUp className="h-4 w-4" aria-hidden="true" />
           ) : (
             <TrendingDown className="h-4 w-4" aria-hidden="true" />
           )}
           <span className="tabular-nums text-mono-metric">
-            {card.performanceVsMedian >= 0 ? '+' : ''}
-            {card.performanceVsMedian} % par rapport à ta moyenne
+            ×{ratioFormat.format(card.viewsVsUsual)} tes vues habituelles
           </span>
         </div>
-      )}
+      ) : card.views !== null && card.publishedDaysAgo !== null ? (
+        <p className="mt-3 text-[12px] tabular-nums text-muted-foreground">
+          {viewsFormat.format(card.views)} vues en {Math.max(1, card.publishedDaysAgo)} j
+        </p>
+      ) : null}
 
       {/* Actions: always visible on touch screens, on hover/focus from md up */}
       {!isDragging && (
