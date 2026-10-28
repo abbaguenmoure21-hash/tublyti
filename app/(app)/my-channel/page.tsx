@@ -9,6 +9,7 @@ import { getChannelAnalytics, PERIODS, type AnalyticsData, type Period } from '@
 import { getPublicStats, type PublicStats, type PublicVideo } from '@/lib/youtube/public-stats';
 import { AnalyticsControls, DailyChart, MonthlyChart, RefreshPublicButton } from './_components/channel-charts';
 import { TopVideos } from './_components/top-videos';
+import { PeriodTabs } from './_components/period-tabs';
 import { AnalyzeVideoButton } from '@/components/tublyti/video-analysis';
 import { BarChart3, ExternalLink, Lock, Tv } from 'lucide-react';
 
@@ -137,26 +138,6 @@ function BarList({ rows }: { rows: { label: string; value: number }[] }) {
         </li>
       ))}
     </ul>
-  );
-}
-
-function Segmented({ period }: { period: Period }) {
-  return (
-    <nav aria-label="Période" className="well inline-flex rounded-[10px] bg-background p-0.5">
-      {PERIODS.map((p) => (
-        <Link
-          key={p.key}
-          href={`/my-channel?periode=${p.key}`}
-          scroll={false}
-          aria-current={p.key === period ? 'page' : undefined}
-          className={`rounded-[8px] px-3 py-1.5 text-[13px] font-medium transition-colors ${
-            p.key === period ? 'elev-1 bg-card text-foreground' : 'text-muted-foreground hover:text-foreground'
-          }`}
-        >
-          {p.label}
-        </Link>
-      ))}
-    </nav>
   );
 }
 
@@ -534,7 +515,7 @@ export default async function MyChannelPage({ searchParams }: { searchParams: Pr
         action={
           analytics.status === 'ok' ? (
             <div className="flex flex-wrap items-center gap-3">
-              <Segmented period={period} />
+              <PeriodTabs period={period} periods={PERIODS.map((p) => ({ key: p.key, label: p.label }))} />
               <AnalyticsControls id={channelId} period={period} />
             </div>
           ) : undefined
