@@ -83,10 +83,10 @@ export function AiSpendTab() {
             <div className="flex justify-between text-[12px] text-muted-foreground">
               <span>
                 {isOverBudget
-                  ? 'Budget d\u00e9pass\u00e9'
+                  ? 'Budget dépassé'
                   : `${budget.remainingUSD.toFixed(2)} $ restant`}
               </span>
-              <span>{Math.round(usagePercent)} % utilis\u00e9</span>
+              <span>{Math.round(usagePercent)} % utilisé</span>
             </div>
           </>
         )}
@@ -95,12 +95,12 @@ export function AiSpendTab() {
       {/* Spend history */}
       <div className="bg-card border border-border rounded-[10px] shadow-[0_1px_2px_rgba(20,24,34,0.06)]">
         <div className="px-5 py-3.5 border-b border-border">
-          <h2 className="text-[15px] font-semibold">Historique des d\u00e9penses</h2>
+          <h2 className="text-[15px] font-semibold">Historique des dépenses</h2>
         </div>
 
         {history.length === 0 ? (
           <div className="px-5 py-8 text-center text-[13px] text-muted-foreground">
-            Aucune d\u00e9pense IA enregistr\u00e9e.
+            Aucune dépense IA enregistrée.
           </div>
         ) : (
           <div className="divide-y divide-border">
@@ -113,15 +113,15 @@ export function AiSpendTab() {
                     </span>
                     {entry.topicLabel && (
                       <span className="text-muted-foreground truncate">
-                        \u2014 {entry.topicLabel}
+                        — {entry.topicLabel}
                       </span>
                     )}
                   </div>
                   <div className="text-[11px] text-muted-foreground flex gap-2">
                     <span>{formatDate(entry.createdAt)}</span>
-                    <span>\u00b7</span>
+                    <span>·</span>
                     <span>{entry.model}</span>
-                    <span>\u00b7</span>
+                    <span>·</span>
                     <span className="tabular-nums">
                       {entry.tokensIn.toLocaleString('fr-FR')} in / {entry.tokensOut.toLocaleString('fr-FR')} out
                     </span>

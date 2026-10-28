@@ -18,10 +18,10 @@ function formatFreshness(scoredAt: string | null | undefined): string | null {
   if (!scoredAt) return null;
   const diff = Date.now() - new Date(scoredAt).getTime();
   const hours = Math.floor(diff / 3_600_000);
-  if (hours < 1) return 'mis \u00e0 jour \u00e0 l\u2019instant';
-  if (hours < 24) return `mis \u00e0 jour il y a ${hours} h`;
+  if (hours < 1) return 'mis à jour à l’instant';
+  if (hours < 24) return `mis à jour il y a ${hours} h`;
   const days = Math.floor(hours / 24);
-  return `mis \u00e0 jour il y a ${days} j`;
+  return `mis à jour il y a ${days} j`;
 }
 
 export function MgiScore({
@@ -37,7 +37,7 @@ export function MgiScore({
 }) {
   if (value === null || value === undefined) {
     return (
-      <span className="text-sm text-muted-foreground tabular-nums">\u2014</span>
+      <span className="text-sm text-muted-foreground tabular-nums">—</span>
     );
   }
 
@@ -105,7 +105,7 @@ export function MgiScore({
               </span>
             </span>
           )}
-          {confidence && freshness && <span className="text-border">\u00b7</span>}
+          {confidence && freshness && <span className="text-border">·</span>}
           {freshness && (
             <span className={isStale ? 'text-[var(--warning)]' : ''}>
               {freshness}
