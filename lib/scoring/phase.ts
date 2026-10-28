@@ -16,13 +16,28 @@ export interface PhaseInputs {
   medianOutlierAgeDays: number | null;
   /** Total videos attached to the topic */
   totalVideos: number;
+  /** Qualified videos published in the last 72 h (used with thresholds). */
+  qualifiedIn72h?: number;
+  /** Qualified supply O_q (used with thresholds; null = unknown). */
+  supplyQ?: number | null;
 }
 
-export function computePhase(inputs: PhaseInputs): number {
+/** Settings → Scoring thresholds that the phase actually uses. */
+export interface PhaseThresholds {
+  /** Above this qualified supply, a topic cannot be in the ideal window (phase 2). */
+  phase2MaxSupply: number;
+  /** From this many qualified videos in 72 h, the topic is saturating (phase 3). */
+  phase3QualifiedIn72h: number;
+}
+
+export function computePhase(inputs: PhaseInputs, thresholds?: PhaseThresholds): number {
   const { uploadsRecent4w, uploadsOlder8w, medianOutlierAgeDays, totalVideos } = inputs;
 
   // Emergence: very few videos overall
   if (totalVideos < 5) return 0;
+
+  // Burst of qualified competition (Réglages : « Vidéos qualifiées en 72h pour Phase 3 »).
+  if (thresholds && (inputs.qualifiedIn72h ?? 0) >= thresholds.phase3QualifiedIn72h) return 3;
 
   // Weekly upload rates
   const recentWeekly = uploadsRecent4w / 4;
@@ -47,7 +62,9 @@ export function computePhase(inputs: PhaseInputs): number {
   }
 
   // Window: accelerating with young outliers OR strong slope
-  if ((slope > 2 && uploadsRecent4w >= 3) || (slope > 1.5 && youngOutliers)) {
+  // (Réglages : « Max supply pour Phase 2 » — too much qualified supply is not a window.)
+  const supplyOk = !thresholds || inputs.supplyQ == null || inputs.supplyQ <= thresholds.phase2MaxSupply;
+  if (supplyOk && ((slope > 2 && uploadsRecent4w >= 3) || (slope > 1.5 && youngOutliers))) {
     return 2;
   }
 

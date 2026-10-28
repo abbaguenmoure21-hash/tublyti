@@ -9,7 +9,8 @@ import {
   MIN_TOPICS_FOR_RANK,
   type TopicYTDemand,
 } from './mgi';
-import { computePhase } from './phase';
+import { computePhase, type PhaseThresholds } from './phase';
+import { DEFAULT_SCORING } from './scoring-config';
 import { computeFeasibility } from './feasibility';
 import type { AlertSender } from '../email/alerts';
 import { evaluateAlertRules } from '../alerts/evaluate';
@@ -117,6 +118,16 @@ export async function runScore(
   });
 
   const topicIds = topics.map((t) => t.id);
+
+  // ── Thresholds from Réglages (fallback: defaults) ──────────────
+  const thrRow = must(await db.from('settings').select('value').eq('key', 'thresholds').maybeSingle(), 'settings (seuils)') as
+    | { value?: Partial<PhaseThresholds> | null }
+    | null;
+  const thresholds: PhaseThresholds = {
+    phase2MaxSupply: Number(thrRow?.value?.phase2MaxSupply ?? DEFAULT_SCORING.thresholds.phase2MaxSupply),
+    phase3QualifiedIn72h: Number(thrRow?.value?.phase3QualifiedIn72h ?? DEFAULT_SCORING.thresholds.phase3QualifiedIn72h),
+  };
+
   const cutoff90d = new Date(Date.now() - 90 * 86_400_000).toISOString();
   const cutoff30d = new Date(Date.now() - 30 * 86_400_000).toISOString();
   const cutoff4w = new Date(Date.now() - 28 * 86_400_000).toISOString();
@@ -156,11 +167,16 @@ export async function runScore(
 
   // Group videos by topic
   const videosByTopic = new Map<string, TopicVideo[]>();
+
   for (const v of allVideos) {
     if (!v.topic_id) continue;
     if (!videosByTopic.has(v.topic_id)) videosByTopic.set(v.topic_id, []);
     videosByTopic.get(v.topic_id)!.push(v);
   }
+
+  const cutoff72h = new Date(Date.now() - 72 * 3_600_000).toISOString();
+  const qualified72h = (topicId: string) =>
+    (videosByTopic.get(topicId) ?? []).filter((v) => v.published_at >= cutoff72h && v.is_qualified).length;
 
   // ── Load channel subscriber counts ──────────────────────────────
   const channelIds = [...new Set(allVideos.map((v) => v.channel_id))];
@@ -511,14 +527,16 @@ export async function runScore(
       hasOutlierData: c.hasOutlierData,
     });
 
-    const phase = computePhase({
+    const phaseInputs = {
       uploadsRecent4w: c.uploadsRecent4w,
       uploadsOlder8w: c.uploadsOlder8w,
       medianOutlierAgeDays: c.medianOutlierAgeDays,
       totalVideos: c.videoCount,
-    });
+      qualifiedIn72h: qualified72h(topic.id),
+    };
 
     if (confidence.level === 'insufficient') {
+      const phase = computePhase({ ...phaseInputs, supplyQ: null }, thresholds);
       insufficientRows.push(
         {
           topic_id: topic.id,
@@ -543,6 +561,7 @@ export async function runScore(
     const demand = computeYTDemand(c.ytDemand, nicheSignals);
     const nicheMedian = nicheMedianSupply.get(nicheId) ?? 1;
     const supplyQ = computeSupplyQ(c.longQualityCount, nicheMedian);
+    const phase = computePhase({ ...phaseInputs, supplyQ }, thresholds);
 
     const rawMgi = computeMGI({
       demand,
@@ -590,7 +609,12 @@ export async function runScore(
   }
 
   // ── Pass 3: Write scores to DB ──────────────────────────────────
-  const cutoff72h = new Date(Date.now() - 72 * 3_600_000).toISOString();
+  // Burn-down e-mails: at most one per topic per 72 h (the window is 72 h, so it used to repeat 2-3 nights).
+  const burnRow = must(await db.from('settings').select('value').eq('key', 'burn_down_sent').maybeSingle(), 'settings (burn-down)') as
+    | { value?: Record<string, string> | null }
+    | null;
+  const burnSent: Record<string, string> = { ...(burnRow?.value ?? {}) };
+  let burnChanged = false;
   const scoreRows: Record<string, unknown>[] = [];
   const idsByPhase = new Map<ScoredTopic["phase"], string[]>();
 
@@ -625,10 +649,7 @@ export async function runScore(
     idsByPhase.set(s.phase, [...(idsByPhase.get(s.phase) ?? []), topic.id]);
     result.topicsScored++;
 
-    const videos = videosByTopic.get(topic.id) ?? [];
-    const qualifiedIn72h = videos.filter((v) =>
-      v.published_at >= cutoff72h && v.is_qualified,
-    ).length;
+    const qualifiedIn72h = qualified72h(topic.id);
 
     scoredTopicsForAlerts.push({
       id: topic.id,
@@ -639,7 +660,11 @@ export async function runScore(
       qualifiedIn72h,
     });
 
-    if (qualifiedIn72h >= 5 && topic.status === 'in_production') {
+    const lastBurn = burnSent[topic.id];
+    const recentlySent = lastBurn !== undefined && Date.now() - new Date(lastBurn).getTime() < 72 * 3_600_000;
+    if (qualifiedIn72h >= thresholds.phase3QualifiedIn72h && topic.status === 'in_production' && !recentlySent) {
+      burnSent[topic.id] = new Date().toISOString();
+      burnChanged = true;
       const baseUrl = (process.env.NEXT_PUBLIC_APP_URL || 'https://tublyti.vercel.app').replace(/\/+$/, '');
       await alertSender.send({
         kind: 'burn_down',
@@ -650,6 +675,13 @@ export async function runScore(
       });
       result.burnDownAlerts++;
     }
+  }
+
+  if (burnChanged) {
+    // Forget entries older than 7 days so the map stays small.
+    for (const [k, v] of Object.entries(burnSent)) if (Date.now() - new Date(v).getTime() > 7 * 86_400_000) delete burnSent[k];
+    const { error } = await db.from('settings').upsert({ key: 'burn_down_sent', value: burnSent });
+    if (error) console.error('[Score] burn_down_sent :', error.message);
   }
 
   // Écriture des scores et des phases par lots.
