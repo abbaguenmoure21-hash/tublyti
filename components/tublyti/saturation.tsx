@@ -1,9 +1,9 @@
 'use client';
 
 import { useEffect, useRef, useState, useTransition } from 'react';
-import { Layers, Loader2 } from 'lucide-react';
-import { checkOutlierSaturation } from '@/lib/actions/saturation';
-import type { OutlierSaturation, SaturationLevel, TopicSaturation } from '@/lib/saturation';
+import { Layers, Loader2, Search } from 'lucide-react';
+import { checkLinkSaturation, checkOutlierSaturation } from '@/lib/actions/saturation';
+import type { LinkSaturation, OutlierSaturation, SaturationLevel, TopicSaturation } from '@/lib/saturation';
 
 const LABEL: Record<SaturationLevel, string> = { open: 'Ouvert', filling: 'Se remplit', saturated: 'Saturé', unknown: 'À confirmer' };
 const TONE: Record<SaturationLevel, string> = {
@@ -115,5 +115,92 @@ export function OutlierSaturationButton({ videoId }: { videoId: string }) {
         </div>
       )}
     </div>
+  );
+}
+
+/** « Avant de publier » : colle n'importe quel lien YouTube pour savoir si l'idée est déjà saturée. */
+export function LinkSaturationCheck() {
+  const [link, setLink] = useState('');
+  const [res, setRes] = useState<LinkSaturation | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [pending, start] = useTransition();
+
+  function run() {
+    setErr(null);
+    start(async () => {
+      const r = await checkLinkSaturation(link);
+      if (r.ok) setRes(r.data);
+      else {
+        setRes(null);
+        setErr(r.message);
+      }
+    });
+  }
+
+  const s = res?.result;
+  return (
+    <section aria-labelledby="sat-lien" className="flex flex-col gap-3">
+      <div>
+        <h2 id="sat-lien" className="text-lg font-semibold">Cette idée est-elle déjà saturée ?</h2>
+        <p className="text-[13px] text-muted-foreground">Colle le lien d’une vidéo qui t’inspire, de n’importe quelle chaîne : TubLyTI cherche dans sa niche les vidéos au titre très proche publiées avant et après, et regarde si elles marchent encore.</p>
+      </div>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (link.trim()) run();
+        }}
+        className="flex flex-col gap-2 sm:flex-row"
+      >
+        <input
+          value={link}
+          onChange={(e) => setLink(e.target.value)}
+          placeholder="https://www.youtube.com/watch?v=…"
+          aria-label="Lien de la vidéo YouTube"
+          className="h-11 flex-1 rounded-[10px] border border-input bg-card px-3 text-[15px] outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+        />
+        <button type="submit" disabled={pending || !link.trim()} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-primary px-4 text-[14px] font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50">
+          {pending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Search className="h-4 w-4" aria-hidden="true" />}
+          Vérifier
+        </button>
+      </form>
+      {err && <p className="text-[13px] text-destructive">{err}</p>}
+      {res && s && (
+        <div className="elev-1 flex flex-col gap-3 rounded-[22px] bg-card p-5">
+          <div className="flex flex-wrap items-start gap-3">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={`https://i.ytimg.com/vi/${res.videoId}/mqdefault.jpg`} alt="" className="aspect-video w-[120px] shrink-0 rounded-lg object-cover" />
+            <div className="flex min-w-0 flex-1 flex-col gap-1">
+              <a href={`https://www.youtube.com/watch?v=${res.videoId}`} target="_blank" rel="noreferrer" className="text-[15px] font-medium leading-snug hover:underline">{res.title}</a>
+              <span className="text-[12px] text-muted-foreground">
+                {res.channelTitle} · {new Date(res.publishedAt).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' })}
+                {res.nicheName ? ` · niche ${res.inCatalog ? '' : 'détectée '}: ${res.nicheName}` : ''}
+              </span>
+            </div>
+            <span className={`inline-flex h-8 items-center gap-1.5 rounded-[8px] px-2.5 text-[13px] font-semibold ${TONE[s.level]}`}>
+              <Layers className="h-4 w-4" aria-hidden="true" /> {LABEL[s.level]}
+            </span>
+          </div>
+          <p className="text-[14px] leading-relaxed">{s.verdict}</p>
+          <p className="text-[12px] text-muted-foreground">
+            {s.copies} vidéo{s.copies > 1 ? 's' : ''} très proche{s.copies > 1 ? 's' : ''} publiée{s.copies > 1 ? 's' : ''} après (dont {s.copiesLast30d} ces 30 derniers jours, {s.copyChannels} chaîne{s.copyChannels > 1 ? 's' : ''}) · {s.earlier} déjà publiée{s.earlier > 1 ? 's' : ''} avant elle.
+          </p>
+          {s.examples.length > 0 && (
+            <ul className="flex flex-col gap-1 border-t border-border pt-2 text-[13px]">
+              {s.examples.map((e) => (
+                <li key={e.videoId}>
+                  <a href={`https://www.youtube.com/watch?v=${e.videoId}`} target="_blank" rel="noreferrer" className="flex items-start justify-between gap-3 rounded px-1 py-1 hover:bg-muted">
+                    <span className="min-w-0">
+                      {e.title}
+                      <span className="block text-[12px] text-muted-foreground">{e.channelTitle} · {new Date(e.publishedAt).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}</span>
+                    </span>
+                    <span className={`shrink-0 font-semibold tabular-nums ${e.score >= 1 ? 'text-phase-2-ink' : 'text-destructive'}`}>×{e.score.toLocaleString('fr-FR', { maximumFractionDigits: 1 })}</span>
+                  </a>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </section>
   );
 }

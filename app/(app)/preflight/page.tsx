@@ -8,6 +8,7 @@ import { geminiEnabled } from '@/lib/ai/gemini';
 import { getCalibration, refreshAndFollow } from '@/lib/preflight/engine';
 import { PreflightForm } from './_components/preflight-form';
 import { FollowUp, History } from './_components/after-publish';
+import { LinkSaturationCheck } from '@/components/tublyti/saturation';
 
 export const metadata = { title: 'Avant de publier' };
 export const dynamic = 'force-dynamic';
@@ -55,6 +56,8 @@ export default async function PreflightPage() {
       </header>
 
       <PreflightForm userChannelId={channelId} aiEnabled={geminiEnabled()} />
+
+      <LinkSaturationCheck />
 
       <FollowUp rows={follow} />
 

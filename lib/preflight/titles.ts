@@ -70,7 +70,7 @@ function parseVec(raw: unknown): number[] {
   return [];
 }
 
-async function embedTitles(titles: string[]): Promise<number[][] | null> {
+export async function embedTitles(titles: string[]): Promise<number[][] | null> {
   const key = process.env.VOYAGE_API_KEY;
   if (!key) return null;
   const res = await fetch(`${process.env.EMBEDDING_BASE_URL ?? 'https://api.voyageai.com/v1'}/embeddings`, {

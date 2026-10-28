@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { embedTitles } from './preflight/titles';
 
 /**
  * Saturation d'un sujet ou d'une vidéo qui a sur-performé.
@@ -138,6 +139,8 @@ export interface OutlierSaturation {
   copyChannels: number;
   copiesLast30d: number;
   medianCopyScore: number | null;
+  /** Vidéos très proches publiées AVANT (l'idée existait déjà). */
+  earlier: number;
   verdict: string;
   examples: { videoId: string; title: string; channelTitle: string; score: number; publishedAt: string }[];
 }
@@ -149,26 +152,22 @@ function parseVec(raw: unknown): string | null {
   return null;
 }
 
-/** L'idée d'une vidéo gagnante a-t-elle déjà été copiée, et les copies marchent-elles encore ? */
-export async function outlierSaturation(db: SupabaseClient, videoId: string): Promise<OutlierSaturation | null> {
-  const { data: v } = await db.from('videos').select('id, title, published_at, channel_id, title_embedding, channels(niche_id)').eq('id', videoId).maybeSingle();
-  const vec = parseVec(v?.title_embedding);
-  const nicheId = (v?.channels as unknown as { niche_id: string | null } | null)?.niche_id;
-  if (!v || !vec || !nicheId || !v.published_at) return null;
-
-  const { data } = await db.rpc('match_niche_videos', { query_embedding: vec, niche_ids: [nicheId], match_count: 80 });
+/** Cœur commun : vidéos de la niche aux titres très proches, avant et après une date. */
+async function ideaSaturation(
+  db: SupabaseClient,
+  opts: { vec: string; nicheIds: string[]; originMs: number; excludeId?: string | null; excludeChannelId?: string | null },
+): Promise<OutlierSaturation> {
+  const { data } = await db.rpc('match_niche_videos', { query_embedding: opts.vec, niche_ids: opts.nicheIds, match_count: 80 });
   const near = ((data ?? []) as { video_id: string; title: string; channel_id: string; channel_title: string | null; similarity: number; score: number }[]).filter(
-    (n) => n.video_id !== videoId && n.channel_id !== v.channel_id && Number(n.similarity) >= 0.78,
+    (n) => n.video_id !== opts.excludeId && (!opts.excludeChannelId || n.channel_id !== opts.excludeChannelId) && Number(n.similarity) >= 0.78,
   );
   const { data: dates } = near.length ? await db.from('videos').select('id, published_at').in('id', near.map((n) => n.video_id)) : { data: [] };
   const pub = new Map(((dates ?? []) as { id: string; published_at: string | null }[]).map((d) => [d.id, d.published_at]));
-  const origin = new Date(v.published_at as string).getTime();
-  const copies = near
-    .filter((n) => {
-      const p = pub.get(n.video_id);
-      return p && new Date(p).getTime() > origin;
-    })
+  const dated = near
+    .filter((n) => pub.get(n.video_id))
     .map((n) => ({ videoId: n.video_id, title: n.title, channelTitle: n.channel_title ?? '', score: Number(n.score), publishedAt: pub.get(n.video_id) as string }));
+  const copies = dated.filter((c) => new Date(c.publishedAt).getTime() > opts.originMs);
+  const earlier = dated.length - copies.length;
 
   const copyChannels = new Set(copies.map((c) => c.channelTitle)).size;
   const copiesLast30d = copies.filter((c) => Date.now() - new Date(c.publishedAt).getTime() <= 30 * DAY).length;
@@ -177,7 +176,7 @@ export async function outlierSaturation(db: SupabaseClient, videoId: string): Pr
   let verdict: string;
   if (copies.length <= 2) {
     level = 'open';
-    verdict = copies.length ? `Presque pas copiée (${copies.length} vidéo${copies.length > 1 ? 's' : ''} proche${copies.length > 1 ? 's' : ''} depuis) : l’idée est encore à prendre.` : 'Personne n’a encore repris cette idée dans ta niche : c’est le bon moment.';
+    verdict = copies.length ? `Presque pas copiée (${copies.length} vidéo${copies.length > 1 ? 's' : ''} proche${copies.length > 1 ? 's' : ''} depuis) : l’idée est encore à prendre.` : 'Personne n’a encore repris cette idée dans la niche : c’est le bon moment.';
   } else if (copies.length >= 8 || (copies.length >= 4 && med !== null && med < 0.8)) {
     level = 'saturated';
     verdict = `Déjà reprise ${copies.length} fois par ${copyChannels} chaîne${copyChannels > 1 ? 's' : ''}${med !== null ? `, et les copies ne font plus que ${fmt(med)} leurs vues habituelles` : ''} : ne la refais pas telle quelle.`;
@@ -191,7 +190,75 @@ export async function outlierSaturation(db: SupabaseClient, videoId: string): Pr
     copyChannels,
     copiesLast30d,
     medianCopyScore: med === null ? null : Math.round(med * 100) / 100,
+    earlier,
     verdict,
     examples: copies.sort((a, b) => b.publishedAt.localeCompare(a.publishedAt)).slice(0, 5),
   };
+}
+
+/** L'idée d'une vidéo gagnante a-t-elle déjà été copiée, et les copies marchent-elles encore ? */
+export async function outlierSaturation(db: SupabaseClient, videoId: string): Promise<OutlierSaturation | null> {
+  const { data: v } = await db.from('videos').select('id, title, published_at, channel_id, title_embedding, channels(niche_id)').eq('id', videoId).maybeSingle();
+  const vec = parseVec(v?.title_embedding);
+  const nicheId = (v?.channels as unknown as { niche_id: string | null } | null)?.niche_id;
+  if (!v || !vec || !nicheId || !v.published_at) return null;
+  return ideaSaturation(db, { vec, nicheIds: [nicheId], originMs: new Date(v.published_at as string).getTime(), excludeId: videoId, excludeChannelId: v.channel_id as string });
+}
+
+export interface LinkSaturation {
+  videoId: string;
+  title: string;
+  channelTitle: string;
+  publishedAt: string;
+  nicheName: string | null;
+  inCatalog: boolean;
+  result: OutlierSaturation;
+}
+
+/**
+ * N'importe quel lien YouTube, même une vidéo que TubLyTI ne suit pas :
+ * titre lu sur YouTube, niche déduite des vidéos les plus proches du catalogue, puis recherche des copies.
+ */
+export async function linkSaturation(db: SupabaseClient, input: string): Promise<LinkSaturation | { error: string }> {
+  const m = input.trim().match(/(?:v=|youtu\.be\/|\/shorts\/|\/live\/|\/embed\/)([\w-]{11})/);
+  const videoId = m?.[1] ?? (/^[\w-]{11}$/.test(input.trim()) ? input.trim() : null);
+  if (!videoId) return { error: 'Lien YouTube invalide.' };
+
+  // Déjà dans le catalogue : on a tout ce qu'il faut.
+  const { data: known } = await db.from('videos').select('id, title, published_at, channel_id, title_embedding, channels(title, niche_id, niches(name))').eq('id', videoId).maybeSingle();
+  const kch = known?.channels as unknown as { title: string | null; niche_id: string | null; niches: { name: string } | null } | null;
+  if (known && parseVec(known.title_embedding) && kch?.niche_id && known.published_at) {
+    const result = await ideaSaturation(db, { vec: parseVec(known.title_embedding)!, nicheIds: [kch.niche_id], originMs: new Date(known.published_at as string).getTime(), excludeId: videoId, excludeChannelId: known.channel_id as string });
+    return { videoId, title: known.title as string, channelTitle: kch.title ?? '', publishedAt: known.published_at as string, nicheName: kch.niches?.name ?? null, inCatalog: true, result };
+  }
+
+  // Inconnue : titre et date depuis YouTube (1 unité de quota).
+  const key = process.env.YOUTUBE_API_KEY;
+  if (!key) return { error: 'YOUTUBE_API_KEY manquante.' };
+  const res = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${videoId}&key=${key}`, { cache: 'no-store' }).catch(() => null);
+  const j = res?.ok ? ((await res.json()) as { items?: { snippet?: { title?: string; channelTitle?: string; channelId?: string; publishedAt?: string } }[] }) : null;
+  const sn = j?.items?.[0]?.snippet;
+  if (!sn?.title || !sn.publishedAt) return { error: 'Vidéo introuvable sur YouTube (privée ou supprimée ?).' };
+
+  const [vecArr] = (await embedTitles([sn.title])) ?? [];
+  if (!vecArr?.length) return { error: 'Analyse du titre impossible pour le moment (VOYAGE_API_KEY ?).' };
+  const vec = `[${vecArr.join(',')}]`;
+
+  // Niche : la plus fréquente parmi les 20 vidéos du catalogue aux titres les plus proches.
+  const { data: niches } = await db.from('niches').select('id, name');
+  const nicheList = (niches ?? []) as { id: string; name: string }[];
+  const { data: near } = await db.rpc('match_niche_videos', { query_embedding: vec, niche_ids: nicheList.map((n) => n.id), match_count: 20 });
+  const nearIds = ((near ?? []) as { channel_id: string }[]).map((n) => n.channel_id);
+  const { data: chans } = nearIds.length ? await db.from('channels').select('id, niche_id').in('id', [...new Set(nearIds)]) : { data: [] };
+  const nicheOf = new Map(((chans ?? []) as { id: string; niche_id: string }[]).map((c) => [c.id, c.niche_id]));
+  const votes = new Map<string, number>();
+  for (const cid of nearIds) {
+    const n = nicheOf.get(cid);
+    if (n) votes.set(n, (votes.get(n) ?? 0) + 1);
+  }
+  const top = [...votes.entries()].sort((a, b) => b[1] - a[1])[0];
+  if (!top) return { error: 'Aucune vidéo comparable dans le catalogue de TubLyTI pour ce sujet.' };
+
+  const result = await ideaSaturation(db, { vec, nicheIds: [top[0]], originMs: new Date(sn.publishedAt).getTime(), excludeId: videoId, excludeChannelId: sn.channelId ?? null });
+  return { videoId, title: sn.title, channelTitle: sn.channelTitle ?? '', publishedAt: sn.publishedAt, nicheName: nicheList.find((n) => n.id === top[0])?.name ?? null, inCatalog: false, result };
 }
