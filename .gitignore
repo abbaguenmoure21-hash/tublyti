@@ -18,3 +18,7 @@ supabase/.temp/
 # Scripts de test locaux
 _brouillons/
 /node_modules
+
+# Extension build artifacts (WXT)
+extension/.output/
+extension/.wxt/
