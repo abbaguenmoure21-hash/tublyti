@@ -114,14 +114,15 @@ export default function LoginPage() {
             </label>
 
             {mode === 'login' && (
-              <label className="flex flex-col gap-1.5 text-sm font-medium">
+              <div className="flex flex-col gap-1.5 text-sm font-medium">
                 <span className="flex items-center justify-between">
-                  Mot de passe
+                  <label htmlFor="login-password">Mot de passe</label>
                   <button type="button" onClick={() => switchMode('forgot')} className="text-sm font-medium text-primary hover:text-primary-ink">
                     Mot de passe oublié ?
                   </button>
                 </span>
                 <input
+                  id="login-password"
                   type="password"
                   required
                   autoComplete="current-password"
@@ -130,7 +131,7 @@ export default function LoginPage() {
                   onChange={(e) => setPassword(e.target.value)}
                   className={inputClass}
                 />
-              </label>
+              </div>
             )}
 
             {error && (

@@ -99,6 +99,7 @@ export function TopicActions({
           <Input
             type="text"
             placeholder="ID vidéo YouTube"
+            aria-label="Lien ou identifiant de la vidéo YouTube"
             value={publishVideoId}
             onChange={(e) => setPublishVideoId(e.target.value)}
             className="w-44 h-9"

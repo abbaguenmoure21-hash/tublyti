@@ -99,10 +99,12 @@ export function PreflightForm({ userChannelId, aiEnabled }: { userChannelId: str
           <h2 id="pf-form" className="text-lg font-semibold">Ta prochaine vidéo</h2>
 
           <div className="flex flex-col gap-2">
-            <span className="text-[13px] font-medium">Titre{titles.length > 1 ? 's à comparer' : ''}</span>
+            <label htmlFor="pf-title-0" className="text-[13px] font-medium">Titre{titles.length > 1 ? 's à comparer' : ''}</label>
             {titles.map((t, i) => (
               <div key={i} className="flex items-center gap-2">
                 <input
+                  id={i === 0 ? 'pf-title-0' : undefined}
+                  aria-label={i === 0 ? undefined : `Variante ${i + 1}`}
                   value={t}
                   onChange={(e) => setTitles((xs) => xs.map((x, j) => (j === i ? e.target.value : x)))}
                   placeholder={i === 0 ? 'Ex. : Why Nobody Talks About the Richest Village in Africa' : `Variante ${i + 1}`}
@@ -111,7 +113,7 @@ export function PreflightForm({ userChannelId, aiEnabled }: { userChannelId: str
                 />
                 <span className="w-9 shrink-0 text-right text-[12px] tabular-nums text-muted-foreground">{t.length}</span>
                 {titles.length > 1 && (
-                  <button type="button" onClick={() => setTitles((xs) => xs.filter((_, j) => j !== i))} aria-label="Retirer cette variante" className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted">
+                  <button type="button" onClick={() => setTitles((xs) => xs.filter((_, j) => j !== i))} aria-label="Retirer cette variante" className="relative flex h-8 w-8 after:absolute after:-inset-1.5 md:after:hidden items-center justify-center rounded-md text-muted-foreground hover:bg-muted">
                     <X className="h-4 w-4" aria-hidden="true" />
                   </button>
                 )}
@@ -198,7 +200,7 @@ export function PreflightForm({ userChannelId, aiEnabled }: { userChannelId: str
             {pending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Sparkles className="h-4 w-4" aria-hidden="true" />}
             {pending ? (video?.status === 'ready' ? 'Évaluation en cours… (1 à 3 min avec la vidéo)' : 'Évaluation en cours… (15 à 40 s)') : video?.status === 'uploading' || video?.status === 'processing' ? 'Attends la fin de l’envoi de la vidéo…' : 'Évaluer avant de publier'}
           </button>
-          {error && <p className="text-[13px] text-destructive">{error}</p>}
+          {error && <p role="alert" className="text-[13px] text-destructive">{error}</p>}
         </div>
       </div>
 

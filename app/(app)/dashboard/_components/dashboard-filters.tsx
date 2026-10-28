@@ -24,6 +24,7 @@ export function DashboardFilters({ niches }: { niches: Niche[] }) {
       <select
         value={selectedNiche}
         onChange={(e) => setSelectedNiche(e.target.value || null)}
+        aria-label="Filtrer par niche"
         className="h-8 rounded-lg border border-input bg-background px-3 text-sm"
       >
         <option value="">Toutes les niches</option>

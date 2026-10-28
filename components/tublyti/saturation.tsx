@@ -163,7 +163,7 @@ export function LinkSaturationCheck() {
           Vérifier
         </button>
       </form>
-      {err && <p className="text-[13px] text-destructive">{err}</p>}
+      {err && <p role="alert" className="text-[13px] text-destructive">{err}</p>}
       {res && s && (
         <div className="elev-1 flex flex-col gap-3 rounded-[22px] bg-card p-5">
           <div className="flex flex-wrap items-start gap-3">

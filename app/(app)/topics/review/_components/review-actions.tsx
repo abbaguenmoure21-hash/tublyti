@@ -70,6 +70,7 @@ export function ReviewActions({ topicId, mergeTargets }: ReviewActionsProps) {
         <select
           value={mergeTarget}
           onChange={(e) => setMergeTarget(e.target.value)}
+          aria-label="Fusionner avec un autre sujet"
           className="h-[32px] rounded-full border border-black/10 dark:border-white/10 bg-white/50 dark:bg-[#1C1C1E] px-3 text-[13px] font-medium max-w-[250px] shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all cursor-pointer"
         >
           <option value="">Fusionner avec...</option>

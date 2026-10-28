@@ -85,12 +85,12 @@ export function KeywordCompare({ userChannelId }: { userChannelId: string }) {
             {pending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <BarChart3 className="h-4 w-4" aria-hidden="true" />}
             Comparer
           </button>
-          {err && <span className="text-[13px] text-destructive">{err}</span>}
+          {err && <span role="alert" className="text-[13px] text-destructive">{err}</span>}
         </div>
 
         {res && (
           <div className="flex flex-col gap-3 border-t border-border pt-3">
-            <p className="text-[14px] font-medium leading-relaxed">{res.verdict}</p>
+            <p role="status" className="text-[14px] font-medium leading-relaxed">{res.verdict}</p>
             <ul className="flex flex-col gap-3">
               {res.stats.map((s) => (
                 <li key={s.term} className="flex flex-col gap-1.5">

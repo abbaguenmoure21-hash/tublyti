@@ -162,7 +162,7 @@ function Intro({ enabled, error, mine, onLaunch }: { enabled: boolean; error: st
         L’IA regarde les images, écoute la voix et la musique, lit le texte à l’écran. Tu obtiens l’accroche, la structure minute par minute, le style de montage, la transcription,
         {mine ? ' ce qui se passe à chaque décrochage de ta rétention,' : ''} et ce que tu peux reprendre pour ta chaîne.
       </p>
-      {error && <p className="w-full rounded-xl bg-destructive/10 px-3 py-2 text-[13px] text-destructive">{error}</p>}
+      {error && <p role="alert" className="w-full rounded-xl bg-destructive/10 px-3 py-2 text-[13px] text-destructive">{error}</p>}
       {enabled ? (
         <button type="button" onClick={onLaunch} className="elev-1 inline-flex h-10 items-center gap-2 rounded-xl bg-primary px-4 text-[14px] font-medium text-primary-foreground hover:opacity-90">
           <Sparkles className="h-4 w-4" aria-hidden="true" /> {error ? 'Réessayer' : 'Lancer l’analyse'}

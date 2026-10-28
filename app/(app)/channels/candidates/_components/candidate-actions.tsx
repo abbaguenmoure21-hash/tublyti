@@ -42,6 +42,7 @@ export function CandidateActions({
       <select
         value={selectedNiche}
         onChange={(e) => setSelectedNiche(e.target.value)}
+        aria-label="Niche de la chaîne"
         className="h-[32px] rounded-full border border-black/10 dark:border-white/10 bg-white/50 dark:bg-[#1C1C1E] px-3 text-[12px] font-bold max-w-[120px] shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all cursor-pointer truncate"
         disabled={isPending}
       >

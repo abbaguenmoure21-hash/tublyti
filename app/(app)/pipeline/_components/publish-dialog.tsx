@@ -44,6 +44,7 @@ export function PublishDialog({
               <Input
                 type="text"
                 placeholder="dQw4w9WgXcQ ou URL complète"
+                aria-label="Lien de la vidéo YouTube"
                 value={videoId}
                 onChange={(e) => {
                   // Extract video ID from URL if pasted
