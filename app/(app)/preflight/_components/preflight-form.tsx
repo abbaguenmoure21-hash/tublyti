@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState, useTransition } from 'react';
+import { useEffect, useRef, useState, useTransition } from 'react';
 import { AlertTriangle, Check, Film, ImagePlus, Loader2, Plus, Sparkles, TrendingDown, TrendingUp, Trophy, X } from 'lucide-react';
 import { Line, LineChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { evaluateBeforePublish, startVideoUpload, videoUploadState } from '@/lib/actions/preflight';
@@ -82,8 +82,15 @@ export function PreflightForm({ userChannelId, aiEnabled }: { userChannelId: str
         video: video?.status === 'ready' && video.file ? { ...video.file, durationS: video.durationS } : null,
         publishAt: publishAt ? new Date(publishAt).toISOString() : null,
       });
-      if (video?.status === 'ready') setVideo(null); // le fichier est effacé chez Gemini après l'analyse
-      if (!res.ok) return setError(res.message);
+      if (!res.ok) {
+        // Keep the uploaded video when the engine never received it (daily limit, invalid input…).
+        if (res.videoUsed && video?.status === 'ready') {
+          setVideo(null);
+          return setError(`${res.message} La vidéo a été effacée après l’essai : renvoie-la pour réessayer.`);
+        }
+        return setError(res.message);
+      }
+      if (video?.status === 'ready') setVideo(null); // the file is deleted after the analysis
       setResult(res.result);
       setTimeout(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
     });
@@ -479,16 +486,34 @@ function readDuration(file: File): Promise<number | null> {
 
 const mb = (b: number) => `${(b / 1_000_000).toLocaleString('fr-FR', { maximumFractionDigits: 0 })} Mo`;
 
-function VideoUploader({ state, onChange, aiEnabled }: { state: UploadState | null; onChange: (s: UploadState | null) => void; aiEnabled: boolean }) {
+function VideoUploader({ state, onChange: setState, aiEnabled }: { state: UploadState | null; onChange: (s: UploadState | null) => void; aiEnabled: boolean }) {
   const ref = useRef<HTMLInputElement>(null);
   const xhrRef = useRef<XMLHttpRequest | null>(null);
+  // Cancellation token: bumped by every new pick, cancel and unmount; stale uploads/polls stop updating the state.
+  const tokenRef = useRef(0);
+
+  useEffect(
+    () => () => {
+      tokenRef.current++;
+      xhrRef.current?.abort();
+    },
+    [],
+  );
 
   async function pick(file: File | undefined) {
     if (!file) return;
+    xhrRef.current?.abort();
+    const my = ++tokenRef.current;
+    const alive = () => tokenRef.current === my;
+    const onChange = (s: UploadState | null) => {
+      if (alive()) setState(s);
+    };
     const base: UploadState = { status: 'uploading', fileName: file.name, size: file.size, progress: 0, durationS: null, startedAt: Date.now() };
     onChange(base);
     const durationS = await readDuration(file);
+    if (!alive()) return;
     const start = await startVideoUpload({ size: file.size, mimeType: file.type || 'video/mp4', name: file.name });
+    if (!alive()) return;
     if (!start.ok) return onChange({ ...base, durationS, status: 'error', error: start.message });
 
     const xhr = new XMLHttpRequest();
@@ -517,6 +542,7 @@ function VideoUploader({ state, onChange, aiEnabled }: { state: UploadState | nu
       onChange({ ...base, durationS, progress: 1, status: 'processing' });
       // Gemini prépare la vidéo (souvent 10 s à 2 min).
       for (let i = 0; i < 90; i++) {
+        if (!alive()) return;
         const st = await videoUploadState(f.name);
         if (st.state === 'ACTIVE' && st.uri) {
           return onChange({ ...base, durationS, progress: 1, status: 'ready', file: { name: f.name, uri: st.uri, mimeType: st.mimeType ?? f.mimeType ?? 'video/mp4' } });
@@ -530,8 +556,10 @@ function VideoUploader({ state, onChange, aiEnabled }: { state: UploadState | nu
   }
 
   function cancel() {
+    tokenRef.current++;
     xhrRef.current?.abort();
-    onChange(null);
+    xhrRef.current = null;
+    setState(null);
   }
 
   const eta = state?.status === 'uploading' ? state.etaS ?? null : null;

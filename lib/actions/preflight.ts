@@ -13,7 +13,7 @@ const DAILY_LIMIT = Number(process.env.PREFLIGHT_DAILY ?? 30);
 const MAX_THUMB_BYTES = 2_500_000;
 const MAX_VIDEO_BYTES = 2_000_000_000;
 
-export type PreflightResponse = { ok: true; id: string | null; result: PreflightResult } | { ok: false; message: string };
+export type PreflightResponse = { ok: true; id: string | null; result: PreflightResult } | { ok: false; message: string; /** The uploaded video was sent to the engine (and deleted afterwards): it must be sent again. */ videoUsed?: boolean };
 
 async function ownChannel(userId: string, userChannelId: string) {
   const db = createServiceClient();
@@ -70,7 +70,8 @@ export async function evaluateBeforePublish(input: {
     revalidatePath('/preflight');
     return { ok: true, id, result };
   } catch (e) {
-    return { ok: false, message: `L’évaluation a échoué : ${(e as Error).message.slice(0, 200)}` };
+    console.error('[preflight] evaluation failed', e);
+    return { ok: false, message: 'L’évaluation a échoué. Réessaie dans un instant.', videoUsed: Boolean(input.video) };
   }
 }
 
