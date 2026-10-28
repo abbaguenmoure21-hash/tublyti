@@ -18,9 +18,7 @@ import { KanbanColumn } from './kanban-column';
 import { KanbanCardComponent } from './kanban-card';
 import { PublishDialog } from './publish-dialog';
 import { moveAngleToProduction, moveAngleToIdea, publishAngle } from '@/lib/actions/pipeline';
-import { LayoutGrid } from 'lucide-react';
 import { useMounted } from '@/hooks/use-mounted';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 
 const COLUMNS: { id: PipelineColumn; label: string; color: string }[] = [
   { id: 'idea', label: 'Idée', color: 'bg-phase-0' },

@@ -6,8 +6,6 @@ export const dynamic = 'force-dynamic';
 
 export const metadata = { title: 'Chaînes suivies' };
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { createServiceClient } from '@/lib/supabase/server';
 import { AddChannelForm } from './_components/add-channel-form';
 import { DeleteChannelButton } from './_components/delete-channel-button';

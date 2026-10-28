@@ -1,5 +1,4 @@
 import { createClient } from '@supabase/supabase-js';
-import * as fs from 'fs';
 
 // Read env variables (this runs locally on user's machine so we can just grab them if possible, 
 // or since we are in the next.js app root, we can load from .env.local)

@@ -1,5 +1,4 @@
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Card, CardContent } from '@/components/ui/card';
 
 export const metadata = { title: 'Questions du public' };
 import { Badge } from '@/components/ui/badge';
