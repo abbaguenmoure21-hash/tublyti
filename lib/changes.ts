@@ -212,3 +212,32 @@ export async function getChanges(
     };
   });
 }
+
+/**
+ * Topic each video belongs to (via search_results), limited to the user's niches.
+ * One query; when a video matches several topics, the most recent search wins.
+ */
+export async function topicsByVideo(
+  db: SupabaseClient,
+  videoIds: string[],
+  nicheIds: string[] | null,
+): Promise<Map<string, { id: string; label: string }>> {
+  const out = new Map<string, { id: string; label: string }>();
+  const ids = [...new Set(videoIds)].slice(0, 300);
+  if (!ids.length) return out;
+  let q = db
+    .from('search_results')
+    .select('video_id, searched_at, topics!inner(id, label, status, niche_id)')
+    .in('video_id', ids)
+    .in('topics.status', ['active', 'in_production'])
+    .order('searched_at', { ascending: false })
+    .limit(2000);
+  if (nicheIds) q = q.in('topics.niche_id', nicheIds.length ? nicheIds : [NO_NICHE]);
+  const { data, error } = await q;
+  // Topic links are a convenience: never fail the page for them.
+  if (error) return out;
+  for (const r of (data ?? []) as unknown as { video_id: string; topics: { id: string; label: string } }[]) {
+    if (!out.has(r.video_id)) out.set(r.video_id, { id: r.topics.id, label: r.topics.label });
+  }
+  return out;
+}
