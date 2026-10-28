@@ -5,7 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useOptimistic, useState, useTransition } from 'react';
 import { useTheme } from 'next-themes';
 import { LogOut, Moon, Sun, Monitor, Search, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
-import { createClient } from '@/lib/supabase/client';
+import { signOut } from '@/lib/actions/auth';
 import { setScope } from '@/lib/actions/scope';
 import type { ScopeNiche } from '@/lib/scope';
 import { SPACES, SECONDARY, ADMIN_SPACE, SIDEBAR_COOKIE, isActive } from './nav-config';
@@ -62,12 +62,6 @@ export function Sidebar({ niches, scope, badges, dataFresh, userLabel, isAdmin =
       await setScope(value);
       router.refresh();
     });
-  }
-
-  async function signOut() {
-    await createClient().auth.signOut();
-    router.push('/login');
-    router.refresh();
   }
 
   const nextTheme = theme === 'light' ? 'dark' : theme === 'dark' ? 'system' : 'light';
@@ -214,15 +208,16 @@ export function Sidebar({ niches, scope, badges, dataFresh, userLabel, isAdmin =
         >
           <ThemeIcon className="h-4 w-4" aria-hidden="true" />
         </button>
-        <button
-          type="button"
-          onClick={signOut}
-          aria-label="Se déconnecter"
-          title="Se déconnecter"
-          className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
-        >
-          <LogOut className="h-4 w-4" aria-hidden="true" />
-        </button>
+        <form action={signOut} className="contents">
+          <button
+            type="submit"
+            aria-label="Se déconnecter"
+            title="Se déconnecter"
+            className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            <LogOut className="h-4 w-4" aria-hidden="true" />
+          </button>
+        </form>
       </div>
     </aside>
   );
