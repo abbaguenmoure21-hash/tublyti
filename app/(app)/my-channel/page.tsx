@@ -123,12 +123,15 @@ function BarList({ rows }: { rows: { label: string; value: number }[] }) {
   return (
     <ul className="flex flex-col gap-2.5">
       {rows.map((r) => (
-        <li key={r.label} className="flex flex-col gap-1" title={`${r.label} : ${nf.format(r.value)} vues`}>
+        <li key={r.label} className="flex flex-col gap-1">
           <div className="flex items-baseline justify-between gap-3 text-sm">
             <span className="truncate">{r.label}</span>
-            <span className="shrink-0 tabular-nums text-muted-foreground">{total ? pct((r.value / total) * 100, 0) : '—'}</span>
+            <span className="shrink-0 tabular-nums text-muted-foreground">
+              {total ? pct((r.value / total) * 100, 0) : '—'}
+              <span className="sr-only"> ({nf.format(r.value)} vues)</span>
+            </span>
           </div>
-          <div className="well h-2 overflow-hidden rounded-full bg-background">
+          <div className="well h-2 overflow-hidden rounded-full bg-background" aria-hidden="true">
             <div className="h-full rounded-full bg-[var(--chart-1)]" style={{ width: `${(r.value / max) * 100}%` }} />
           </div>
         </li>
@@ -284,9 +287,9 @@ function AnalyticsBlock({ data, hasMonetary, channelId, reach, reachNote, reachS
               {data.demographics.map((d) => {
                 const total = d.male + d.female + d.other;
                 return (
-                  <li key={d.age} className="grid grid-cols-[64px_1fr_52px] items-center gap-3 text-sm" title={`${d.age} ans : hommes ${pct(d.male)}, femmes ${pct(d.female)}, autre ${pct(d.other)}`}>
-                    <span className="tabular-nums">{d.age}</span>
-                    <div className="well flex h-3 overflow-hidden rounded-full bg-background">
+                  <li key={d.age} className="grid grid-cols-[64px_1fr_52px] items-center gap-3 text-sm">
+                    <span className="tabular-nums">{d.age}<span className="sr-only"> ans : hommes {pct(d.male)}, femmes {pct(d.female)}, autre {pct(d.other)}</span></span>
+                    <div className="well flex h-3 overflow-hidden rounded-full bg-background" aria-hidden="true">
                       <div className="h-full bg-[var(--chart-1)]" style={{ width: `${d.male}%` }} />
                       <div className="h-full border-l-2 border-card bg-[var(--chart-3)]" style={{ width: `${d.female}%` }} />
                       {d.other > 0 && <div className="h-full border-l-2 border-card bg-[var(--chart-4)]" style={{ width: `${d.other}%` }} />}
@@ -360,12 +363,13 @@ function PublicBlock({ s, linked, channelId }: { s: PublicStats; linked: boolean
               {s.weekdays.map((w) => {
                 const max = Math.max(1, ...s.weekdays.map((x) => x.median));
                 return (
-                  <li key={w.day} className="flex flex-col items-center gap-1.5" title={`${w.day} : ${w.videos} vidéos, ${nf.format(Math.round(w.median))} vues habituelles`}>
-                    <div className="well flex h-24 w-full items-end overflow-hidden rounded-lg bg-background">
+                  <li key={w.day} className="flex flex-col items-center gap-1.5">
+                    <span className="sr-only">{w.day} : {w.videos} vidéos, {nf.format(Math.round(w.median))} vues habituelles</span>
+                    <div className="well flex h-24 w-full items-end overflow-hidden rounded-lg bg-background" aria-hidden="true">
                       <div className="w-full rounded-t-[4px] bg-[var(--chart-1)]" style={{ height: `${(w.median / max) * 100}%` }} />
                     </div>
-                    <span className="text-xs text-muted-foreground">{w.day.slice(0, 3)}.</span>
-                    <span className="text-xs tabular-nums">{w.videos ? compact.format(w.median) : '—'}</span>
+                    <span className="text-xs text-muted-foreground" aria-hidden="true">{w.day.slice(0, 3)}.</span>
+                    <span className="text-xs tabular-nums" aria-hidden="true">{w.videos ? compact.format(w.median) : '—'}</span>
                   </li>
                 );
               })}
