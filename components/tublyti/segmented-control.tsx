@@ -8,6 +8,8 @@ interface SegmentedControlProps<T extends string> {
   value: T;
   onChange: (value: T) => void;
   className?: string;
+  /** Accessible name of the group. */
+  ariaLabel?: string;
 }
 
 /**
@@ -20,6 +22,7 @@ export function SegmentedControl<T extends string>({
   value,
   onChange,
   className = '',
+  ariaLabel,
 }: SegmentedControlProps<T>) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [pillStyle, setPillStyle] = useState({ left: 0, width: 0 });
@@ -48,6 +51,17 @@ export function SegmentedControl<T extends string>({
   return (
     <div
       ref={containerRef}
+      role="radiogroup"
+      aria-label={ariaLabel}
+      onKeyDown={(e) => {
+        if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return;
+        e.preventDefault();
+        const idx = options.findIndex((o) => o.value === value);
+        const step = e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 1;
+        const next = (idx + step + options.length) % options.length;
+        onChange(options[next].value);
+        containerRef.current?.querySelectorAll<HTMLButtonElement>('[data-segment]')[next]?.focus();
+      }}
       className={`
         relative inline-flex items-center gap-0.5
         p-[3px]
@@ -59,6 +73,7 @@ export function SegmentedControl<T extends string>({
     >
       {/* Animated pill */}
       <motion.div
+        aria-hidden="true"
         className="absolute top-[3px] bottom-[3px] rounded-[10px] bg-[--bg-surface-2] shadow-[0_1px_3px_rgba(0,0,0,0.15)] border border-[--glass-border-highlight]"
         initial={false}
         animate={{
@@ -78,6 +93,9 @@ export function SegmentedControl<T extends string>({
           key={option.value}
           data-segment
           type="button"
+          role="radio"
+          aria-checked={value === option.value}
+          tabIndex={value === option.value ? 0 : -1}
           onClick={() => onChange(option.value)}
           className={`
             relative z-10 flex items-center gap-1.5

@@ -67,13 +67,23 @@ export function KeywordCompare({ userChannelId }: { userChannelId: string }) {
           )}
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <div className="well inline-flex rounded-[10px] bg-muted/60 p-0.5 text-[13px]" role="radiogroup" aria-label="Où chercher">
+          <div className="well inline-flex rounded-[10px] bg-muted/60 p-0.5 text-[13px]" role="radiogroup" aria-label="Où chercher"
+            onKeyDown={(e) => {
+              if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return;
+              e.preventDefault();
+              const next = scope === 'niche' ? 'all' : 'niche';
+              setScope(next);
+              e.currentTarget.querySelector<HTMLButtonElement>(`[data-scope="${next}"]`)?.focus();
+            }}
+          >
             {(['niche', 'all'] as const).map((k) => (
               <button
                 key={k}
                 type="button"
                 role="radio"
                 aria-checked={scope === k}
+                tabIndex={scope === k ? 0 : -1}
+                data-scope={k}
                 onClick={() => setScope(k)}
                 className={`rounded-[8px] px-3 py-1.5 ${scope === k ? 'elev-1 bg-card font-medium' : 'text-muted-foreground'}`}
               >

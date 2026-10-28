@@ -38,6 +38,7 @@ export function DashboardFilters({ niches }: { niches: Niche[] }) {
         variant={blueOcean ? 'default' : 'outline'}
         size="sm"
         onClick={() => setBlueOcean(blueOcean ? null : true)}
+        aria-pressed={!!blueOcean}
         className="cursor-pointer"
       >
         <Target className="w-3.5 h-3.5" />

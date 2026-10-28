@@ -52,6 +52,7 @@ export function ActivityFilters({ niches }: { niches: Niche[] }) {
       <div className="flex items-center gap-3">
         <button
           onClick={() => setIsOpen(!isOpen)}
+          aria-expanded={isOpen}
           className={`flex items-center gap-2 h-[36px] px-4 rounded-xl text-[13px] font-bold transition-all border shadow-sm ${
             isOpen || activeFiltersCount > 0
               ? 'bg-white dark:bg-white/10 border-black/10 dark:border-white/20 text-foreground'
@@ -91,7 +92,8 @@ export function ActivityFilters({ niches }: { niches: Niche[] }) {
                   key={t.value}
                   type="button"
                   onClick={() => setEventType(active ? null : t.value)}
-                  className={`haptic-btn whitespace-nowrap shrink-0 h-[32px] px-4 rounded-full text-[13px] font-bold transition-all cursor-pointer shadow-sm border ${
+                  aria-pressed={active}
+                  className={`haptic-btn whitespace-nowrap shrink-0 h-11 md:h-[32px] px-4 rounded-full text-[13px] font-bold transition-all cursor-pointer shadow-sm border ${
                     active
                       ? 'bg-primary text-primary-foreground border-primary/20'
                       : 'bg-white dark:bg-white/10 border-black/5 dark:border-white/10 text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/20'
@@ -116,7 +118,8 @@ export function ActivityFilters({ niches }: { niches: Niche[] }) {
                     key={n.id}
                     type="button"
                     onClick={() => setNicheId(active ? null : n.id)}
-                    className={`haptic-btn whitespace-nowrap shrink-0 h-[32px] px-4 rounded-full text-[13px] font-bold transition-all cursor-pointer shadow-sm border ${
+                    aria-pressed={active}
+                    className={`haptic-btn whitespace-nowrap shrink-0 h-11 md:h-[32px] px-4 rounded-full text-[13px] font-bold transition-all cursor-pointer shadow-sm border ${
                       active
                         ? 'bg-primary text-primary-foreground border-primary/20'
                         : 'bg-white dark:bg-white/10 border-black/5 dark:border-white/10 text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/20'
@@ -141,7 +144,8 @@ export function ActivityFilters({ niches }: { niches: Niche[] }) {
                   key={s.value}
                   type="button"
                   onClick={() => setChannelSize(active ? null : s.value)}
-                  className={`haptic-btn whitespace-nowrap shrink-0 h-[32px] px-4 rounded-full text-[13px] font-bold transition-all cursor-pointer shadow-sm border ${
+                  aria-pressed={active}
+                  className={`haptic-btn whitespace-nowrap shrink-0 h-11 md:h-[32px] px-4 rounded-full text-[13px] font-bold transition-all cursor-pointer shadow-sm border ${
                     active
                       ? 'bg-primary text-primary-foreground border-primary/20'
                       : 'bg-white dark:bg-white/10 border-black/5 dark:border-white/10 text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/20'

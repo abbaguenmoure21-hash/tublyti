@@ -122,11 +122,12 @@ export function ApiTokensTab({ tokens }: { tokens: TokenData[] }) {
                   />
                 </div>
                 <div>
-                  <label className="text-[12px] text-muted-foreground block mb-1">Permission</label>
-                  <div className="flex gap-1">
+                  <span id="token-permission" className="text-[12px] text-muted-foreground block mb-1">Permission</span>
+                  <div className="flex gap-1" role="group" aria-labelledby="token-permission">
                     <button
                       type="button"
                       onClick={() => setPermission('read')}
+                      aria-pressed={permission === 'read'}
                       className={`h-9 px-3 rounded-lg text-[12px] font-medium transition-colors cursor-pointer ${
                         permission === 'read'
                           ? 'bg-primary text-primary-foreground'
@@ -138,6 +139,7 @@ export function ApiTokensTab({ tokens }: { tokens: TokenData[] }) {
                     <button
                       type="button"
                       onClick={() => setPermission('readwrite')}
+                      aria-pressed={permission === 'readwrite'}
                       className={`h-9 px-3 rounded-lg text-[12px] font-medium transition-colors cursor-pointer ${
                         permission === 'readwrite'
                           ? 'bg-primary text-primary-foreground'
