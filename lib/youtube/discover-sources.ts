@@ -114,6 +114,10 @@ export async function discoverFromChannelSections(
     } catch (err) {
       if (err instanceof QuotaSoftLimitReached) throw err;
       result.errors = (result.errors ?? 0) + 1;
+      // Deleted / private channel (4xx, not quota): do not retry it at the head of the rotation every night.
+      if (hasScanCol && /YouTube API channelSections 4\d\d\b/.test((err as Error).message)) {
+        await db.from('channels').update({ sections_scanned_at: new Date().toISOString() }).eq('id', channel.id);
+      }
       console.error(`  [discover-sources] ${channel.id}: ${(err as Error).message}`);
     }
   }
