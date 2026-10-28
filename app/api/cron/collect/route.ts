@@ -63,8 +63,10 @@ export async function GET(request: NextRequest) {
         : new FakeEmbeddingProvider();
       clustering = await runClustering(db, embedder, deadline);
 
-      // Channel embeddings for similarity search
-      if (Date.now() < deadline) {
+      // Channel embeddings for similarity search — never random vectors in production (no Voyage key → skipped).
+      if (!process.env.VOYAGE_API_KEY) {
+        console.log('[collect] channel embeddings skipped: VOYAGE_API_KEY missing');
+      } else if (Date.now() < deadline) {
         channelEmbeddings = await computeChannelEmbeddings(db, embedder, deadline);
       }
     }
