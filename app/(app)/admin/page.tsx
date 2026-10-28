@@ -4,6 +4,9 @@ import { createServiceClient } from '@/lib/supabase/server';
 import { requireAdmin } from '@/lib/auth/session';
 import { jobLabel } from '@/lib/jobs/labels';
 import { isSensitiveTopic } from '@/lib/topics/sensitive';
+import { getQuotaSoftLimit } from '@/lib/youtube/quota';
+import { groupRuns, lastNightlyRun, nightlyDeadlineMin, jobState, SKIPPED_REASON, type JobRow } from '@/lib/admin/job-status';
+import { NightSummary, JobStatusBadge } from './_components/job-status';
 
 export const metadata = { title: 'Console d’admin' };
 
@@ -15,38 +18,64 @@ function ago(iso: string) {
   return `il y a ${Math.round(h / 24)} jours`;
 }
 
-/** Console d'admin · vue d'ensemble : ce qui demande une action, puis l'état de la collecte. */
+function daysAgoIso(days: number) {
+  return new Date(Date.now() - days * 86_400_000).toISOString();
+}
+
+/** Console d'admin · vue d'ensemble : la dernière nuit, ce qui demande une décision, puis les chiffres. */
 export default async function AdminPage() {
   await requireAdmin();
   const db = createServiceClient();
-  const weekAgo = new Date(Date.now() - 7 * 86_400_000).toISOString();
-  const [proposed, candidates, channels, profiles, noChannel, waitlist, jobs, autoTopics, autoChannels] = await Promise.all([
+  const weekAgo = daysAgoIso(7);
+  const results = await Promise.all([
     db.from('topics').select('id, label', { count: 'exact' }).eq('status', 'proposed').limit(2000),
     db.from('candidate_channels').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
     db.from('channels').select('id', { count: 'exact', head: true }),
     db.from('profiles').select('user_id', { count: 'exact', head: true }).eq('role', 'client'),
     db.from('user_channels').select('user_id'),
     db.from('waitlist').select('id', { count: 'exact', head: true }),
-    db.from('jobs').select('id, kind, started_at, finished_at, error, quota_used').order('started_at', { ascending: false }).limit(8),
+    // One night = ~21 rows: read enough to always hold the full last night.
+    db.from('jobs').select('id, kind, started_at, finished_at, error, quota_used, items_processed').order('started_at', { ascending: false }).limit(200),
     db.from('topics').select('id', { count: 'exact', head: true }).eq('validated_by', 'auto').eq('status', 'active').gte('validated_at', weekAgo),
     db.from('candidate_channels').select('id', { count: 'exact', head: true }).in('status', ['accepted', 'followed']).gte('decided_at', weekAgo),
   ]);
+  // A failed read must not look like "0": let admin/error.tsx show a real error with "Réessayer".
+  const failed = results.find((r) => r.error);
+  if (failed?.error) throw new Error(failed.error.message);
+  const [proposed, candidates, channels, profiles, noChannel, waitlist, jobs, autoTopics, autoChannels] = results;
 
   const proposedRows = (proposed.data ?? []) as { id: string; label: string }[];
   const sensitiveCount = proposedRows.filter((t) => isSensitiveTopic(t.label)).length;
   const waitingCount = Math.max(0, (proposed.count ?? proposedRows.length) - sensitiveCount);
   const withChannel = new Set(((noChannel.data ?? []) as { user_id: string }[]).map((r) => r.user_id)).size;
+  const pendingCandidates = candidates.count ?? 0;
+  // Only what needs a human decision; the robot handles candidate channels every night.
   const todo = [
-    { n: sensitiveCount, label: `sujets sensibles à décider toi-même · ${waitingCount} autre${waitingCount > 1 ? 's' : ''} en attente du robot (publiés seuls dès 5 vidéos de 3 chaînes)`, href: '/admin/sujets' },
-    { n: candidates.count ?? 0, label: 'chaînes candidates pas encore lues (niche et décision automatiques chaque nuit)', href: '/channels/candidates' },
-    { n: waitlist.count ?? 0, label: 'inscriptions sur la liste d’attente', href: '/admin/attente' },
-  ];
+    {
+      n: sensitiveCount,
+      label: `sujet${sensitiveCount > 1 ? 's' : ''} sensible${sensitiveCount > 1 ? 's' : ''} à décider`,
+      hint: `${waitingCount} autre${waitingCount > 1 ? 's' : ''} en attente du robot`,
+      href: '/admin/sujets',
+    },
+    {
+      n: waitlist.count ?? 0,
+      label: `inscription${(waitlist.count ?? 0) > 1 ? 's' : ''} sur la liste d’attente`,
+      hint: null,
+      href: '/admin/attente',
+    },
+  ].filter((t) => t.n > 0);
   const stats = [
     { label: 'Clients', value: profiles.count ?? 0, hint: `${withChannel} compte${withChannel > 1 ? 's' : ''} avec au moins une chaîne` },
-    { label: 'Chaînes analysées', value: channels.count ?? 0, hint: 'Catalogue commun à tous les clients' },
+    { label: 'Chaînes analysées', value: channels.count ?? 0, hint: `Catalogue commun · ${pendingCandidates} chaîne${pendingCandidates > 1 ? 's' : ''} à valider (tri automatique la nuit)` },
     { label: 'Validé automatiquement', value: (autoTopics.count ?? 0) + (autoChannels.count ?? 0), hint: `7 derniers jours : ${autoTopics.count ?? 0} sujets publiés, ${autoChannels.count ?? 0} chaînes ajoutées` },
   ];
-  const jobRows = (jobs.data ?? []) as { id: string; kind: string; started_at: string; finished_at: string | null; error: string | null; quota_used: number | null }[];
+  const allJobs = (jobs.data ?? []) as JobRow[];
+  const lastRun = lastNightlyRun(groupRuns(allJobs));
+  // Errors first so a failure is never pushed out of view, then the most recent steps.
+  const jobRows = [
+    ...allJobs.filter((j) => jobState(j) === 'error'),
+    ...allJobs.filter((j) => jobState(j) !== 'error'),
+  ].slice(0, 8);
 
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-8 px-4 py-6 md:px-8 md:py-8">
@@ -55,14 +84,20 @@ export default async function AdminPage() {
         <p className="text-[15px] text-muted-foreground">Le fonctionnement de TubLyTI : collecte, catalogue, validation et comptes clients. Les clients ne voient pas cet espace.</p>
       </header>
 
+      <NightSummary run={lastRun} deadlineMin={nightlyDeadlineMin()} quotaLimit={getQuotaSoftLimit()} />
+
       <section aria-labelledby="a-faire" className="flex flex-col gap-3">
         <h2 id="a-faire" className="text-lg font-semibold">À traiter</h2>
         <ul className="overflow-hidden rounded-xl border border-border bg-card">
+          {todo.length === 0 && <li className="px-4 py-4 text-sm text-muted-foreground">Rien à traiter pour le moment.</li>}
           {todo.map((t) => (
             <li key={t.href} className="border-b border-muted last:border-b-0">
-              <Link href={t.href} className="flex items-center gap-3 px-4 py-3.5 hover:bg-muted/60">
-                <span className={`min-w-10 text-xl font-semibold tabular-nums ${t.n ? 'text-foreground' : 'text-muted-foreground'}`}>{t.n}</span>
-                <span className="flex-1 text-sm">{t.label}</span>
+              <Link href={t.href} className="flex min-h-11 items-center gap-3 px-4 py-3.5 hover:bg-muted/60">
+                <span className="min-w-10 text-xl font-semibold tabular-nums">{t.n}</span>
+                <span className="flex flex-1 flex-col">
+                  <span className="text-sm">{t.label}</span>
+                  {t.hint && <span className="text-xs text-muted-foreground">{t.hint}</span>}
+                </span>
                 <ChevronRight className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
               </Link>
             </li>
@@ -70,12 +105,12 @@ export default async function AdminPage() {
         </ul>
       </section>
 
-      <section aria-labelledby="chiffres" className="grid gap-3 sm:grid-cols-2">
+      <section aria-labelledby="chiffres" className="grid gap-3 sm:grid-cols-3">
         <h2 id="chiffres" className="sr-only">Chiffres clés</h2>
         {stats.map((s) => (
           <div key={s.label} className="flex flex-col gap-1 rounded-xl border border-border bg-card px-4 py-4">
             <span className="text-[13px] text-muted-foreground">{s.label}</span>
-            <span className="text-2xl font-semibold tabular-nums">{s.value}</span>
+            <span className="text-2xl font-semibold tabular-nums">{s.value.toLocaleString('fr-FR')}</span>
             <span className="text-xs text-muted-foreground">{s.hint}</span>
           </div>
         ))}
@@ -83,22 +118,22 @@ export default async function AdminPage() {
 
       <section aria-labelledby="collecte" className="flex flex-col gap-3">
         <div className="flex items-baseline justify-between">
-          <h2 id="collecte" className="text-lg font-semibold">Dernières tâches</h2>
+          <h2 id="collecte" className="text-lg font-semibold">Dernières étapes</h2>
           <Link href="/admin/jobs" className="text-sm font-medium text-primary">Tout voir</Link>
         </div>
         <ul className="overflow-hidden rounded-xl border border-border bg-card">
-          {jobRows.length === 0 && <li className="px-4 py-4 text-sm text-muted-foreground">Aucune tâche enregistrée.</li>}
+          {jobRows.length === 0 && <li className="px-4 py-4 text-sm text-muted-foreground">Aucune étape enregistrée.</li>}
           {jobRows.map((j) => {
-            const state = j.error ? 'Échec' : j.finished_at ? 'Terminée' : 'En cours';
-            const tone = j.error ? 'text-destructive' : j.finished_at ? 'text-phase-2-ink' : 'text-phase-1-ink';
+            const state = jobState(j);
             return (
               <li key={j.id} className="flex items-center gap-3 border-b border-muted px-4 py-3 text-sm last:border-b-0">
-                <span className="flex-1">
+                <span className="min-w-0 flex-1">
                   <span className="font-medium">{jobLabel(j.kind)}</span>
                   <span className="text-muted-foreground"> · {ago(j.started_at)}</span>
-                  {j.error && <span className="mt-0.5 block truncate text-xs text-destructive">{j.error}</span>}
+                  {state === 'skipped' && <span className="mt-0.5 block truncate text-xs text-muted-foreground">{SKIPPED_REASON}</span>}
+                  {state === 'error' && <span className="mt-0.5 block break-words text-xs text-destructive">{j.error}</span>}
                 </span>
-                <span className={`text-[13px] font-medium ${tone}`}>{state}</span>
+                <JobStatusBadge job={j} />
               </li>
             );
           })}

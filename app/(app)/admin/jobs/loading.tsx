@@ -22,7 +22,7 @@ export default function JobsLoading() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Historique des jobs</CardTitle>
+          <CardTitle>Historique des 7 dernières nuits</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           {Array.from({ length: 5 }).map((_, i) => (
