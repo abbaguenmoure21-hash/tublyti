@@ -69,6 +69,15 @@ export default async function SujetsPage({ searchParams }: { searchParams: Promi
     if (isNoChannelResult(f)) return { noChannel: true as const, grade: null, reason: null };
     return { noChannel: false as const, grade: f.grade as FeasibilityGrade, reason: f.reason };
   })();
+  // « Tes chances » on every row (same computation as the panel), null when no channel on that niche.
+  const feasibilityByTopic = new Map<string, FeasibilityGrade>();
+  for (const r of rows) {
+    const subs = userSubsByNiche.get(r.nicheId) ?? null;
+    if (subs == null) continue;
+    const f = computeFeasibilityForUser(subs, r.competitorSubs);
+    if (!isNoChannelResult(f)) feasibilityByTopic.set(r.id, f.grade as FeasibilityGrade);
+  }
+  const feasibilityOf = (r: { id: string }) => feasibilityByTopic.get(r.id) ?? null;
   const ids = rows.map((r) => r.id);
   const hrefAt = (i: number) => (i >= 0 && i < rows.length ? sujetsHref(params, { sujet: rows[i].id }) : null);
   // Panneau ouvert : la fiabilité est déjà dans le panneau, on libère la place pour le libellé.
@@ -171,10 +180,15 @@ export default async function SujetsPage({ searchParams }: { searchParams: Promi
                           )}
                           {r.sensitive && <SensitiveBadge />}
                         </span>
-                        {niche && (
-                          <span className="flex items-center gap-1.5 text-[13px] text-muted-foreground">
-                            <span className="h-[7px] w-[7px] rounded-full" style={{ background: niche.color }} aria-hidden="true" />
-                            {niche.label}
+                        {(niche || feasibilityOf(r)) && (
+                          <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-muted-foreground">
+                            {niche && (
+                              <span className="flex items-center gap-1.5">
+                                <span className="h-[7px] w-[7px] rounded-full" style={{ background: niche.color }} aria-hidden="true" />
+                                {niche.label}
+                              </span>
+                            )}
+                            {feasibilityOf(r) && <FeasibilityBadge grade={feasibilityOf(r)!} showLabel />}
                           </span>
                         )}
                       </span>
@@ -253,10 +267,11 @@ export default async function SujetsPage({ searchParams }: { searchParams: Promi
                 </>
               ) : (
                 <>
-                  <FeasibilityBadge grade={detailFeasibility.grade!} />
-                  <div className="flex flex-col gap-0.5">
-                    <span className="text-[13px] font-semibold">Faisabilité</span>
+                  <div className="flex flex-col gap-1">
+                    <span className="text-[13px] font-semibold">Tes chances</span>
+                    <FeasibilityBadge grade={detailFeasibility.grade!} showLabel />
                     <span className="text-[12px] text-muted-foreground leading-snug">{detailFeasibility.reason}</span>
+                    <Link href="/guide#faisabilite" className="text-[12px] font-medium text-primary hover:underline">Comment c’est calculé</Link>
                   </div>
                 </>
               )}

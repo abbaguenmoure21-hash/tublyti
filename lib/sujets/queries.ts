@@ -16,6 +16,8 @@ export interface TopicRow {
   /** Le client a déjà créé une vidéo sur ce sujet. */
   inMyVideos: boolean;
   sensitive: boolean;
+  /** Subscriber counts of channels already on the topic (per-user feasibility). */
+  competitorSubs: number[] | null;
 }
 
 export interface TopicFilters {
@@ -57,7 +59,7 @@ export async function listTopics(db: SupabaseClient, f: TopicFilters): Promise<{
   const { ignored, mine } = await getUserTopicSets(db, f.userId);
   let q = db
     .from('topic_scores')
-    .select('mgi, phase, confidence, topics!inner(id, label, status, niche_id)')
+    .select('mgi, phase, confidence, competitor_subs, topics!inner(id, label, status, niche_id)')
     .eq('scored_at', scoredAt)
     .in('topics.status', ['active', 'in_production'])
     .not('mgi', 'is', null)
@@ -86,6 +88,7 @@ export async function listTopics(db: SupabaseClient, f: TopicFilters): Promise<{
       status: t.status,
       inMyVideos: mine.has(t.id) || t.status === 'in_production',
       sensitive: isSensitiveTopic(t.label),
+      competitorSubs: (s.competitor_subs as number[] | null) ?? null,
     };
   });
   rows.sort((a, b) => Number(a.sensitive) - Number(b.sensitive) || b.potential - a.potential);

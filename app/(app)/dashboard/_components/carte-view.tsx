@@ -264,7 +264,7 @@ function Detail({ topic, isBest }: { topic: CarteTopic; isBest: boolean }) {
             <Row
               label="Faisabilité"
               hint={topic.feasibilityReason ?? undefined}
-              value={<FeasibilityBadge grade={topic.feasibility as FeasibilityGrade} />}
+              value={<FeasibilityBadge grade={topic.feasibility as FeasibilityGrade} showLabel />}
             />
           )}
         </div>

@@ -17,6 +17,8 @@ import { DossierExport } from './_components/dossier-export';
 import { getFavoriteIds } from '@/lib/actions/collections';
 import { computeFeasibilityForUser, isNoChannelResult } from '@/lib/scoring/feasibility-for-user';
 import { getUserSubsByNiche } from '@/lib/scoring/user-subs';
+import { FeasibilityBadge } from '@/components/tublyti/feasibility-badge';
+import type { FeasibilityGrade } from '@/lib/scoring/feasibility';
 
 // L'analyse vidéo (Gemini) peut prendre jusqu'à 2-3 minutes.
 export const maxDuration = 300;
@@ -459,31 +461,21 @@ export default async function TopicPage({
 
         {/* Feasibility card */}
         {showFeasibility && (
-          <div className="bento-card !px-[18px] !py-3.5 flex items-center gap-3">
-            <span className={`inline-flex items-center justify-center h-8 w-8 rounded-[8px] text-[16px] font-bold ${
-              userFeasibility.grade === 'A' ? 'bg-[#30D158]/15 text-[#30D158]'
-              : userFeasibility.grade === 'B' ? 'bg-[#0A84FF]/15 text-[#0A84FF]'
-              : userFeasibility.grade === 'C' ? 'bg-[--bg-surface-2] text-muted-foreground'
-              : userFeasibility.grade === 'D' ? 'bg-[#FF9F0A]/15 text-[#FF9F0A]'
-              : 'bg-[#FF453A]/15 text-[#FF453A]'
-            }`}>
-              {userFeasibility.grade}
-            </span>
-            <div className="flex flex-col gap-0.5">
-              <span className="text-[13px] font-semibold">Faisabilité</span>
-              <span className="text-[13px] text-muted-foreground">
-                {userFeasibility.reason}
-              </span>
+          <div className="flex items-center gap-3 rounded-xl bg-card px-[18px] py-3.5">
+            <div className="flex flex-col gap-1">
+              <span className="text-[13px] font-semibold">Tes chances</span>
+              <FeasibilityBadge grade={userFeasibility.grade as FeasibilityGrade} showLabel />
+              <span className="text-[13px] text-muted-foreground">{userFeasibility.reason}</span>
+              <Link href="/guide#faisabilite" className="text-[12px] font-medium text-primary hover:underline">Comment c’est calculé</Link>
             </div>
           </div>
         )}
         {showNoChannelHint && (
-          <div className="bento-card !px-[18px] !py-3.5 flex items-center gap-3">
-            <span className="inline-flex items-center justify-center h-8 w-8 rounded-[8px] text-[16px] bg-muted text-muted-foreground">?</span>
+          <div className="flex items-center gap-3 rounded-xl bg-card px-[18px] py-3.5">
             <div className="flex flex-col gap-0.5">
-              <span className="text-[13px] font-semibold">Faisabilité</span>
+              <span className="text-[13px] font-semibold">Tes chances</span>
               <span className="text-[13px] text-muted-foreground">
-                <Link href="/settings#chaines" className="text-primary hover:underline">Ajoute l'adresse YouTube de ta chaîne dans Réglages</Link> pour voir tes chances.
+                <Link href="/settings#chaines" className="text-primary hover:underline">Ajoute l’adresse YouTube de ta chaîne dans Réglages</Link> pour voir tes chances.
               </span>
             </div>
           </div>
