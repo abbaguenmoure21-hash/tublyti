@@ -77,6 +77,12 @@
   --color-phase-3-soft: var(--phase-3-soft);
   --color-phase-3-ink: var(--phase-3-ink);
 
+  /* Motion (DESIGN.md · Mouvement) : classes ease-standard, et durées de référence */
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --duration-fast: 120ms;
+  --duration-base: 180ms;
+  --duration-slow: 240ms;
+
   /* Radii */
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);

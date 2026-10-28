@@ -1,5 +1,6 @@
 'use client';
 
+import { smoothScrollIntoView } from '@/lib/ui/smooth-scroll';
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { ArrowRight, Search, X } from 'lucide-react';
@@ -100,7 +101,7 @@ export function GuideView() {
 
   const jump = (anchor: string) => {
     setQ('');
-    requestAnimationFrame(() => document.getElementById(anchor)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+    requestAnimationFrame(() => smoothScrollIntoView(document.getElementById(anchor)));
   };
 
   return (

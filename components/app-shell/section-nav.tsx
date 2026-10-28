@@ -1,5 +1,6 @@
 'use client';
 
+import { smoothScrollIntoView } from '@/lib/ui/smooth-scroll';
 import { useEffect, useState } from 'react';
 import {
   Bell,
@@ -75,7 +76,7 @@ export function SectionNav({ items, label }: { items: SectionNavItem[]; label: s
     e.preventDefault();
     const el = document.getElementById(id);
     if (!el) return;
-    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    smoothScrollIntoView(el);
     history.replaceState(null, '', `#${id}`);
     setActive(id);
   };
