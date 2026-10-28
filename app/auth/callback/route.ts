@@ -7,7 +7,8 @@ export async function GET(request: NextRequest) {
   const code = searchParams.get('code');
   const nextParam = searchParams.get('next') ?? '/sujets';
   // On n'accepte qu'un chemin interne pour éviter toute redirection ouverte.
-  const next = nextParam.startsWith('/') && !nextParam.startsWith('//') ? nextParam : '/sujets';
+  const next =
+    nextParam.startsWith('/') && !nextParam.startsWith('//') && !nextParam.startsWith('/\\') ? nextParam : '/sujets';
 
   if (code) {
     const supabase = await createClient();
