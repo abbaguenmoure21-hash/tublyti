@@ -4,6 +4,7 @@ import { createServiceClient } from '@/lib/supabase/server';
 import {
   ClaudeAngleGenerator,
   FakeAngleGenerator,
+  AngleGenerationError,
   estimateAngleCostUSD,
 } from '@/lib/nlp/angle-generator';
 import type { AngleInput } from '@/lib/nlp/angle-generator';
@@ -155,7 +156,12 @@ export async function POST(
     await settleAiBudget(db, reservation, billed).catch(() => undefined);
     console.error('Erreur lors de la generation des angles:', err);
     return NextResponse.json(
-      { error: 'Le générateur a rencontré une erreur (API ou format de réponse).' },
+      {
+        error:
+          err instanceof AngleGenerationError
+            ? err.message
+            : 'Le générateur a rencontré une erreur (API ou format de réponse).',
+      },
       { status: 500 }
     );
   }
