@@ -1,6 +1,7 @@
 'use client';
 
 import { useTransition } from 'react';
+import Link from 'next/link';
 import { toast } from 'sonner';
 import { linkCheckToVideo } from '@/lib/actions/preflight';
 import type { CheckRow, FollowRow } from '@/lib/preflight/engine';
@@ -25,7 +26,12 @@ export function FollowUp({ rows }: { rows: FollowRow[] }) {
         <p className="text-[13px] text-muted-foreground">Tes vidéos des 21 derniers jours, comparées à tes vidéos précédentes au même âge. Les 72 premières heures décident souvent de la suite.</p>
       </div>
       {rows.length === 0 ? (
-        <p className="rounded-2xl bg-card px-4 py-6 text-center text-[14px] text-muted-foreground">Aucune vidéo publiée ces 21 derniers jours (ou pas encore relevée par la collecte de nuit).</p>
+        <div className="flex flex-col items-center gap-3 rounded-2xl bg-card px-4 py-6 text-center">
+          <p className="text-[14px] text-muted-foreground">Aucune vidéo publiée ces 3 dernières semaines. Une vidéo publiée aujourd’hui apparaît ici dès demain.</p>
+          <Link href="/preflight?vue=evaluer" scroll={false} className="inline-flex h-10 items-center rounded-[10px] bg-primary px-4 text-[14px] font-medium text-primary-foreground hover:opacity-90">
+            Évaluer ma prochaine vidéo
+          </Link>
+        </div>
       ) : (
         <ul className="elev-1 overflow-hidden rounded-[22px] bg-card">
           {rows.map((r) => (
@@ -84,7 +90,12 @@ export function History({
         </p>
       </div>
       {checks.length === 0 ? (
-        <p className="rounded-2xl bg-card px-4 py-6 text-center text-[14px] text-muted-foreground">Pas encore d’évaluation. Évalue ta prochaine vidéo ci-dessus avant de la publier.</p>
+        <div className="flex flex-col items-center gap-3 rounded-2xl bg-card px-4 py-6 text-center">
+          <p className="text-[14px] text-muted-foreground">Pas encore d’évaluation. Évalue ta prochaine vidéo avant de la publier : son résultat réel s’affichera ici.</p>
+          <Link href="/preflight?vue=evaluer" scroll={false} className="text-[14px] font-medium text-primary hover:underline">
+            Évaluer ma prochaine vidéo
+          </Link>
+        </div>
       ) : (
         <div className="elev-1 overflow-x-auto rounded-[22px] bg-card">
           <table className="w-full min-w-[720px] text-sm">
