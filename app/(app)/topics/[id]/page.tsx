@@ -428,7 +428,7 @@ export default async function TopicPage({
             <div className="flex flex-col gap-0.5">
               <span className="text-[13px] font-semibold">Faisabilité</span>
               <span className="text-[13px] text-muted-foreground">
-                <Link href="/settings#chaines" className="text-primary hover:underline">Ajoute l'adresse YouTube de ta chaîne dans Réglages</Link> pour voir tes chances.
+                <Link href="/settings#chaines" className="text-primary hover:underline">Ajoute l’adresse YouTube de ta chaîne dans Réglages</Link> pour voir tes chances.
               </span>
             </div>
           </div>
