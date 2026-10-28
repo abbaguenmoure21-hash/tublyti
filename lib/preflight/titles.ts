@@ -39,6 +39,8 @@ export interface TitleScore {
   /** Titres proches qui ont fait moins de la moitié. */
   losers: Neighbor[];
   evidence: number;
+  /** Vidéos les plus proches (pour retrouver le sujet du titre). */
+  neighborIds: string[];
 }
 
 const CURIOSITY = /\b(why|how|what|secret|truth|nobody|never|stop|mistake|actually|really|hidden|real reason|this is|you('| a)re|explained|pourquoi|comment|secret|vérité|personne|jamais|erreur|vraiment|caché)\b/i;
@@ -105,7 +107,7 @@ async function nichePrior(db: SupabaseClient, nicheIds: string[]) {
   };
 }
 
-export async function scoreTitles(db: SupabaseClient, nicheIds: string[], titles: string[]): Promise<{ scores: TitleScore[]; prior: { p2x: number; p10x: number; n: number } }> {
+export async function scoreTitles(db: SupabaseClient, nicheIds: string[], titles: string[]): Promise<{ scores: TitleScore[]; prior: { p2x: number; p10x: number; n: number; logMean: number } }> {
   const clean = titles.map((t) => t.trim()).filter(Boolean).slice(0, 3);
   const [vectors, prior] = await Promise.all([embedTitles(clean), nichePrior(db, nicheIds)]);
 
@@ -158,9 +160,10 @@ export async function scoreTitles(db: SupabaseClient, nicheIds: string[], titles
       winners: close.filter((n) => n.score >= 3).sort((a, b) => b.score - a.score).slice(0, 5),
       losers: close.filter((n) => n.score < 0.5).sort((a, b) => a.score - b.score).slice(0, 3),
       evidence: Math.round(evidence * 100) / 100,
+      neighborIds: neighbors.slice(0, 15).map((n) => n.videoId),
     });
   }
-  return { scores, prior: { p2x: prior.p2x, p10x: prior.p10x, n: prior.n } };
+  return { scores, prior: { p2x: prior.p2x, p10x: prior.p10x, n: prior.n, logMean: prior.logMean } };
 }
 
 /** Vidéos qui ont le plus sur-performé dans la niche (pour la miniature et le script). */

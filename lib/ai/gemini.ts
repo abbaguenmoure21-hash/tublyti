@@ -10,7 +10,10 @@ const DEFAULT_MODELS = ['gemini-3.1-flash-lite', 'gemini-3.5-flash-lite', 'gemin
 const PRICE_IN = Number(process.env.GEMINI_PRICE_IN_PER_MTOK ?? 0.5);
 const PRICE_OUT = Number(process.env.GEMINI_PRICE_OUT_PER_MTOK ?? 2.5);
 
-export type GeminiPart = { text: string } | { inlineData: { mimeType: string; data: string } };
+export type GeminiPart =
+  | { text: string }
+  | { inlineData: { mimeType: string; data: string } }
+  | { fileData: { fileUri: string; mimeType: string } };
 
 export function geminiEnabled(): boolean {
   return Boolean(process.env.GEMINI_API_KEY);
@@ -44,7 +47,7 @@ export interface GeminiJsonResult<T> {
 export async function geminiJson<T>(
   db: SupabaseClient,
   parts: GeminiPart[],
-  opts: { action: string; maxOutputTokens?: number; temperature?: number; meta?: Record<string, unknown> },
+  opts: { action: string; maxOutputTokens?: number; temperature?: number; meta?: Record<string, unknown>; timeoutMs?: number; mediaResolution?: string },
 ): Promise<GeminiJsonResult<T>> {
   const key = process.env.GEMINI_API_KEY;
   if (!key) throw new Error('GEMINI_API_KEY manquante');
@@ -53,13 +56,14 @@ export async function geminiJson<T>(
     const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
-      signal: AbortSignal.timeout(90_000),
+      signal: AbortSignal.timeout(opts.timeoutMs ?? 90_000),
       body: JSON.stringify({
         contents: [{ parts }],
         generationConfig: {
           responseMimeType: 'application/json',
           temperature: opts.temperature ?? 0.3,
           maxOutputTokens: opts.maxOutputTokens ?? 4000,
+          ...(opts.mediaResolution ? { mediaResolution: opts.mediaResolution } : {}),
         },
       }),
     });

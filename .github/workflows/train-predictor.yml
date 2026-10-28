@@ -1,0 +1,29 @@
+name: Train predictor
+
+# Entraîne le modèle de prédiction des vues (5 à 10 min), chaque dimanche après la collecte, ou à la main.
+on:
+  schedule:
+    - cron: '30 5 * * 0'   # dimanche 05:30 UTC
+  workflow_dispatch: {}
+
+concurrency:
+  group: train-predictor
+  cancel-in-progress: false
+
+jobs:
+  train:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Train
+        run: npx tsx scripts/train-predictor.ts

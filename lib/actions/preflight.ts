@@ -5,9 +5,12 @@ import { createServiceClient } from '@/lib/supabase/server';
 import { getSessionUser } from '@/lib/auth/session';
 import { getPublicStats } from '@/lib/youtube/public-stats';
 import { runPreflight, type PreflightResult } from '@/lib/preflight/engine';
+import { fileState, startUpload } from '@/lib/preflight/video-file';
+import { geminiEnabled } from '@/lib/ai/gemini';
 
 const DAILY_LIMIT = Number(process.env.PREFLIGHT_DAILY ?? 30);
 const MAX_THUMB_BYTES = 2_500_000;
+const MAX_VIDEO_BYTES = 2_000_000_000;
 
 export type PreflightResponse = { ok: true; id: string | null; result: PreflightResult } | { ok: false; message: string };
 
@@ -27,6 +30,9 @@ export async function evaluateBeforePublish(input: {
   titles: string[];
   script?: string;
   thumbnail?: { mimeType: string; base64: string } | null;
+  video?: { name: string; uri: string; mimeType: string; durationS?: number | null } | null;
+  /** Date de publication prévue (ISO). */
+  publishAt?: string | null;
 }): Promise<PreflightResponse> {
   const user = await getSessionUser();
   if (!user) return { ok: false, message: 'Connecte-toi pour évaluer une vidéo.' };
@@ -55,7 +61,10 @@ export async function evaluateBeforePublish(input: {
       titles,
       script: input.script?.slice(0, 60_000) ?? null,
       thumbnail: input.thumbnail ?? null,
+      video: input.video && /^files\/[\w-]+$/.test(input.video.name) ? input.video : null,
       baselineViews: stats?.medianViews || null,
+      ytChannelId: ch.youtube_channel_id,
+      publishAt: input.publishAt ? new Date(input.publishAt) : null,
     });
     revalidatePath('/preflight');
     return { ok: true, id, result };
@@ -78,4 +87,29 @@ export async function linkCheckToVideo(checkId: string, videoId: string | null):
   if (error) return { ok: false, message: error.message };
   revalidatePath('/preflight');
   return { ok: true };
+}
+
+/** Ouvre l'envoi de la vidéo finie : le navigateur dépose ensuite le fichier directement chez Gemini. */
+export async function startVideoUpload(input: { size: number; mimeType: string; name: string }): Promise<{ ok: true; uploadUrl: string } | { ok: false; message: string }> {
+  const user = await getSessionUser();
+  if (!user) return { ok: false, message: 'Connecte-toi.' };
+  if (!geminiEnabled()) return { ok: false, message: 'Analyse vidéo non activée : ajoute la clé GEMINI_API_KEY.' };
+  if (!/^video\//.test(input.mimeType)) return { ok: false, message: 'Choisis un fichier vidéo (MP4, MOV, WebM).' };
+  if (!(input.size > 0) || input.size > MAX_VIDEO_BYTES) return { ok: false, message: 'Vidéo trop lourde : 2 Go maximum.' };
+  try {
+    return { ok: true, uploadUrl: await startUpload(input.size, input.mimeType, input.name || 'video') };
+  } catch (e) {
+    return { ok: false, message: (e as Error).message };
+  }
+}
+
+/** État du fichier chez Gemini après l'envoi (« PROCESSING » puis « ACTIVE »). */
+export async function videoUploadState(name: string): Promise<{ state: string; uri?: string; mimeType?: string; error?: string }> {
+  const user = await getSessionUser();
+  if (!user) return { state: 'FAILED', error: 'Connecte-toi.' };
+  try {
+    return await fileState(name);
+  } catch (e) {
+    return { state: 'FAILED', error: (e as Error).message };
+  }
 }

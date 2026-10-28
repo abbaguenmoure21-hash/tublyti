@@ -12,7 +12,7 @@ import { FollowUp, History } from './_components/after-publish';
 export const metadata = { title: 'Avant de publier' };
 export const dynamic = 'force-dynamic';
 // Les notes de miniature et de script passent par Gemini.
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 export default async function PreflightPage() {
   const user = await requireUser();

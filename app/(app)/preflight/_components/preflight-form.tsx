@@ -1,8 +1,9 @@
 'use client';
 
 import { useRef, useState, useTransition } from 'react';
-import { AlertTriangle, Check, ImagePlus, Loader2, Plus, Sparkles, Trophy, X } from 'lucide-react';
-import { evaluateBeforePublish } from '@/lib/actions/preflight';
+import { AlertTriangle, Check, Film, ImagePlus, Loader2, Plus, Sparkles, TrendingDown, TrendingUp, Trophy, X } from 'lucide-react';
+import { Line, LineChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { evaluateBeforePublish, startVideoUpload, videoUploadState } from '@/lib/actions/preflight';
 import type { PreflightResult } from '@/lib/preflight/engine';
 import type { TitleScore } from '@/lib/preflight/titles';
 
@@ -45,6 +46,12 @@ export function PreflightForm({ userChannelId, aiEnabled }: { userChannelId: str
   const [titles, setTitles] = useState<string[]>(['']);
   const [script, setScript] = useState('');
   const [thumb, setThumb] = useState<{ mimeType: string; base64: string; preview: string } | null>(null);
+  const [video, setVideo] = useState<UploadState | null>(null);
+  const [publishAt, setPublishAt] = useState(() => {
+    const d = new Date(Date.now() + 86_400_000);
+    d.setMinutes(0, 0, 0);
+    return new Date(d.getTime() - d.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+  });
   const [result, setResult] = useState<PreflightResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
@@ -66,7 +73,10 @@ export function PreflightForm({ userChannelId, aiEnabled }: { userChannelId: str
         titles,
         script: script.trim() || undefined,
         thumbnail: thumb ? { mimeType: thumb.mimeType, base64: thumb.base64 } : null,
+        video: video?.status === 'ready' && video.file ? { ...video.file, durationS: video.durationS } : null,
+        publishAt: publishAt ? new Date(publishAt).toISOString() : null,
       });
+      if (video?.status === 'ready') setVideo(null); // le fichier est effacé chez Gemini après l'analyse
       if (!res.ok) return setError(res.message);
       setResult(res.result);
       setTimeout(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
@@ -119,6 +129,18 @@ export function PreflightForm({ userChannelId, aiEnabled }: { userChannelId: str
               className="rounded-[10px] border border-input bg-background px-3 py-2.5 text-[14px] leading-relaxed outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
             />
           </label>
+
+          <VideoUploader state={video} onChange={setVideo} aiEnabled={aiEnabled} />
+
+          <label className="flex flex-col gap-2 sm:max-w-xs">
+            <span className="text-[13px] font-medium">Publication prévue <span className="font-normal text-muted-foreground">jour et heure comptent</span></span>
+            <input
+              type="datetime-local"
+              value={publishAt}
+              onChange={(e) => setPublishAt(e.target.value)}
+              className="h-10 rounded-[10px] border border-input bg-background px-3 text-[14px] outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+            />
+          </label>
         </div>
 
         <div className="flex flex-col gap-2">
@@ -163,11 +185,11 @@ export function PreflightForm({ userChannelId, aiEnabled }: { userChannelId: str
           <button
             type="button"
             onClick={submit}
-            disabled={pending || !titles.some((t) => t.trim())}
+            disabled={pending || !titles.some((t) => t.trim()) || video?.status === 'uploading' || video?.status === 'processing'}
             className="elev-1 inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-primary px-5 text-[15px] font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
           >
             {pending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Sparkles className="h-4 w-4" aria-hidden="true" />}
-            {pending ? 'Évaluation en cours… (15 à 40 s)' : 'Évaluer avant de publier'}
+            {pending ? (video?.status === 'ready' ? 'Évaluation en cours… (1 à 3 min avec la vidéo)' : 'Évaluation en cours… (15 à 40 s)') : video?.status === 'uploading' || video?.status === 'processing' ? 'Attends la fin de l’envoi de la vidéo…' : 'Évaluer avant de publier'}
           </button>
           {error && <p className="text-[13px] text-destructive">{error}</p>}
         </div>
@@ -226,6 +248,10 @@ function ResultView({ r }: { r: PreflightResult }) {
           ))}
         </div>
       </div>
+
+      {r.model && <ModelSection r={r} />}
+
+      {r.video && <VideoSection v={r.video} />}
 
       {/* Titres */}
       <section className="flex flex-col gap-3">
@@ -393,5 +419,235 @@ function TwoLists({ good, fix }: { good: string[]; fix: string[] }) {
         </div>
       )}
     </div>
+  );
+}
+
+// ── Vidéo finie : envoi direct navigateur → Gemini ───────────────────
+
+type UploadState = {
+  status: 'uploading' | 'processing' | 'ready' | 'error';
+  fileName: string;
+  size: number;
+  progress: number;
+  durationS: number | null;
+  file?: { name: string; uri: string; mimeType: string };
+  error?: string;
+  startedAt: number;
+  /** Temps restant estimé (secondes). */
+  etaS?: number | null;
+};
+
+function readDuration(file: File): Promise<number | null> {
+  return new Promise((resolve) => {
+    const v = document.createElement('video');
+    v.preload = 'metadata';
+    const url = URL.createObjectURL(file);
+    v.onloadedmetadata = () => {
+      URL.revokeObjectURL(url);
+      resolve(Number.isFinite(v.duration) ? Math.round(v.duration) : null);
+    };
+    v.onerror = () => resolve(null);
+    v.src = url;
+  });
+}
+
+const mb = (b: number) => `${(b / 1_000_000).toLocaleString('fr-FR', { maximumFractionDigits: 0 })} Mo`;
+
+function VideoUploader({ state, onChange, aiEnabled }: { state: UploadState | null; onChange: (s: UploadState | null) => void; aiEnabled: boolean }) {
+  const ref = useRef<HTMLInputElement>(null);
+  const xhrRef = useRef<XMLHttpRequest | null>(null);
+
+  async function pick(file: File | undefined) {
+    if (!file) return;
+    const base: UploadState = { status: 'uploading', fileName: file.name, size: file.size, progress: 0, durationS: null, startedAt: Date.now() };
+    onChange(base);
+    const durationS = await readDuration(file);
+    const start = await startVideoUpload({ size: file.size, mimeType: file.type || 'video/mp4', name: file.name });
+    if (!start.ok) return onChange({ ...base, durationS, status: 'error', error: start.message });
+
+    const xhr = new XMLHttpRequest();
+    xhrRef.current = xhr;
+    xhr.open('POST', start.uploadUrl);
+    xhr.setRequestHeader('X-Goog-Upload-Offset', '0');
+    xhr.setRequestHeader('X-Goog-Upload-Command', 'upload, finalize');
+    let last = 0;
+    xhr.upload.onprogress = (e) => {
+      if (!e.lengthComputable || Date.now() - last < 400) return;
+      last = Date.now();
+      const p = e.loaded / e.total;
+      const elapsed = (Date.now() - base.startedAt) / 1000;
+      onChange({ ...base, durationS, progress: p, etaS: p > 0.02 ? Math.round((elapsed / p) * (1 - p)) : null });
+    };
+    xhr.onerror = () =>
+      onChange({ ...base, durationS, status: 'error', error: 'L’envoi a été interrompu (connexion coupée ou bloquée). Réessaie, idéalement avec une version allégée (720p).' });
+    xhr.onload = async () => {
+      let f: { name?: string; uri?: string; mimeType?: string } = {};
+      try {
+        f = (JSON.parse(xhr.responseText) as { file?: typeof f }).file ?? {};
+      } catch {
+        /* réponse illisible */
+      }
+      if (xhr.status >= 300 || !f.name) return onChange({ ...base, durationS, status: 'error', error: `Envoi refusé (${xhr.status}).` });
+      onChange({ ...base, durationS, progress: 1, status: 'processing' });
+      // Gemini prépare la vidéo (souvent 10 s à 2 min).
+      for (let i = 0; i < 90; i++) {
+        const st = await videoUploadState(f.name);
+        if (st.state === 'ACTIVE' && st.uri) {
+          return onChange({ ...base, durationS, progress: 1, status: 'ready', file: { name: f.name, uri: st.uri, mimeType: st.mimeType ?? f.mimeType ?? 'video/mp4' } });
+        }
+        if (st.state === 'FAILED') return onChange({ ...base, durationS, status: 'error', error: st.error ?? 'Gemini n’a pas pu lire la vidéo.' });
+        await new Promise((r) => setTimeout(r, 4000));
+      }
+      onChange({ ...base, durationS, status: 'error', error: 'La préparation de la vidéo prend trop de temps. Réessaie.' });
+    };
+    xhr.send(file);
+  }
+
+  function cancel() {
+    xhrRef.current?.abort();
+    onChange(null);
+  }
+
+  const eta = state?.status === 'uploading' ? state.etaS ?? null : null;
+
+  return (
+    <div className="flex flex-col gap-2">
+      <span className="flex items-baseline justify-between text-[13px] font-medium">
+        Vidéo finie <span className="font-normal text-muted-foreground">facultatif · montage, son, rétention prévue</span>
+      </span>
+      {!state ? (
+        <button
+          type="button"
+          disabled={!aiEnabled}
+          onClick={() => ref.current?.click()}
+          className="well flex items-center gap-3 rounded-[12px] border border-dashed border-border bg-muted/50 px-4 py-3.5 text-left text-[13px] text-muted-foreground hover:bg-muted disabled:opacity-60"
+        >
+          <Film className="h-5 w-5 shrink-0" aria-hidden="true" />
+          <span>
+            <span className="block font-medium text-foreground">Choisis ta vidéo (MP4, MOV, WebM, 2 Go max)</span>
+            Exporte de préférence une version légère en 720p : l’analyse est aussi bonne et l’envoi bien plus rapide. La vidéo est effacée après l’analyse.
+          </span>
+        </button>
+      ) : (
+        <div className="flex flex-col gap-2 rounded-[12px] bg-muted/50 px-4 py-3">
+          <div className="flex items-center gap-3 text-[13px]">
+            <Film className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+            <span className="min-w-0 flex-1 truncate font-medium">{state.fileName}</span>
+            <span className="shrink-0 tabular-nums text-muted-foreground">{mb(state.size)}</span>
+            <button type="button" onClick={cancel} aria-label="Retirer la vidéo" className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-card">
+              <X className="h-4 w-4" aria-hidden="true" />
+            </button>
+          </div>
+          {state.status === 'uploading' && (
+            <>
+              <div className="h-1.5 overflow-hidden rounded-full bg-card" role="progressbar" aria-valuenow={Math.round(state.progress * 100)} aria-valuemin={0} aria-valuemax={100} aria-label="Envoi de la vidéo">
+                <div className="h-full rounded-full bg-primary transition-[width]" style={{ width: `${Math.round(state.progress * 100)}%` }} />
+              </div>
+              <span className="text-[12px] text-muted-foreground">
+                Envoi… {Math.round(state.progress * 100)} %{eta !== null ? ` · encore ~${eta > 90 ? `${Math.round(eta / 60)} min` : `${eta} s`}` : ''}. Garde cette page ouverte.
+              </span>
+            </>
+          )}
+          {state.status === 'processing' && (
+            <span className="flex items-center gap-2 text-[12px] text-muted-foreground"><Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> Gemini prépare la vidéo…</span>
+          )}
+          {state.status === 'ready' && (
+            <span className="flex items-center gap-2 text-[12px] text-phase-2-ink"><Check className="h-3.5 w-3.5" aria-hidden="true" /> Prête à être analysée{state.durationS ? ` · ${Math.floor(state.durationS / 60)} min ${String(state.durationS % 60).padStart(2, '0')}` : ''}</span>
+          )}
+          {state.status === 'error' && <span className="text-[12px] text-destructive">{state.error}</span>}
+        </div>
+      )}
+      <input ref={ref} type="file" accept="video/mp4,video/quicktime,video/webm,video/*" className="hidden" onChange={(e) => void pick(e.target.files?.[0])} />
+    </div>
+  );
+}
+
+const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
+
+function VideoSection({ v }: { v: NonNullable<PreflightResult['video']> }) {
+  const data = v.retention.map((p) => ({ ...p, at_s: v.durationS ? Math.round((p.at_pct / 100) * v.durationS) : null }));
+  return (
+    <section className="elev-1 flex flex-col gap-4 rounded-[22px] bg-card p-5 md:p-6">
+      <div className="flex items-baseline justify-between gap-3">
+        <h3 className="text-[15px] font-semibold">Vidéo : montage, son, rétention prévue</h3>
+        <span className={`rounded-full px-2.5 py-0.5 text-[13px] font-semibold tabular-nums ${tone(v.score)}`}>{v.score}/100</span>
+      </div>
+      {data.length > 2 && (
+        <div className="flex flex-col gap-1.5">
+          <span className="text-[13px] text-muted-foreground">Part des spectateurs encore là, d’après l’IA (estimation avant publication)</span>
+          <div className="h-44 w-full" role="img" aria-label="Rétention prévue au fil de la vidéo">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                <CartesianGrid vertical={false} stroke="var(--border)" strokeOpacity={0.6} />
+                <XAxis dataKey="at_pct" tickFormatter={(x: number) => (v.durationS ? clock((x / 100) * v.durationS) : `${x} %`)} tick={{ fontSize: 12, fill: 'var(--muted-foreground)' }} tickLine={false} axisLine={false} />
+                <YAxis domain={[0, 1]} tickFormatter={(x: number) => `${Math.round(x * 100)} %`} tick={{ fontSize: 12, fill: 'var(--muted-foreground)' }} tickLine={false} axisLine={false} width={44} />
+                <Tooltip formatter={(x) => [`${Math.round(Number(x) * 100)} %`, 'Encore là']} labelFormatter={(x) => (v.durationS ? `À ${clock((Number(x) / 100) * v.durationS)}` : `À ${x} %`)} />
+                <Line type="monotone" dataKey="watch" stroke="var(--chart-1)" strokeWidth={2} dot={false} activeDot={{ r: 4, strokeWidth: 2, stroke: 'var(--card)' }} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+      <Criteria items={v.criteria} />
+      {(v.audio || v.cuts_per_minute) && (
+        <p className="text-[13px] leading-relaxed text-muted-foreground">
+          {v.audio}
+          {v.cuts_per_minute ? ` · ~${v.cuts_per_minute} coupes par minute.` : ''}
+        </p>
+      )}
+      {v.drops.length > 0 && (
+        <div className="flex flex-col gap-2">
+          <span className="text-[13px] font-medium">Moments où les spectateurs risquent de partir</span>
+          <ul className="flex flex-col gap-2">
+            {v.drops.map((d, i) => (
+              <li key={i} className="flex gap-3 rounded-xl bg-warning/10 px-3 py-2.5 text-[14px]">
+                <span className="shrink-0 font-mono font-semibold tabular-nums text-warning">{clock(d.at_s)}</span>
+                <span>
+                  {d.issue} <span className="text-muted-foreground">→ {d.fix}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      <TwoLists good={v.strengths} fix={v.fixes} />
+    </section>
+  );
+}
+
+const PHASES: Record<number, string> = { 1: 'émergent', 2: 'en croissance', 3: 'au pic', 4: 'en déclin' };
+
+function ModelSection({ r }: { r: PreflightResult }) {
+  const m = r.model!;
+  const up = m.drivers.filter((d) => d.effect > 0.02);
+  const down = m.drivers.filter((d) => d.effect < -0.02);
+  const pctEffect = (e: number) => `${e > 0 ? '+' : '−'}${Math.round(Math.abs(Math.exp(e) - 1) * 100)} %`;
+  return (
+    <section className="elev-1 flex flex-col gap-4 rounded-[22px] bg-card p-5 md:p-6">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h3 className="text-[15px] font-semibold">Ce qui joue pour et contre cette vidéo</h3>
+        <span className="text-[12px] text-muted-foreground">
+          Modèle entraîné le {new Date(m.trainedAt).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })} sur {nf.format(m.n)} vidéos
+        </span>
+      </div>
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="flex flex-col gap-1.5">
+          <span className="flex items-center gap-1.5 text-[13px] font-medium"><TrendingUp className="h-4 w-4 text-phase-2" aria-hidden="true" /> Pour</span>
+          {up.length ? up.map((d) => (
+            <span key={d.label} className="flex justify-between gap-3 text-[14px]"><span>{d.label}</span><span className="tabular-nums text-phase-2-ink">{pctEffect(d.effect)}</span></span>
+          )) : <span className="text-[13px] text-muted-foreground">Rien de marquant.</span>}
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <span className="flex items-center gap-1.5 text-[13px] font-medium"><TrendingDown className="h-4 w-4 text-destructive" aria-hidden="true" /> Contre</span>
+          {down.length ? down.map((d) => (
+            <span key={d.label} className="flex justify-between gap-3 text-[14px]"><span>{d.label}</span><span className="tabular-nums text-destructive">{pctEffect(d.effect)}</span></span>
+          )) : <span className="text-[13px] text-muted-foreground">Rien de marquant.</span>}
+        </div>
+      </div>
+      <p className="text-[12px] leading-relaxed text-muted-foreground">
+        {m.topicPhase ? `Sujet le plus proche : ${PHASES[m.topicPhase] ?? 'phase inconnue'}, ${m.topicRecent7d} vidéo${m.topicRecent7d > 1 ? 's' : ''} concurrente${m.topicRecent7d > 1 ? 's' : ''} ces 7 derniers jours. ` : ''}
+        Fiabilité mesurée sur les vidéos les plus récentes ({nf.format(m.metrics.testN)}) : le modèle explique {Math.max(0, Math.round(m.metrics.r2 * 100))} % des écarts de vues, et ses probabilités « ×2 » sont {m.metrics.brierP2x < m.metrics.baseBrierP2x ? `${Math.round((1 - m.metrics.brierP2x / m.metrics.baseBrierP2x) * 100)} % plus justes` : 'pas encore meilleures'} qu’une estimation au hasard.
+      </p>
+    </section>
   );
 }

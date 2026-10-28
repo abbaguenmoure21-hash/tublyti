@@ -2,9 +2,13 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { scoreTitles, topNicheOutliers, type TitleScore } from './titles';
 import { scoreScript, scoreThumbnail, type ScriptScore, type ThumbnailScore } from './creative';
 import { geminiEnabled } from '../ai/gemini';
+import { deleteFile, scoreVideoFile, type VideoFileScore } from './video-file';
+import { loadModel, plannedContext, predictWithModel, probAbove, type ModelPrediction } from '../predictor/predict';
+
+const nf = (n: number) => new Intl.NumberFormat('fr-FR').format(n);
 
 /**
- * Note avant publication : titres + miniature + script → note globale et prédiction,
+ * Note avant publication : titres + miniature + script + vidéo finie → note globale et prédiction,
  * puis suivi après publication et recalibrage sur les résultats réels de la chaîne.
  */
 
@@ -27,7 +31,11 @@ export interface PreflightResult {
   titles: TitleScore[];
   thumbnail: ThumbnailScore | null;
   script: ScriptScore | null;
+  video: VideoFileScore | null;
   prediction: Prediction;
+  /** Ce que dit le modèle entraîné (null tant qu'il n'a pas été entraîné). */
+  model: (Pick<ModelPrediction, 'trainedAt' | 'n' | 'metrics' | 'drivers'> & { topicPhase: number | null; topicRecent7d: number }) | null;
+  publishAt: string;
   nichePrior: { p2x: number; p10x: number; n: number };
   errors: string[];
 }
@@ -39,7 +47,11 @@ export interface PreflightInput {
   titles: string[];
   script?: string | null;
   thumbnail?: { mimeType: string; base64: string } | null;
+  /** Vidéo finie, déjà envoyée à Gemini par le navigateur. */
+  video?: { name: string; uri: string; mimeType: string; durationS?: number | null } | null;
   baselineViews?: number | null;
+  ytChannelId?: string | null;
+  publishAt?: Date | null;
 }
 
 // ── Vues à un âge donné (instantanés quotidiens) ─────────────────────
@@ -127,16 +139,19 @@ export async function runPreflight(db: SupabaseClient, input: PreflightInput): P
   const titles = input.titles.map((t) => t.trim()).filter(Boolean).slice(0, 3);
   const errors: string[] = [];
   const nicheIds = [input.nicheId];
+  const publishAt = input.publishAt && !Number.isNaN(input.publishAt.getTime()) ? input.publishAt : new Date(Date.now() + 86_400_000);
 
-  const [{ scores, prior }, winners, calibration] = await Promise.all([
+  const [{ scores, prior }, winners, calibration, model] = await Promise.all([
     scoreTitles(db, nicheIds, titles),
     topNicheOutliers(db, nicheIds, 8),
     getCalibration(db, input.userId, input.userChannelId),
+    loadModel(db),
   ]);
 
   const best = [...scores].sort((a, b) => b.score - a.score)[0];
   let thumbnail: ThumbnailScore | null = null;
   let script: ScriptScore | null = null;
+  let video: VideoFileScore | null = null;
   if (geminiEnabled()) {
     const tasks: Promise<void>[] = [];
     if (input.thumbnail) {
@@ -153,28 +168,70 @@ export async function runPreflight(db: SupabaseClient, input: PreflightInput): P
           .catch((e) => void errors.push(`Script : ${(e as Error).message.slice(0, 160)}`)),
       );
     }
+    if (input.video) {
+      const vf = input.video;
+      tasks.push(
+        scoreVideoFile(db, { uri: vf.uri, mimeType: vf.mimeType }, best.title, vf.durationS ?? null)
+          .then((r) => void (video = r))
+          .catch((e) => void errors.push(`Vidéo : ${(e as Error).message.slice(0, 160)}`))
+          .finally(() => deleteFile(vf.name)),
+      );
+    }
     await Promise.all(tasks);
-  } else if (input.thumbnail || input.script) {
-    errors.push('Miniature et script non notés : ajoute la clé GEMINI_API_KEY.');
+  } else if (input.thumbnail || input.script || input.video) {
+    errors.push('Miniature, script et vidéo non notés : ajoute la clé GEMINI_API_KEY.');
   }
 
   // Note globale : moyenne pondérée des parties évaluées.
   const th = thumbnail as ThumbnailScore | null;
   const sc = script as ScriptScore | null;
-  const parts: [number, number][] = [[best.score, 0.4]];
-  if (th) parts.push([th.score, 0.35]);
-  if (sc) parts.push([sc.score, 0.25]);
+  const vd = video as VideoFileScore | null;
+  const parts: [number, number][] = [[best.score, 0.3]];
+  if (th) parts.push([th.score, 0.25]);
+  if (sc) parts.push([sc.score, 0.15]);
+  if (vd) parts.push([vd.score, 0.3]);
   const overall = Math.round(parts.reduce((s, [v, w]) => s + v * w, 0) / parts.reduce((s, [, w]) => s + w, 0));
 
-  // Prédiction : le titre donne la base, la qualité de la miniature et du script la module (×0,7 à ×1,3),
-  // le recalibrage sur les vidéos déjà publiées de la chaîne corrige le tout.
-  const quality = [th?.score, sc?.score].filter((x): x is number => typeof x === 'number');
+  // ── Prédiction ──
+  // 1. Contexte (modèle entraîné sur toutes les vidéos suivies) : moment, chaîne, sujet, format, forme du titre.
+  // 2. Ressemblance du titre avec les gagnants de la niche (écart à la moyenne de la niche).
+  // 3. Qualité de la miniature, du script et du montage (×0,7 à ×1,3).
+  // 4. Recalibrage sur les vidéos déjà publiées de la chaîne.
+  const durationS = vd?.durationS ?? input.video?.durationS ?? (sc ? Math.round(sc.est_minutes * 60) : null);
+  let modelPart: PreflightResult['model'] = null;
+  let logCore: number;
+  if (model) {
+    const ctx = await plannedContext(db, {
+      ytChannelId: input.ytChannelId ?? null,
+      title: best.title,
+      durationS,
+      publishAt,
+      neighborIds: best.neighborIds,
+      fallbackBaseline: input.baselineViews ?? null,
+    });
+    const mp = predictWithModel(model, ctx);
+    const knnDelta = best.multiple !== null ? Math.log(best.multiple) - prior.logMean : 0;
+    logCore = mp.logPred + 0.6 * knnDelta;
+    modelPart = { trainedAt: mp.trainedAt, n: mp.n, metrics: mp.metrics, drivers: mp.drivers, topicPhase: ctx.topicPhase, topicRecent7d: ctx.topicRecent7d };
+  } else {
+    logCore = Math.log(best.multiple ?? 1);
+  }
+  const quality = [th?.score, sc?.score, vd?.score].filter((x): x is number => typeof x === 'number');
   const q = quality.length ? quality.reduce((a, b) => a + b, 0) / quality.length / 100 : 0.5;
-  const adj = 0.7 + 0.6 * q;
-  const baseMultiple = best.multiple ?? 1;
-  const multiple = Math.round(baseMultiple * adj * calibration.factor * 100) / 100;
-  const p2x = Math.min(0.95, Math.max(0.01, (best.p2x ?? prior.p2x) * adj * Math.sqrt(calibration.factor)));
-  const p10x = Math.min(0.5, Math.max(0.002, (best.p10x ?? prior.p10x) * adj * Math.sqrt(calibration.factor)));
+  const logFinal = logCore + Math.log(0.7 + 0.6 * q) + Math.log(calibration.factor);
+  const multiple = Math.round(Math.exp(logFinal) * 100) / 100;
+  let p2x: number;
+  let p10x: number;
+  if (model) {
+    p2x = probAbove(model, logFinal, Math.log(2));
+    p10x = probAbove(model, logFinal, Math.log(10));
+  } else {
+    const adj = (0.7 + 0.6 * q) * Math.sqrt(calibration.factor);
+    p2x = (best.p2x ?? prior.p2x) * adj;
+    p10x = (best.p10x ?? prior.p10x) * adj;
+  }
+  p2x = Math.min(0.95, Math.max(0.01, p2x));
+  p10x = Math.min(0.5, Math.max(0.002, p10x));
   const baselineViews = input.baselineViews ?? null;
 
   const result: PreflightResult = {
@@ -184,6 +241,7 @@ export async function runPreflight(db: SupabaseClient, input: PreflightInput): P
     titles: scores,
     thumbnail: th,
     script: sc,
+    video: vd,
     prediction: {
       multiple,
       p2x: Math.round(p2x * 1000) / 1000,
@@ -191,11 +249,15 @@ export async function runPreflight(db: SupabaseClient, input: PreflightInput): P
       expectedViews: baselineViews ? Math.round(baselineViews * multiple) : null,
       baselineViews,
       calibration: { factor: calibration.factor, n: calibration.n },
-      basis: best.multiple === null
-        ? 'Pas encore assez de vidéos comparables dans la niche : estimation sur la moyenne de la niche.'
-        : `Basé sur les vidéos de la niche aux titres les plus proches (poids de preuve ${best.evidence}).`,
+      basis: model
+        ? `Modèle entraîné sur ${nf(model.n)} vidéos suivies par TubLyTI, plus la ressemblance du titre avec les gagnants de ta niche.`
+        : best.multiple === null
+          ? 'Pas encore assez de vidéos comparables dans la niche : estimation sur la moyenne de la niche.'
+          : `Basé sur les vidéos de la niche aux titres les plus proches (poids de preuve ${best.evidence}). Le modèle complet s’activera après son premier entraînement.`,
     },
-    nichePrior: prior,
+    model: modelPart,
+    publishAt: publishAt.toISOString(),
+    nichePrior: { p2x: prior.p2x, p10x: prior.p10x, n: prior.n },
     errors,
   };
 
