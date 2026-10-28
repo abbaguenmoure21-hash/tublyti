@@ -79,7 +79,7 @@ export function Sidebar({ niches, scope, badges, dataFresh, userLabel, isAdmin =
     <aside
       aria-label="Barre latérale"
       data-collapsed={c || undefined}
-      className={`elev-2 sticky top-2 my-2 ml-2 hidden h-[calc(100vh-16px)] shrink-0 flex-col gap-1 overflow-y-auto overflow-x-hidden rounded-[22px] bg-card/75 py-4 backdrop-blur-2xl backdrop-saturate-150 transition-[width,padding] duration-200 ease-standard motion-reduce:transition-none md:flex ${
+      className={`elev-2 sticky top-2 my-2 ml-2 hidden h-[calc(100vh-16px)] shrink-0 flex-col gap-1 overflow-y-auto overflow-x-hidden rounded-panel bg-card/75 py-4 backdrop-blur-2xl backdrop-saturate-150 transition-[width,padding] duration-200 ease-standard motion-reduce:transition-none md:flex ${
         c ? 'w-[68px] items-center px-2' : 'w-[248px] px-3'
       }`}
     >

@@ -18,7 +18,7 @@ export function MobileTabBar() {
     <nav
       aria-label="Navigation principale"
       style={{ gridTemplateColumns: `repeat(${TABS.length}, minmax(0, 1fr))` }}
-      className="elev-3 fixed inset-x-3 bottom-[max(12px,env(safe-area-inset-bottom))] z-40 grid h-16 rounded-[24px] bg-card/80 backdrop-blur-2xl backdrop-saturate-150 md:hidden"
+      className="elev-3 fixed inset-x-3 bottom-[max(12px,env(safe-area-inset-bottom))] z-40 grid h-16 rounded-bar bg-card/80 backdrop-blur-2xl backdrop-saturate-150 md:hidden"
     >
       {TABS.map((tab) => {
         const active = isActive(pathname, tab.match);

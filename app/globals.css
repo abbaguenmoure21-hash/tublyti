@@ -108,6 +108,8 @@
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
+  --radius-panel: 22px; /* panneaux flottants : barre latérale, inspecteur */
+  --radius-bar: 24px; /* barre d'onglets mobile */
 }
 
 /* ─── Light theme ─── */
