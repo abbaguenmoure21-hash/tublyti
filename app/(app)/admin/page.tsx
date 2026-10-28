@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { ChevronRight } from 'lucide-react';
 import { createServiceClient } from '@/lib/supabase/server';
+import { readAllPages } from '@/lib/supabase/rpc-fallback';
 import { requireAdmin } from '@/lib/auth/session';
 import { jobLabel } from '@/lib/jobs/labels';
 import { isSensitiveTopic } from '@/lib/topics/sensitive';
@@ -21,21 +22,22 @@ export default async function AdminPage() {
   const db = createServiceClient();
   const weekAgo = new Date(Date.now() - 7 * 86_400_000).toISOString();
   const [proposed, candidates, channels, profiles, noChannel, waitlist, jobs, autoTopics, autoChannels] = await Promise.all([
-    db.from('topics').select('id, label', { count: 'exact' }).eq('status', 'proposed').limit(2000),
+    // Paginated: limit(2000) was capped at 1,000 rows, so the sensitive count could be too low.
+    readAllPages<{ id: string; label: string }>((from, to) => db.from('topics').select('id, label').eq('status', 'proposed').order('id').range(from, to)),
     db.from('candidate_channels').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
     db.from('channels').select('id', { count: 'exact', head: true }),
     db.from('profiles').select('user_id', { count: 'exact', head: true }).eq('role', 'client'),
-    db.from('user_channels').select('user_id'),
+    readAllPages<{ user_id: string }>((from, to) => db.from('user_channels').select('id, user_id').order('id').range(from, to)),
     db.from('waitlist').select('id', { count: 'exact', head: true }),
     db.from('jobs').select('id, kind, started_at, finished_at, error, quota_used').order('started_at', { ascending: false }).limit(8),
     db.from('topics').select('id', { count: 'exact', head: true }).eq('validated_by', 'auto').eq('status', 'active').gte('validated_at', weekAgo),
     db.from('candidate_channels').select('id', { count: 'exact', head: true }).in('status', ['accepted', 'followed']).gte('decided_at', weekAgo),
   ]);
 
-  const proposedRows = (proposed.data ?? []) as { id: string; label: string }[];
+  const proposedRows = proposed.data;
   const sensitiveCount = proposedRows.filter((t) => isSensitiveTopic(t.label)).length;
-  const waitingCount = Math.max(0, (proposed.count ?? proposedRows.length) - sensitiveCount);
-  const withChannel = new Set(((noChannel.data ?? []) as { user_id: string }[]).map((r) => r.user_id)).size;
+  const waitingCount = Math.max(0, proposedRows.length - sensitiveCount);
+  const withChannel = new Set(noChannel.data.map((r) => r.user_id)).size;
   const todo = [
     { n: sensitiveCount, label: `sujets sensibles à décider toi-même · ${waitingCount} autre${waitingCount > 1 ? 's' : ''} en attente du robot (publiés seuls dès 5 vidéos de 3 chaînes)`, href: '/admin/sujets' },
     { n: candidates.count ?? 0, label: 'chaînes candidates pas encore lues (niche et décision automatiques chaque nuit)', href: '/channels/candidates' },
