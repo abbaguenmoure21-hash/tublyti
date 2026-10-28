@@ -5,6 +5,14 @@ import nextTs from "eslint-config-next/typescript";
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
+  {
+    // Pages under app/(app) are async Server Components rendered once per request:
+    // Date.now() there cannot cause a server/client mismatch. Keep the rule for
+    // client components (hydration risk). A page that adds 'use client' must not
+    // rely on this override.
+    files: ["app/(app)/**/page.tsx"],
+    rules: { "react-hooks/purity": "off" },
+  },
   // Override default ignores of eslint-config-next.
   globalIgnores([
     // Default ignores of eslint-config-next:
