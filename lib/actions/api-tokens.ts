@@ -14,9 +14,11 @@ function hashToken(token: string): string {
 
 type ToolsUser = NonNullable<Awaited<ReturnType<typeof getToolsUser>>>;
 
+// Q is a supabase-js filter builder whose eq() returns `this`. A generic constraint
+// on Q triggers TS2589 (builder types too deep), hence the narrow structural cast.
+type EqFilterable<Q> = { eq(column: string, value: string): Q };
 function mine<Q>(q: Q, user: ToolsUser): Q {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return user.personal ? (q as any).eq('user_id', user.id) : q;
+  return user.personal ? (q as unknown as EqFilterable<Q>).eq('user_id', user.id) : q;
 }
 
 /**
