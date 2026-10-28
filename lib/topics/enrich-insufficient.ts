@@ -379,8 +379,9 @@ export async function searchForEmergingTopics(
 
               const sim = cosineSimilarity(emb, topic.embedding);
               if (sim >= ATTACH_THRESHOLD) {
-                await db.from('videos').update({ topic_id: topic.id }).eq('id', sr.videoId);
-                result.videosAttached++;
+                const { error: attachError } = await db.from('videos').update({ topic_id: topic.id }).eq('id', sr.videoId);
+                if (attachError) console.error('[enrich] attach failed', sr.videoId, attachError.message);
+                else result.videosAttached++;
               }
             } catch {
               // Embedding failed — video stays for next embed pass
