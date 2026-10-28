@@ -1,6 +1,7 @@
 'use client';
 
 import { getMgiBand, type ConfidenceResult } from '@/lib/scoring/mgi';
+import { InfoHint } from '@/components/tublyti/info-hint';
 
 const CONFIDENCE_LABELS: Record<string, string> = {
   high: 'Élevée',
@@ -97,13 +98,10 @@ export function MgiScore({
       {(confidence || freshness) && (
         <div className="flex items-center gap-2 text-[11px] text-muted-foreground ml-[2.5rem] pl-2">
           {confidence && (
-            <span className="group relative cursor-help flex items-center gap-1">
-              <span className={`w-1.5 h-1.5 rounded-full ${CONFIDENCE_DOTS[confidence.level]}`} />
+            <InfoHint hint={confidence.reason} className="flex items-center gap-1">
+              <span aria-hidden="true" className={`w-1.5 h-1.5 rounded-full ${CONFIDENCE_DOTS[confidence.level]}`} />
               {CONFIDENCE_LABELS[confidence.level]}
-              <span className="absolute bottom-full left-0 mb-1 hidden group-hover:block bg-popover text-popover-foreground text-[11px] px-2 py-1 rounded shadow-md border border-border whitespace-nowrap z-10">
-                {confidence.reason}
-              </span>
-            </span>
+            </InfoHint>
           )}
           {confidence && freshness && <span className="text-border">\u00b7</span>}
           {freshness && (

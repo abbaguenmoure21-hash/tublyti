@@ -546,7 +546,7 @@ export default async function TodayPage() {
                             <PhaseBadge phase={t.phase} />
                             {t.feasibilityGrade && <FeasibilityBadge grade={t.feasibilityGrade} />}
                           </div>
-                          <div className="opacity-0 group-hover:opacity-100 transition-opacity scale-90 origin-right">
+                          <div className="md:opacity-0 md:group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity scale-90 origin-right">
                             <MarkProductionButton topicId={t.id} />
                           </div>
                         </div>
