@@ -71,6 +71,12 @@ async function fetchAllRows<T>(
   return rows;
 }
 
+/** Up to n values picked at uniform quantiles of a sorted array (keeps min, max and the shape). */
+export function quantileSample(sorted: number[], n: number): number[] {
+  if (sorted.length <= n) return sorted;
+  return Array.from({ length: n }, (_, i) => sorted[Math.round((i * (sorted.length - 1)) / (n - 1))]);
+}
+
 // ── Main service ─────────────────────────────────────────────────────
 
 export async function runScore(
@@ -543,18 +549,21 @@ export async function runScore(
     });
 
     const ownerSubs = topic.owner_channel ? (ownerSubsByChannel.get(topic.owner_channel) ?? null) : null;
-    const compSubs: number[] = [];
+    // One value per competing channel (a big channel with 15 videos used to weigh 15 times).
+    const subsByChannel = new Map<string, number>();
     const videos = videosByTopic.get(topic.id) ?? [];
     for (const v of videos) {
       if (v.published_at >= cutoff90d && (v.duration_s ?? 0) >= 480) {
         const subs = channelSubs.get(v.channel_id) ?? 0;
-        if (subs >= 10_000) compSubs.push(subs);
+        if (subs >= 10_000) subsByChannel.set(v.channel_id, Math.max(subsByChannel.get(v.channel_id) ?? 0, subs));
       }
     }
+    const compSubs = [...subsByChannel.values()];
     const feasibility = computeFeasibility(ownerSubs, compSubs, c.longQualityCount);
 
-    // Sort and cap competitor subs for per-user feasibility at display time
-    const competitorSubs = compSubs.sort((a, b) => a - b).slice(0, 200);
+    // Sorted, capped at 200 by uniform quantiles (not the 200 smallest: that made big
+    // topics look easy in the per-user feasibility computed at display time).
+    const competitorSubs = quantileSample([...compSubs].sort((a, b) => a - b), 200);
 
     scored.push({
       topicIndex: c.topicIndex,

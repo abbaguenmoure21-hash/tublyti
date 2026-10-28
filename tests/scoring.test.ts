@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest';
+import { quantileSample } from '../lib/scoring/score-service';
+import { computeFeasibilityForUser } from '../lib/scoring/feasibility-for-user';
 import {
   computeMGI,
   computePercentile,
@@ -225,5 +227,19 @@ describe('computePhase', () => {
     expect(
       computePhase({ uploadsRecent4w: 1, uploadsOlder8w: 20, medianOutlierAgeDays: 5, totalVideos: 25 }),
     ).toBe(3);
+  });
+});
+
+// ── Feasibility sampling (one value per channel, uniform quantiles) ──
+
+describe('competitor subs sampling', () => {
+  it('same grade with and without the 200 cap', () => {
+    // 300 channels from 10 k to 10 M subscribers (log-spaced).
+    const subs = Array.from({ length: 300 }, (_, i) => Math.round(10_000 * Math.pow(1000, i / 299)));
+    const full = computeFeasibilityForUser(50_000, subs);
+    const capped = computeFeasibilityForUser(50_000, quantileSample(subs, 200));
+    expect(capped.grade).toBe(full.grade);
+    // The old cap (200 smallest) would have looked easier.
+    expect(computeFeasibilityForUser(50_000, subs.slice(0, 200)).grade <= full.grade).toBe(true);
   });
 });

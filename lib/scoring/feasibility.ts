@@ -40,8 +40,8 @@ export function gradeWeight(grade: FeasibilityGrade): number {
  * Compute feasibility grade for a topic.
  *
  * @param ownerSubs - subscriber count of the owner's channel for this niche
- * @param competitorSubs - subscriber counts of channels that published qualified videos
- * @param qualifiedCount - number of qualified videos for this topic (in last 180 days)
+ * @param competitorSubs - subscriber counts of channels that published qualified videos (one per channel)
+ * @param qualifiedCount - number of qualified videos for this topic (in last 90 days)
  */
 export function computeFeasibility(
   ownerSubs: number | null,
@@ -64,7 +64,8 @@ export function computeFeasibility(
 
   // Median competitor subscriber count
   const sorted = [...competitorSubs].sort((a, b) => a - b);
-  const medianCompSubs = sorted[Math.floor(sorted.length / 2)];
+  const mid = Math.floor(sorted.length / 2);
+  const medianCompSubs = sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
   const subsRatio = medianCompSubs > 0 ? ownerSubs / medianCompSubs : 1;
 
   // Grade determination
@@ -73,10 +74,10 @@ export function computeFeasibility(
 
   if (ratio >= 0.6 || (subsRatio >= 1.5 && ratio >= 0.3)) {
     grade = 'A';
-    reason = `${smallerOrEqual} des ${competitorSubs.length} bonnes vidéos viennent de chaînes plus petites ou de ta taille.`;
+    reason = `${smallerOrEqual} des ${competitorSubs.length} chaînes qui publient de bonnes vidéos sont plus petites ou de ta taille.`;
   } else if (ratio >= 0.4 || subsRatio >= 1.0) {
     grade = 'B';
-    reason = `${smallerOrEqual} des ${competitorSubs.length} vidéos qui marchent viennent de chaînes plus petites que la tienne.`;
+    reason = `${smallerOrEqual} des ${competitorSubs.length} chaînes qui publient des vidéos qui marchent sont plus petites que la tienne.`;
   } else if (ratio >= 0.2 || subsRatio >= 0.5) {
     grade = 'C';
     reason = `Compétition mixte : ${smallerOrEqual} des ${competitorSubs.length} vidéos viennent de chaînes de ta taille ou plus petites.`;
