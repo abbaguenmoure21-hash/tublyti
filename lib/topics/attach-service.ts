@@ -76,23 +76,35 @@ export async function runAttachAll(
   if (topicList.length === 0) return { attached: 0, orphans: 0 };
 
   // Channel → niche mapping
-  const { data: channels } = await db.from('channels').select('id, niche_id');
-  const channelNiche = new Map((channels ?? []).map((c) => [c.id, c.niche_id]));
+  // Paginated (Supabase caps at 1 000 rows: channels beyond made their videos « orphans » for no reason).
+  const channels: { id: string; niche_id: string | null }[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await db.from('channels').select('id, niche_id').order('id').range(from, from + 999);
+    if (error) throw new Error(`attach: read channels: ${error.message}`);
+    channels.push(...(data ?? []));
+    if ((data ?? []).length < 1000) break;
+  }
+  const channelNiche = new Map(channels.map((c) => [c.id, c.niche_id]));
 
   const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
-  let offset = 0;
+  // Keyset pagination on id: attaching a video removes it from the `topic_id is null` filter, so the old
+  // `offset += page` skipped as many unseen videos as had just been attached (and range() had no order).
+  let lastId = '';
   let totalAttached = 0;
   let totalOrphans = 0;
   const touchedTopics = new Set<string>();
 
   while (Date.now() < deadlineMs) {
-    const { data: videos } = await db
+    const { data: videos, error: vErr } = await db
       .from('videos')
       .select('id, channel_id, title_embedding')
       .is('topic_id', null)
       .not('title_embedding', 'is', null)
       .gte('published_at', cutoff)
-      .range(offset, offset + PAGE_SIZE - 1);
+      .gt('id', lastId)
+      .order('id')
+      .limit(PAGE_SIZE);
+    if (vErr) throw new Error(`attach: read orphan videos: ${vErr.message}`);
 
     if (!videos?.length) break;
 
@@ -135,7 +147,7 @@ export async function runAttachAll(
       }
     }
 
-    offset += videos.length;
+    lastId = videos[videos.length - 1]!.id;
     if (videos.length < PAGE_SIZE) break;
   }
 

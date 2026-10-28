@@ -151,24 +151,35 @@ export async function runAttachInsufficient(
   }
 
   // Channel → niche mapping
-  const { data: channels } = await db.from('channels').select('id, niche_id');
-  const channelNiche = new Map((channels ?? []).map((c) => [c.id, c.niche_id]));
+  // Paginated: Supabase caps a select at 1 000 rows.
+  const channels: { id: string; niche_id: string | null }[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await db.from('channels').select('id, niche_id').order('id').range(from, from + 999);
+    if (error) throw new Error(`enrich-insufficient: read channels: ${error.message}`);
+    channels.push(...(data ?? []));
+    if ((data ?? []).length < 1000) break;
+  }
+  const channelNiche = new Map(channels.map((c) => [c.id, c.niche_id]));
 
   // Track how many attached per topic
   const attachCount = new Map<string, number>();
 
   const cutoff30d = new Date(Date.now() - 30 * 86_400_000).toISOString();
   const PAGE = 500;
-  let offset = 0;
+  // Keyset on id (attached videos leave the filter: offset pagination skipped unseen videos).
+  let lastId = '';
 
   while (Date.now() < deadlineMs) {
-    const { data: videos } = await db
+    const { data: videos, error: vErr } = await db
       .from('videos')
       .select('id, channel_id, title_embedding')
       .is('topic_id', null)
       .not('title_embedding', 'is', null)
       .gte('published_at', cutoff30d)
-      .range(offset, offset + PAGE - 1);
+      .gt('id', lastId)
+      .order('id')
+      .limit(PAGE);
+    if (vErr) throw new Error(`enrich-insufficient: read orphan videos: ${vErr.message}`);
 
     if (!videos?.length) break;
 
@@ -203,7 +214,7 @@ export async function runAttachInsufficient(
       }
     }
 
-    offset += videos.length;
+    lastId = videos[videos.length - 1]!.id;
     if (videos.length < PAGE) break;
   }
 
