@@ -10,6 +10,9 @@ import { HOOK_TYPES } from '@/lib/preflight/hook-types';
 import { PhaseBadge } from '@/components/tublyti/phase-badge';
 
 const nf = new Intl.NumberFormat('fr-FR');
+/** Same threshold as lib/preflight/engine.ts (SCRIPT_MIN_WORDS): shorter scripts are not scored. */
+const SCRIPT_MIN_WORDS = 40;
+
 /** Probability: "moins de 1 %" under 1 %, one decimal under 10 % (never a misleading "0 %"). */
 const pct = (x: number) => {
   const v = x * 100;
@@ -144,15 +147,21 @@ export function PreflightForm({ userChannelId, aiEnabled }: { userChannelId: str
 
           <label className="flex flex-col gap-2">
             <span className="flex items-baseline justify-between text-[13px] font-medium">
-              Script <span className="font-normal text-muted-foreground">facultatif · {words ? `${nf.format(words)} mots ≈ ${Math.max(1, Math.round(words / 150))} min` : 'au moins l’accroche'}</span>
+              Script <span className="font-normal text-muted-foreground">facultatif · {words ? `${nf.format(words)} mots ≈ ${words < 150 ? `${Math.max(1, Math.round((words / 150) * 60))} s` : `${Math.round(words / 150)} min`}` : 'au moins l’accroche'}</span>
             </span>
             <textarea
               value={script}
               onChange={(e) => setScript(e.target.value)}
               rows={7}
               placeholder="Colle ton script, ou au moins les 30 premières secondes (l’accroche compte double)."
+              aria-describedby="pf-script-hint"
               className="rounded-[10px] border border-input bg-background px-3 py-2.5 text-[14px] leading-relaxed outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
             />
+            {words > 0 && words < SCRIPT_MIN_WORDS && (
+              <span id="pf-script-hint" className="text-[12px] text-muted-foreground">
+                Encore {SCRIPT_MIN_WORDS - words} mot{SCRIPT_MIN_WORDS - words > 1 ? 's' : ''} pour que le script soit noté.
+              </span>
+            )}
           </label>
 
           <VideoUploader state={video} onChange={setVideo} aiEnabled={aiEnabled} />
@@ -203,7 +212,7 @@ export function PreflightForm({ userChannelId, aiEnabled }: { userChannelId: str
             // eslint-disable-next-line @next/next/no-img-element
             <img src={thumb.preview} alt="" className="aspect-video w-[168px] rounded-md object-cover" />
           )}
-          {!aiEnabled && <p className="text-[12px] text-muted-foreground">Miniature et script seront notés une fois la clé Gemini ajoutée.</p>}
+          {!aiEnabled && <p className="text-[12px] text-muted-foreground">La note de la miniature, du script et de la vidéo n’est pas disponible pour le moment : seul le titre sera noté.</p>}
         </div>
 
         <div className="flex flex-col gap-3 md:col-span-2 md:flex-row md:items-center">
@@ -557,14 +566,14 @@ function VideoUploader({ state, onChange: setState, aiEnabled }: { state: Upload
       }
       if (xhr.status >= 300 || !f.name) return onChange({ ...base, durationS, status: 'error', error: `Envoi refusé (${xhr.status}).` });
       onChange({ ...base, durationS, progress: 1, status: 'processing' });
-      // Gemini prépare la vidéo (souvent 10 s à 2 min).
+      // The AI provider prepares the video (often 10 s to 2 min).
       for (let i = 0; i < 90; i++) {
         if (!alive()) return;
         const st = await videoUploadState(f.name);
         if (st.state === 'ACTIVE' && st.uri) {
           return onChange({ ...base, durationS, progress: 1, status: 'ready', file: { name: f.name, uri: st.uri, mimeType: st.mimeType ?? f.mimeType ?? 'video/mp4' } });
         }
-        if (st.state === 'FAILED') return onChange({ ...base, durationS, status: 'error', error: st.error ?? 'Gemini n’a pas pu lire la vidéo.' });
+        if (st.state === 'FAILED') return onChange({ ...base, durationS, status: 'error', error: st.error ?? 'L’IA n’a pas pu lire la vidéo. Essaie un export en MP4.' });
         await new Promise((r) => setTimeout(r, 4000));
       }
       onChange({ ...base, durationS, status: 'error', error: 'La préparation de la vidéo prend trop de temps. Réessaie.' });
@@ -620,7 +629,7 @@ function VideoUploader({ state, onChange: setState, aiEnabled }: { state: Upload
             </>
           )}
           {state.status === 'processing' && (
-            <span className="flex items-center gap-2 text-[12px] text-muted-foreground"><Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> Gemini prépare la vidéo…</span>
+            <span className="flex items-center gap-2 text-[12px] text-muted-foreground"><Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> L’IA prépare ta vidéo…</span>
           )}
           {state.status === 'ready' && (
             <span className="flex items-center gap-2 text-[12px] text-phase-2-ink"><Check className="h-3.5 w-3.5" aria-hidden="true" /> Prête à être analysée{state.durationS ? ` · ${Math.floor(state.durationS / 60)} min ${String(state.durationS % 60).padStart(2, '0')}` : ''}</span>

@@ -135,6 +135,24 @@ export async function getCalibration(db: SupabaseClient, userId: string, userCha
 
 // ── Évaluation ───────────────────────────────────────────────────────
 
+/** Below this, the script is not scored (shared with the form's counter). */
+export const SCRIPT_MIN_WORDS = 40;
+
+/**
+ * Client-facing wording of a partial failure: provider names, keys, HTTP codes and SQL never reach
+ * the screen (LEXIQUE.md). The raw message is logged for the admin.
+ */
+function friendlyError(raw: string): string {
+  if (!/gemini|voyage|api[_ ]?key|_KEY|BASE_URL|AI_BUDGET|migration|supabase|vercel|http|\(\d{3}\)|fetch|json|sql|function/i.test(raw)) return raw;
+  console.warn('[preflight] partial failure:', raw);
+  const part = /^(Miniature|Script|Vidéo)\s*:/.exec(raw)?.[1];
+  if (/budget/i.test(raw)) return `${part ? `${part} : ` : ''}le quota d’analyses IA du mois est atteint. Réessaie le mois prochain.`;
+  if (part) return `${part} : la note n’a pas pu être calculée cette fois. Réessaie dans un instant.`;
+  if (/titre/i.test(raw)) return 'La comparaison avec les titres de ta niche est indisponible pour le moment.';
+  return 'Une partie de l’évaluation n’a pas pu être faite. Réessaie dans un instant.';
+}
+
+
 export async function runPreflight(db: SupabaseClient, input: PreflightInput): Promise<{ id: string | null; result: PreflightResult }> {
   const titles = input.titles.map((t) => t.trim()).filter(Boolean).slice(0, 3);
   const errors: string[] = [];
@@ -162,7 +180,9 @@ export async function runPreflight(db: SupabaseClient, input: PreflightInput): P
           .catch((e) => void errors.push(`Miniature : ${(e as Error).message.slice(0, 160)}`)),
       );
     }
-    if (input.script && input.script.trim().split(/\s+/).length >= 40) {
+    if (input.script && input.script.trim().split(/\s+/).length < SCRIPT_MIN_WORDS) {
+      errors.push(`Script non noté : il faut au moins ${SCRIPT_MIN_WORDS} mots (l’accroche entière) pour le noter.`);
+    } else if (input.script) {
       tasks.push(
         scoreScript(db, input.script, best.title, winners.map((w) => w.id))
           .then((r) => void (script = r))
@@ -180,7 +200,7 @@ export async function runPreflight(db: SupabaseClient, input: PreflightInput): P
     }
     await Promise.all(tasks);
   } else if (input.thumbnail || input.script || input.video) {
-    errors.push('Miniature, script et vidéo non notés : ajoute la clé GEMINI_API_KEY.');
+    errors.push('La note de la miniature, du script et de la vidéo n’est pas disponible pour le moment.');
   }
 
   // Note globale : moyenne pondérée des parties évaluées.
@@ -254,12 +274,12 @@ export async function runPreflight(db: SupabaseClient, input: PreflightInput): P
         ? `Modèle entraîné sur ${nf(model.n)} vidéos suivies par TubLyTI, plus la ressemblance du titre avec les gagnants de ta niche.`
         : best.multiple === null
           ? 'Pas encore assez de vidéos comparables dans la niche : estimation sur la moyenne de la niche.'
-          : `Basé sur les vidéos de la niche aux titres les plus proches (poids de preuve ${best.evidence}). Le modèle complet s’activera après son premier entraînement.`,
+          : 'Basé sur les vidéos de la niche aux titres les plus proches. Le calcul complet s’activera quand assez de vidéos auront été suivies.',
     },
     model: modelPart,
     publishAt: publishAt.toISOString(),
     nichePrior: { p2x: prior.p2x, p10x: prior.p10x, n: prior.n },
-    errors,
+    errors: errors.map(friendlyError),
   };
 
   const { data: row } = await db
@@ -406,8 +426,8 @@ export async function refreshAndFollow(db: SupabaseClient, userId: string, userC
     const ctr = ctrById.get(v.id) ?? null;
     let advice: string;
     if (status === 'above') advice = 'Elle décolle : prépare vite une suite ou un sujet proche, et réponds aux commentaires pour entretenir l’élan.';
-    else if (status === 'below' && ctr !== null && ctr < 0.04) advice = `CTR faible (${(ctr * 100).toFixed(1)} %) : change la miniature ou le titre avec « Tester et comparer » de YouTube Studio : d’abord 3 miniatures très différentes, puis 3 petites variantes de la gagnante.`;
-    else if (status === 'below' && ctr !== null) advice = `Les gens cliquent (CTR ${(ctr * 100).toFixed(1)} %) mais YouTube ne pousse pas : regarde la rétention dans Ma chaîne et analyse la vidéo pour trouver le décrochage.`;
+    else if (status === 'below' && ctr !== null && ctr < 0.04) advice = `Peu de gens cliquent (taux de clic ${(ctr * 100).toLocaleString('fr-FR', { maximumFractionDigits: 1 })} %) : change la miniature ou le titre avec « Tester et comparer » de YouTube Studio : d’abord 3 miniatures très différentes, puis 3 petites variantes de la gagnante.`;
+    else if (status === 'below' && ctr !== null) advice = `Les gens cliquent (taux de clic ${(ctr * 100).toLocaleString('fr-FR', { maximumFractionDigits: 1 })} %) mais YouTube ne pousse pas : regarde la rétention dans Ma chaîne et analyse la vidéo pour trouver le décrochage.`;
     else if (status === 'below') advice = 'En dessous de tes vues habituelles à cet âge : vérifie d’abord la miniature et le titre, puis la rétention des 30 premières secondes.';
     else if (status === 'normal') advice = 'Dans tes vues habituelles.';
     else advice = 'Pas encore assez d’historique à cet âge pour comparer.';

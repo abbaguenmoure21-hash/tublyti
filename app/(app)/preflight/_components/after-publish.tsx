@@ -43,7 +43,7 @@ export function FollowUp({ rows }: { rows: FollowRow[] }) {
                 <span className="text-[12px] text-muted-foreground">
                   {r.ageDays < 1 ? `${Math.round(r.ageDays * 24)} h` : `${r.ageDays.toLocaleString('fr-FR', { maximumFractionDigits: 1 })} j`} · {nf.format(r.views)} vues
                   {r.baseline ? ` · habituel à cet âge : ${nf.format(Math.round(r.baseline))}` : ''}
-                  {r.ctr !== null ? ` · CTR ${(r.ctr * 100).toLocaleString('fr-FR', { maximumFractionDigits: 1 })} %` : ''}
+                  {r.ctr !== null ? ` · taux de clic ${(r.ctr * 100).toLocaleString('fr-FR', { maximumFractionDigits: 1 })} %` : ''}
                 </span>
                 <span className="text-[13px] leading-snug">{r.advice}</span>
               </div>
