@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { isMissingFunction, markRpcMissing, rpcKnownMissing } from '@/lib/supabase/rpc-fallback';
 
 /**
  * Note d'un titre : comparaison avec les vidéos de la niche aux titres les plus proches
@@ -86,6 +87,22 @@ export async function embedTitles(titles: string[]): Promise<number[][] | null> 
 
 /** Taux de base de la niche : part des vidéos à ≥ 2× et ≥ 10×, et multiple médian. */
 async function nichePrior(db: SupabaseClient, nicheIds: string[]) {
+  // One aggregate over every scored video of the niche (migration 00031); legacy sampled path otherwise.
+  if (!rpcKnownMissing('niche_outlier_prior')) {
+    const { data, error } = await db.rpc('niche_outlier_prior', { p_niche_ids: nicheIds });
+    if (!error) {
+      const r = ((data ?? []) as { n: number | string; log_mean: number | null; p2x: number | null; p10x: number | null }[])[0];
+      const n = Number(r?.n ?? 0);
+      if (n < 20) return { logMean: 0, p2x: 0.12, p10x: 0.01, n };
+      return { logMean: Number(r.log_mean ?? 0), p2x: Number(r.p2x ?? 0), p10x: Number(r.p10x ?? 0), n };
+    }
+    if (isMissingFunction(error)) markRpcMissing('niche_outlier_prior');
+    else console.error('[preflight] niche_outlier_prior failed:', error.message);
+  }
+  return nichePriorLegacy(db, nicheIds);
+}
+
+async function nichePriorLegacy(db: SupabaseClient, nicheIds: string[]) {
   const { data: chans } = await db.from('channels').select('id').in('niche_id', nicheIds).limit(500);
   const ids = ((chans ?? []) as { id: string }[]).map((c) => c.id);
   const scores: number[] = [];
@@ -113,16 +130,21 @@ export async function scoreTitles(db: SupabaseClient, nicheIds: string[], titles
 
   const scores: TitleScore[] = [];
   let rpcError: string | null = vectors ? null : 'Analyse des titres indisponible (clé VOYAGE_API_KEY ou EMBEDDING_BASE_URL à vérifier sur Vercel).';
+  // The neighbour searches are independent: run them in parallel instead of one after the other.
+  const matches = await Promise.all(
+    clean.map((_, i) =>
+      vectors?.[i]?.length
+        ? db.rpc('match_niche_videos', { query_embedding: `[${vectors[i].join(',')}]`, niche_ids: nicheIds, match_count: 40 })
+        : null,
+    ),
+  );
   for (let i = 0; i < clean.length; i++) {
     const title = clean[i];
     const { checks, formScore } = titleChecks(title);
     let neighbors: Neighbor[] = [];
-    if (vectors?.[i]?.length) {
-      const { data, error } = await db.rpc('match_niche_videos', {
-        query_embedding: `[${vectors[i].join(',')}]`,
-        niche_ids: nicheIds,
-        match_count: 40,
-      });
+    const match = matches[i];
+    if (match) {
+      const { data, error } = match;
       if (error) rpcError = /does not exist|Could not find the function/i.test(error.message) ? 'Comparaison des titres indisponible : la migration 00029 n’est pas appliquée dans Supabase.' : `Comparaison des titres indisponible : ${error.message.slice(0, 120)}`;
       neighbors = ((data ?? []) as { video_id: string; title: string; channel_title: string | null; similarity: number; score: number }[])
         .filter((n) => n.title && n.title.trim().toLowerCase() !== title.toLowerCase())
@@ -170,6 +192,23 @@ export async function scoreTitles(db: SupabaseClient, nicheIds: string[], titles
 
 /** Vidéos qui ont le plus sur-performé dans la niche (pour la miniature et le script). */
 export async function topNicheOutliers(db: SupabaseClient, nicheIds: string[], limit = 6): Promise<{ id: string; title: string; score: number }[]> {
+  // One query over the whole niche (migration 00031); legacy sampled path otherwise.
+  if (!rpcKnownMissing('top_niche_outliers')) {
+    const { data, error } = await db.rpc('top_niche_outliers', {
+      p_niche_ids: nicheIds,
+      p_since: new Date(Date.now() - 365 * 86_400_000).toISOString(),
+      p_min_duration: 240,
+      p_min_score: 3,
+      p_limit: limit,
+    });
+    if (!error) return ((data ?? []) as { video_id: string; title: string | null; score: number | string }[]).map((r) => ({ id: r.video_id, title: r.title ?? '', score: Number(r.score) }));
+    if (isMissingFunction(error)) markRpcMissing('top_niche_outliers');
+    else console.error('[preflight] top_niche_outliers failed:', error.message);
+  }
+  return topNicheOutliersLegacy(db, nicheIds, limit);
+}
+
+async function topNicheOutliersLegacy(db: SupabaseClient, nicheIds: string[], limit: number): Promise<{ id: string; title: string; score: number }[]> {
   const { data: chans } = await db.from('channels').select('id').in('niche_id', nicheIds).limit(300);
   const ids = ((chans ?? []) as { id: string }[]).map((c) => c.id);
   if (!ids.length) return [];
