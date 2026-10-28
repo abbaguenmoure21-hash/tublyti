@@ -36,6 +36,17 @@ const median = (xs: number[]) => {
   return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
 };
 
+/**
+ * Whole-word match (Unicode-aware): « AI » matches « AI tools » or « l'AI », not « said » or « rain ».
+ * The database `ilike '%ai%'` only pre-filters; this decides.
+ */
+export function containsWord(title: string, term: string): boolean {
+  const t = term.trim();
+  if (!t) return false;
+  const escaped = t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+');
+  return new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, 'iu').test(title);
+}
+
 async function statFor(db: SupabaseClient, term: string, channelIds: string[] | null): Promise<KeywordStat> {
   const pattern = `%${escapeLike(term)}%`;
   const rows: { id: string; title: string; channel_id: string; published_at: string | null }[] = [];
@@ -48,6 +59,10 @@ async function statFor(db: SupabaseClient, term: string, channelIds: string[] | 
     const { data } = await db.from('videos').select('id, title, channel_id, published_at').ilike('title', pattern).order('published_at', { ascending: false }).limit(2000);
     rows.push(...((data ?? []) as typeof rows));
   }
+  // Keep only whole-word matches (short terms like AI / ETF used to match inside other words).
+  const matched = rows.filter((r) => containsWord(r.title ?? '', term));
+  rows.length = 0;
+  rows.push(...matched);
   const scores = new Map<string, { score: number; baseline: number }>();
   for (let i = 0; i < rows.length; i += 200) {
     const { data } = await db.from('video_outliers').select('video_id, score, baseline').in('video_id', rows.slice(i, i + 200).map((r) => r.id));

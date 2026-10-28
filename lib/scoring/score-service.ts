@@ -707,7 +707,8 @@ export async function runScore(
     .gte('captured_at', thirtySixHoursAgo)
     .limit(1);
 
-  // A read error is not "no snapshot": no false alert.
+  // A read error is not "no snapshot": no false alert, but it is logged.
+  if (recentSnapErr) console.error('[Score] silent-collection check failed:', recentSnapErr.message);
   if (!recentSnapErr && (!recentSnap || recentSnap.length === 0)) {
     await alertSender.send({
       kind: 'silent_collection',
