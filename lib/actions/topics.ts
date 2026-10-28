@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { createServiceClient } from '@/lib/supabase/server';
 import { getSessionUser, assertAdmin, isDbReady } from '@/lib/auth/session';
 import { createVideoFromTopic } from '@/lib/actions/sujets';
+import { canSeeTopic } from '@/lib/auth/topic-access';
 
 /** « Passer en production » depuis la fiche d'un sujet : crée une vidéo pour le client connecté. */
 export async function markTopicProduction(topicId: string) {
@@ -14,12 +15,19 @@ export async function markTopicProduction(topicId: string) {
 }
 
 /** Relie la vidéo YouTube publiée à la vidéo en cours du client sur ce sujet. */
-export async function markTopicPublished(topicId: string, videoId: string) {
-  if (!videoId?.trim()) {
+export async function markTopicPublished(topicId: string, rawVideoId: string) {
+  if (!rawVideoId?.trim()) {
     return { error: "L'identifiant de la vidéo publiée est requis." };
   }
+  // Accept a bare YouTube id or a YouTube link; anything else is refused.
+  const trimmed = rawVideoId.trim();
+  const videoId = /^[\w-]{11}$/.test(trimmed)
+    ? trimmed
+    : (trimmed.match(/(?:[?&]v=|youtu\.be\/|\/shorts\/|\/live\/|\/embed\/)([\w-]{11})/)?.[1] ?? null);
+  if (!videoId) return { error: "Ce lien de vidéo YouTube n'est pas reconnu." };
   const user = await getSessionUser();
   if (!user) return { error: 'Connecte-toi pour continuer.' };
+  if (!(await canSeeTopic(user, topicId))) return { error: 'Sujet introuvable.' };
   const db = createServiceClient();
 
   const ready = await isDbReady();
@@ -31,12 +39,12 @@ export async function markTopicPublished(topicId: string, videoId: string) {
     .maybeSingle();
 
   if (mine) {
-    const { error } = await db.from('angles').update({ status: 'published', video_id: videoId.trim() }).eq('id', mine.id);
+    const { error } = await db.from('angles').update({ status: 'published', video_id: videoId }).eq('id', mine.id);
     if (error) return { error: error.message };
   } else {
     const { error } = await db
       .from('angles')
-      .insert({ topic_id: topicId, title: 'Vidéo publiée', status: 'published', video_id: videoId.trim(), ...(ready ? { user_id: user.id } : {}) });
+      .insert({ topic_id: topicId, title: 'Vidéo publiée', status: 'published', video_id: videoId, ...(ready ? { user_id: user.id } : {}) });
     if (error) return { error: error.message };
   }
 
