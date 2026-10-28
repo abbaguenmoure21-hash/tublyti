@@ -139,7 +139,7 @@ export default async function CartePage({ searchParams }: { searchParams: Promis
   const date = scoredAt ? new Date(`${scoredAt}T00:00:00`).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' }) : null;
   const pill = (on: boolean) =>
     `flex h-8 items-center rounded-full px-3.5 text-[13px] font-medium transition-colors ${
-      on ? 'bg-foreground text-background' : 'bg-card text-foreground ring-1 ring-inset ring-border hover:bg-muted'
+      on ? 'bg-primary text-primary-foreground' : 'bg-card text-foreground ring-1 ring-inset ring-border hover:bg-muted'
     }`;
 
   return (
