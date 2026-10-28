@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { ArrowRight, Search, X } from 'lucide-react';
+import { MGI_SCALE } from '@/components/tublyti/mgi-scale';
 import { PhaseBadge } from '@/components/tublyti/phase-badge';
 import { SectionNav } from '@/components/app-shell/section-nav';
 import { PageSection } from '@/components/app-shell/page-section';
@@ -253,7 +254,7 @@ export function GuideView() {
             >
               <div className="flex flex-col gap-2">
                 <div className="flex h-3 overflow-hidden rounded-full" aria-hidden="true">
-                  {['#e2e6ff', '#b7c0f8', '#8c97e9', '#646cd8', '#443cc6'].map((c) => (
+                  {MGI_SCALE.map((c) => (
                     <span key={c} className="flex-1" style={{ background: c }} />
                   ))}
                 </div>

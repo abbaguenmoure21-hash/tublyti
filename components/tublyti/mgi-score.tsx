@@ -1,6 +1,7 @@
 'use client';
 
 import { getMgiBand, type ConfidenceResult } from '@/lib/scoring/mgi';
+import { mgiColor } from './mgi-scale';
 
 const CONFIDENCE_LABELS: Record<string, string> = {
   high: 'Élevée',
@@ -59,7 +60,7 @@ export function MgiScore({
             className="h-full rounded-full transition-all duration-200"
             style={{
               width: `${Math.min(Math.max(rounded, 0), 100)}%`,
-              backgroundColor: band.color,
+              backgroundColor: mgiColor(band.color),
             }}
           />
         </div>
@@ -79,17 +80,11 @@ export function MgiScore({
             className="h-full rounded-full transition-all duration-200"
             style={{
               width: `${Math.min(Math.max(rounded, 0), 100)}%`,
-              backgroundColor: band.color,
+              backgroundColor: mgiColor(band.color),
             }}
           />
         </div>
-        <span
-          className="text-[11px] font-medium px-1.5 py-0.5 rounded"
-          style={{
-            backgroundColor: band.color + '33',
-            color: band.color === '#e2e6ff' || band.color === '#b7c0f8' ? '#424882' : band.color,
-          }}
-        >
+        <span className="text-[11px] font-medium px-1.5 py-0.5 rounded bg-primary-soft text-primary-ink">
           {band.label}
         </span>
       </div>
@@ -107,7 +102,7 @@ export function MgiScore({
           )}
           {confidence && freshness && <span className="text-border">·</span>}
           {freshness && (
-            <span className={isStale ? 'text-[var(--warning)]' : ''}>
+            <span className={isStale ? 'text-warning-ink' : ''}>
               {freshness}
             </span>
           )}
