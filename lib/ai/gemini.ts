@@ -106,8 +106,12 @@ export async function geminiJson<T>(
           cost_usd: out.costUsd,
           meta: opts.meta ?? null,
         });
-      await settleAiBudget(db, reservation, out.costUsd);
+      // Billed by Google from here on: never refund the reservation, even if settling fails
+      // (the reserved estimate then stays counted, which errs on the safe side).
       settled = true;
+      await settleAiBudget(db, reservation, out.costUsd).catch((e: unknown) =>
+        console.error('[ai-budget] settle failed:', e instanceof Error ? e.message : e),
+      );
       if (out.finishReason === 'MAX_TOKENS')
         throw new Error('Réponse de Gemini coupée (trop longue). Réessaie.');
       if (!out.text) throw new Error('Réponse vide de Gemini.');
@@ -150,6 +154,9 @@ export async function geminiJson<T>(
               responseMimeType: 'application/json',
               temperature: opts.temperature ?? 0.3,
               maxOutputTokens: maxOut,
+              // JSON answers: no reasoning tokens eating the output budget (2.5 models only; the
+              // newer ones use another setting and may reject this one).
+              ...(/^gemini-2\.5/.test(model) ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
               ...(opts.mediaResolution ? { mediaResolution: opts.mediaResolution } : {}),
             },
           }),
