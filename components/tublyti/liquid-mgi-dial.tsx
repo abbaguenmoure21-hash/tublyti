@@ -68,7 +68,7 @@ export function LiquidMgiDial({
   }, [springValue]);
 
   return (
-    <div className={`relative inline-flex flex-col items-center gap-2 ${className}`}>
+    <div className={`relative inline-flex flex-col items-center gap-2 ${className}`} role="img" aria-label={`Potentiel ${Math.round(clampedValue)} sur 100, ${label}`}>
       <div className="relative" style={{ width: size, height: size }}>
         <svg
           width={size}

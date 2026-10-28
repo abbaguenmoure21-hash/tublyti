@@ -85,7 +85,7 @@ export function OutlierSaturationButton({ videoId }: { videoId: string }) {
         {res ? LABEL[res.level] : 'Copiée ?'}
       </button>
       {open && (
-        <div className="elev-3 absolute right-0 top-full z-30 mt-1.5 w-[320px] rounded-xl border border-border bg-popover p-3 text-[13px] text-popover-foreground">
+        <div className="elev-3 absolute right-0 top-full z-30 mt-1.5 w-[min(320px,calc(100vw-32px))] rounded-xl border border-border bg-popover p-3 text-[13px] text-popover-foreground">
           {pending && !res ? (
             <span className="flex items-center gap-2 text-muted-foreground"><Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> Recherche des copies dans la niche…</span>
           ) : err ? (

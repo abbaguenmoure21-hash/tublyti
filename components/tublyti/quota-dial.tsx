@@ -60,7 +60,7 @@ export function QuotaDial({
 
   if (mini) {
     return (
-      <div className={`flex items-center gap-2 ${className}`} title={`${label}: ${current} / ${max}`}>
+      <div className={`flex items-center gap-2 ${className}`} title={`${label}: ${current} / ${max}`} role="img" aria-label={`${label} : ${current.toLocaleString('fr-FR')} sur ${max.toLocaleString('fr-FR')}`}>
         <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="-rotate-90">
           <circle
             cx={size / 2}
@@ -96,7 +96,7 @@ export function QuotaDial({
 
   // Full-size gauge
   return (
-    <div className={`relative inline-flex flex-col items-center gap-3 ${className}`}>
+    <div className={`relative inline-flex flex-col items-center gap-3 ${className}`} role="img" aria-label={`${label} : ${current.toLocaleString('fr-FR')} sur ${max.toLocaleString('fr-FR')}`}>
       <div className="relative" style={{ width: size, height: size }}>
         <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="-rotate-90">
           <circle

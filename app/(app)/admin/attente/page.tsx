@@ -42,8 +42,8 @@ export default async function AttentePage() {
       {rows.length === 0 ? (
         <p className="rounded-xl border border-dashed border-border px-6 py-12 text-center text-sm text-muted-foreground">Aucune inscription pour l’instant.</p>
       ) : (
-        <div className="overflow-hidden rounded-xl border border-border bg-card">
-          <table className="w-full text-sm">
+        <div className="overflow-x-auto rounded-xl border border-border bg-card">
+          <table className="w-full min-w-[560px] text-sm">
             <thead className="bg-background text-left text-xs text-muted-foreground">
               <tr>
                 <th className="px-4 py-2.5 font-medium">Adresse</th>
