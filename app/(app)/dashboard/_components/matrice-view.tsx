@@ -62,7 +62,7 @@ function ScatterPlot({
 
   return (
     <section className="flex-1 bento-card !p-4 !pr-4 !pb-2 !pl-2">
-      <svg width="100%" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Matrice demande / offre qualifiée">
+      <svg width="100%" viewBox={`0 0 ${W} ${H}`} role="group" aria-label="Matrice demande / offre qualifiée">
         {/* Blue ocean quadrant — glass effect */}
         <defs>
           <linearGradient id="ocean-gradient" x1="0" y1="0" x2="1" y2="1">
@@ -137,7 +137,21 @@ function ScatterPlot({
             const isSelected = t.id === selectedId;
             const color = phaseColor(t.phase);
             return (
-              <g key={t.id} onClick={() => onSelect(t.id)} className="cursor-pointer">
+              <g
+                key={t.id}
+                onClick={() => onSelect(t.id)}
+                role="button"
+                tabIndex={0}
+                aria-pressed={isSelected}
+                aria-label={`${t.label}, potentiel ${Math.round(t.mgi)}, demande ${Math.round(t.demand)}, offre ${t.supplyQ}`}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    onSelect(t.id);
+                  }
+                }}
+                className="cursor-pointer outline-none [&:focus-visible>circle:last-of-type]:stroke-[var(--ring)] [&:focus-visible>circle:last-of-type]:[stroke-width:3]"
+              >
                 {/* Selection ring */}
                 {isSelected && (
                   <circle cx={cx} cy={cy} r={r + 5} fill="none" stroke="var(--primary)" strokeWidth={2} opacity={0.6} />
