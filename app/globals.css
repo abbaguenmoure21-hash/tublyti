@@ -514,6 +514,12 @@
     background-image: linear-gradient(to bottom, rgb(255 255 255 / 0.12), rgb(255 255 255 / 0));
     box-shadow: var(--button-shine);
   }
+  /* Désactivé : pas de relief, pour ne pas ressembler à un bouton actif. */
+  .bg-primary.text-primary-foreground:disabled,
+  .bg-primary.text-primary-foreground[aria-disabled='true'] {
+    background-image: none;
+    box-shadow: none;
+  }
 
   /* Champs de saisie et pistes de contrôles segmentés : creusés. */
   input:not([type='radio']):not([type='checkbox']):not([type='range']).border-input,
