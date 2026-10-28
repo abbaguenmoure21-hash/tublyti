@@ -43,7 +43,7 @@ export default async function CartePage({ searchParams }: { searchParams: Promis
   const ids = nicheIds.length ? nicheIds : ['00000000-0000-0000-0000-000000000000'];
 
   const scoredAt = await getLatestScoreDate(db);
-  const { data: scores } = await db
+  const { data: scores, error: scoresError } = await db
     .from('topic_scores')
     .select('mgi, demand, frustration, supply_q, phase, confidence, feasibility_grade, feasibility_reason, competitor_subs, topics!inner(id, label, status, niche_id)')
     .eq('scored_at', scoredAt)
@@ -51,6 +51,7 @@ export default async function CartePage({ searchParams }: { searchParams: Promis
     .in('topics.niche_id', ids)
     .order('mgi', { ascending: false })
     .limit(600);
+  if (scoresError) throw new Error(`carte scores failed: ${scoresError.message}`);
 
   const rows = (scores ?? []) as unknown as {
     mgi: number | null; demand: number | null; frustration: number | null; supply_q: number | null; phase: number | null;

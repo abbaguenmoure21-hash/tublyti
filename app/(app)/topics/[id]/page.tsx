@@ -164,7 +164,7 @@ export default async function TopicPage({
   }
 
   // Videos (competitors)
-  const { data: videos } = await db
+  const { data: videos, error: videosError } = await db
     .from('videos')
     .select('id, title, published_at, duration_s, is_qualified, channel_id, channels(title)')
     .eq('topic_id', id)
@@ -228,7 +228,7 @@ export default async function TopicPage({
   });
 
   // Frustrated comments
-  const { data: frustrations } = await db
+  const { data: frustrations, error: frustrationsError } = await db
     .from('comment_labels')
     .select(`
       label, requested_angle, confidence,
@@ -260,7 +260,11 @@ export default async function TopicPage({
     .eq('topic_id', id)
     .order('created_at', { ascending: false });
   if (await isDbReady()) anglesQ = anglesQ.or(`user_id.is.null,user_id.eq.${user.id}`);
-  const { data: angles } = await anglesQ;
+  const { data: angles, error: anglesError } = await anglesQ;
+  // A failed query must show the error state, not empty sections (« Aucune vidéo trouvée »).
+  if (videosError || frustrationsError || anglesError) {
+    throw new Error(`topic page load failed: ${(videosError ?? frustrationsError ?? anglesError)?.message}`);
+  }
 
   // Per-account state (the shared topics.status is not per user since multi-account).
   const ready = await isDbReady();

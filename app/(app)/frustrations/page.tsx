@@ -4,7 +4,7 @@ import { Card, CardContent } from '@/components/ui/card';
 export const metadata = { title: 'Questions du public' };
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { MessageSquareWarning, AlertTriangle, ThumbsUp, TrendingUp, Lightbulb, Target, Clock, Search, PlaySquare } from 'lucide-react';
+import { MessageSquareWarning, ThumbsUp, TrendingUp, Lightbulb, Target, Clock, Search, PlaySquare } from 'lucide-react';
 import { createServiceClient } from '@/lib/supabase/server';
 import { requireUser } from '@/lib/auth/session';
 import { resolveScope } from '@/lib/scope';
@@ -267,7 +267,6 @@ export default async function FrustrationsPage({
   const tab = typeof params.tab === 'string' ? params.tab : 'frustrations';
 
   let items: FrustrationItem[];
-  let fetchError: string | null = null;
   let outlierVideos: OutlierVideo[] = [];
   let allNicheNames: string[] = [];
 
@@ -292,33 +291,9 @@ export default async function FrustrationsPage({
     allNicheNames = [...new Set([...dbNiches, ...itemNiches])].sort();
     
   } catch (err) {
-    items = [];
-    fetchError =
-      err instanceof Error ? err.message : 'Erreur inconnue';
-  }
-
-  /* ---------------------------------------------------------------- */
-  /*  Error state                                                      */
-  /* ---------------------------------------------------------------- */
-  if (fetchError) {
-    return (
-      <div className="flex-1 flex flex-col min-h-full relative overflow-x-clip">
-        <div className="absolute inset-0 pointer-events-none -z-10">
-        </div>
-        <div className="flex-1 p-6 md:px-12 md:py-10 flex flex-col gap-8 w-full max-w-[1400px] mx-auto">
-          <h1 className="text-title-1 leading-tight">Que réclame ton public ?</h1>
-          <div className="bento-card !py-16 flex flex-col items-center justify-center text-center">
-            <AlertTriangle className="size-10 text-destructive mb-4" />
-            <p className="text-[15px] font-semibold text-destructive">
-              {fetchError}
-            </p>
-            <p className="mt-2 text-[13px] text-muted-foreground">
-              Vérifiez votre connexion et rechargez la page.
-            </p>
-          </div>
-        </div>
-      </div>
-    );
+    // Technical detail goes to server logs only; error.tsx shows a human message + « Réessayer ».
+    console.error('[frustrations] load failed', err);
+    throw new Error('Questions du public : chargement impossible.');
   }
 
   /* ---------------------------------------------------------------- */

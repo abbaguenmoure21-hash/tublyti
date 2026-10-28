@@ -68,7 +68,9 @@ export async function listTopics(db: SupabaseClient, f: TopicFilters): Promise<{
   if (f.reliableOnly) q = q.in('confidence', ['high', 'medium']);
   if (f.query) q = q.ilike('topics.label', `%${f.query.replace(/[%_]/g, '')}%`);
 
-  const { data } = await q;
+  const { data, error } = await q;
+  // A failing query must reach the error state, not look like « no topic matches these filters ».
+  if (error) throw new Error(`listTopics failed: ${error.message}`);
   const rows: TopicRow[] = (data ?? [])
     .filter((s) => !ignored.has((s.topics as unknown as { id: string }).id))
     .map((s) => {
@@ -125,7 +127,10 @@ export async function getTopicDetail(db: SupabaseClient, topicId: string, userId
     db.from('angles').select('id', { count: 'exact', head: true }).eq('topic_id', topicId).eq('user_id', userId),
     db.from('user_topic_state').select('state').eq('topic_id', topicId).eq('user_id', userId).maybeSingle(),
   ]);
+  // Not found (PGRST116) → null; any other failure → error state.
+  if (topicRes.error && topicRes.error.code !== 'PGRST116') throw new Error(`getTopicDetail failed: ${topicRes.error.message}`);
   if (topicRes.error || !topicRes.data) return null;
+  if (scoreRes.error) throw new Error(`getTopicDetail score failed: ${scoreRes.error.message}`);
   const topic = topicRes.data as unknown as {
     id: string; label: string; status: string; niche_id: string;
     niches: { name: string } | null;
