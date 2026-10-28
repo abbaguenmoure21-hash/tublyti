@@ -102,7 +102,8 @@ export async function POST(request: NextRequest) {
         return jsonWithCors(request, { error: 'Action inconnue.' }, { status: 400 });
     }
   } catch (e) {
-    const msg = e instanceof Error ? e.message : 'Erreur serveur.';
-    return jsonWithCors(request, { error: msg }, { status: 500 });
+    // Never echo internal (Postgres/exception) messages to the client.
+    console.error('[ext:topic-action]', e);
+    return jsonWithCors(request, { error: 'Petit souci de notre côté, réessaie dans un instant.' }, { status: 500 });
   }
 }
