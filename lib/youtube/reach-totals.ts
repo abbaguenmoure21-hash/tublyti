@@ -24,14 +24,15 @@ export async function getVideoReachTotals(db: SupabaseClient, userChannelId: str
 
   if (!rpcKnownMissing(RPC)) {
     const { data, error } = await db.rpc(RPC, { p_user_channel_id: userChannelId, p_video_ids: ids });
-    if (!isMissingFunction(error)) {
-      if (error) console.error('[reach-totals] rpc failed:', error.message);
+    if (!error) {
       for (const r of (data ?? []) as { video_id: string; impressions: number | string | null; clicks: number | string | null }[]) {
         map.set(r.video_id, { impressions: Number(r.impressions) || 0, clicks: Number(r.clicks) || 0 });
       }
       return map;
     }
-    markRpcMissing(RPC);
+    // Missing function, timeout, revoked EXECUTE…: fall back to the paginated read, never an empty result.
+    if (isMissingFunction(error)) markRpcMissing(RPC);
+    else console.error('[reach-totals] rpc failed, using paginated read:', error.message);
   }
 
   for (let from = 0; ; from += PAGE) {

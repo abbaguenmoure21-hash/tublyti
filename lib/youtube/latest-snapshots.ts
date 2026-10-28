@@ -62,19 +62,24 @@ export async function getLatestSnapshots(db: SupabaseClient, videoIds: string[])
   const ids = [...new Set(videoIds.filter(Boolean))];
   if (!ids.length) return map;
 
-  if (!rpcKnownMissing(RPC)) {
-    const results = await Promise.all(chunk(ids, RPC_BATCH).map((batch) => db.rpc(RPC, { p_video_ids: batch })));
-    const missing = results.find((r) => isMissingFunction(r.error));
-    if (!missing) {
-      for (const r of results) {
-        if (r.error) console.error('[latest-snapshots] rpc failed:', r.error.message);
-        for (const row of (r.data ?? []) as SnapshotRow[]) put(map, row);
-      }
-      return map;
-    }
-    markRpcMissing(RPC);
+  if (rpcKnownMissing(RPC)) {
+    await legacy(db, ids, map);
+    return map;
   }
-
-  await legacy(db, ids, map);
+  const batches = chunk(ids, RPC_BATCH);
+  const results = await Promise.all(batches.map((batch) => db.rpc(RPC, { p_video_ids: batch })));
+  // Any failed batch (missing function, timeout, revoked EXECUTE…) is re-read through the
+  // paginated path: never return silently empty views.
+  const failed: string[] = [];
+  results.forEach((r, i) => {
+    if (r.error) {
+      if (isMissingFunction(r.error)) markRpcMissing(RPC);
+      else console.error('[latest-snapshots] rpc failed, using paginated read:', r.error.message);
+      failed.push(...batches[i]);
+      return;
+    }
+    for (const row of (r.data ?? []) as SnapshotRow[]) put(map, row);
+  });
+  if (failed.length) await legacy(db, failed, map);
   return map;
 }

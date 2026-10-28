@@ -58,20 +58,25 @@ export async function getTopicVideoCounts(db: SupabaseClient, topicIds: string[]
   const ids = [...new Set(topicIds.filter(Boolean))];
   if (!ids.length) return map;
 
-  if (!rpcKnownMissing(RPC)) {
-    const results = await Promise.all(chunk(ids, RPC_BATCH).map((batch) => db.rpc(RPC, { p_topic_ids: batch })));
-    if (!results.some((r) => isMissingFunction(r.error))) {
-      for (const r of results) {
-        if (r.error) console.error('[topic-video-counts] rpc failed:', r.error.message);
-        for (const row of (r.data ?? []) as { topic_id: string; videos: number | string; videos_90d: number | string; channels_90d: number | string }[]) {
-          map.set(row.topic_id, { videos: Number(row.videos), videos90d: Number(row.videos_90d), channels90d: Number(row.channels_90d) });
-        }
-      }
-      return map;
-    }
-    markRpcMissing(RPC);
+  if (rpcKnownMissing(RPC)) {
+    await legacy(db, ids, map);
+    return map;
   }
-
-  await legacy(db, ids, map);
+  const batches = chunk(ids, RPC_BATCH);
+  const results = await Promise.all(batches.map((batch) => db.rpc(RPC, { p_topic_ids: batch })));
+  // Any failed batch is re-read through the paginated path: never return silently empty counts.
+  const failed: string[] = [];
+  results.forEach((r, i) => {
+    if (r.error) {
+      if (isMissingFunction(r.error)) markRpcMissing(RPC);
+      else console.error('[topic-video-counts] rpc failed, using paginated read:', r.error.message);
+      failed.push(...batches[i]);
+      return;
+    }
+    for (const row of (r.data ?? []) as { topic_id: string; videos: number | string; videos_90d: number | string; channels_90d: number | string }[]) {
+      map.set(row.topic_id, { videos: Number(row.videos), videos90d: Number(row.videos_90d), channels90d: Number(row.channels_90d) });
+    }
+  });
+  if (failed.length) await legacy(db, failed, map);
   return map;
 }
