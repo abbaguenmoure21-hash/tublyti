@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 import { useCallback, useEffect, useOptimistic, useState, useTransition } from 'react';
 import { useTheme } from 'next-themes';
 import { LogOut, Moon, Sun, Monitor, Search, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
@@ -29,7 +29,6 @@ interface SidebarProps {
  */
 export function Sidebar({ niches, scope, badges, dataFresh, userLabel, isAdmin = false, initialCollapsed = false }: SidebarProps) {
   const pathname = usePathname();
-  const router = useRouter();
   const [, startTransition] = useTransition();
   const [optimisticScope, setOptimisticScope] = useOptimistic(scope ?? 'all');
   const [collapsed, setCollapsed] = useState(initialCollapsed);
@@ -60,7 +59,6 @@ export function Sidebar({ niches, scope, badges, dataFresh, userLabel, isAdmin =
     startTransition(async () => {
       setOptimisticScope(value);
       await setScope(value);
-      router.refresh();
     });
   }
 

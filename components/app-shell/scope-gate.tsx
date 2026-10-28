@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 import { useTransition } from 'react';
 import { ShieldAlert } from 'lucide-react';
 import { setScope } from '@/lib/actions/scope';
@@ -21,7 +21,6 @@ export function ScopeGate({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
-  const router = useRouter();
   const [busy, startTransition] = useTransition();
   const gated = pending && DATA_PAGES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
   if (!gated) return <>{children}</>;
@@ -49,7 +48,6 @@ export function ScopeGate({
           onClick={() =>
             startTransition(async () => {
               await setScope('all');
-              router.refresh();
             })
           }
           className="inline-flex h-11 items-center rounded-[10px] px-4 text-[15px] font-medium text-primary hover:bg-muted"

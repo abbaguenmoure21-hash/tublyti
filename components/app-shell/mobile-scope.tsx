@@ -1,7 +1,6 @@
 'use client';
 
 import { useOptimistic, useTransition } from 'react';
-import { useRouter } from 'next/navigation';
 import { setScope } from '@/lib/actions/scope';
 
 /** Sélecteur « Afficher » pour mobile (la barre latérale n'existe pas sur petit écran). */
@@ -12,7 +11,6 @@ export function MobileScope({
   channels: { key: string; label: string; verified: boolean }[];
   scope: string | null;
 }) {
-  const router = useRouter();
   const [, startTransition] = useTransition();
   const [value, setValue] = useOptimistic(scope ?? 'all');
   if (!channels.length) return null;
@@ -26,7 +24,6 @@ export function MobileScope({
           startTransition(async () => {
             setValue(v);
             await setScope(v);
-            router.refresh();
           });
         }}
         className="well h-9 min-w-0 flex-1 rounded-[10px] bg-muted px-2 text-[15px] text-foreground"
