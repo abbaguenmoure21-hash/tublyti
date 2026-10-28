@@ -16,7 +16,8 @@ export default async function AdminSujetsPage({ searchParams }: { searchParams: 
   const view: 'decider' | 'attente' = vue === 'attente' ? 'attente' : 'decider';
   const db = createServiceClient();
 
-  const { data: nicheRows } = await db.from('niches').select('id, name, category').order('name');
+  const { data: nicheRows, error: nichesError } = await db.from('niches').select('id, name, category').order('name');
+  if (nichesError) throw new Error(nichesError.message);
   const niches = (nicheRows ?? []) as { id: string; name: string; category: string | null }[];
   const nicheById = new Map(niches.map((n) => [n.id, n]));
 
@@ -32,6 +33,9 @@ export default async function AdminSujetsPage({ searchParams }: { searchParams: 
     activeQ = activeQ.eq('niche_id', niche);
   }
   const [proposedRes, activeRes] = await Promise.all([proposedQ, activeQ]);
+  // A failed read must not show « Aucun sujet à valider »: admin/error.tsx takes over.
+  const readError = proposedRes.error ?? activeRes.error;
+  if (readError) throw new Error(readError.message);
 
   type Row = {
     id: string;

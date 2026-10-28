@@ -24,11 +24,12 @@ function sourceLabel(source: string | null): string {
 export default async function AttentePage() {
   await requireAdmin();
   const db = createServiceClient();
-  const { data, count } = await db
+  const { data, count, error } = await db
     .from('waitlist')
     .select('id, email, source, created_at', { count: 'exact' })
     .order('created_at', { ascending: false })
     .limit(500);
+  if (error) throw new Error(error.message);
   const rows = (data ?? []) as { id: string; email: string; source: string | null; created_at: string }[];
 
   return (
