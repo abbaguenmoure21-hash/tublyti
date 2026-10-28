@@ -191,7 +191,27 @@ export async function detectSpikes(
     }
   }
 
-  return events;
+  return dropRecentSpikes(db, events);
+}
+
+/** A video stays above the threshold for several nights: one « spike » per video every 72 h, not one per collect. */
+export const SPIKE_DEDUP_HOURS = 72;
+
+async function dropRecentSpikes(db: SupabaseClient, events: DetectedEvent[]): Promise<DetectedEvent[]> {
+  if (events.length === 0) return events;
+  const since = new Date(Date.now() - SPIKE_DEDUP_HOURS * 3_600_000).toISOString();
+  const { data, error } = await db
+    .from('video_events')
+    .select('video_id')
+    .eq('event_type', 'spike')
+    .in('video_id', [...new Set(events.map((e) => e.videoId))])
+    .gte('created_at', since);
+  if (error) {
+    console.error(`spike dedup: ${error.message}`);
+    return events;
+  }
+  const recent = new Set((data ?? []).map((r) => (r as { video_id: string }).video_id));
+  return events.filter((e) => !recent.has(e.videoId));
 }
 
 // ── Record events to DB ──────────────────────────────────────────────
