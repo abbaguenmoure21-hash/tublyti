@@ -13,9 +13,9 @@ import { embedTitles } from './preflight/titles';
 export type SaturationLevel = 'open' | 'filling' | 'saturated' | 'unknown';
 
 export const LEVEL_LABEL: Record<SaturationLevel, string> = {
-  open: 'Ouvert',
-  filling: 'Se remplit',
-  saturated: 'Saturé',
+  open: 'Peu de concurrence',
+  filling: 'Concurrence en hausse',
+  saturated: 'Trop de concurrence',
   unknown: 'Pas assez de données',
 };
 
@@ -51,7 +51,14 @@ export async function topicSaturation(db: SupabaseClient, topicId: string): Prom
   const list = (vids ?? []) as { id: string; channel_id: string; published_at: string }[];
   const scores = new Map<string, { score: number; age: number }>();
   for (let i = 0; i < list.length; i += 200) {
-    const { data } = await db.from('video_outliers').select('video_id, score, age_days').in('video_id', list.slice(i, i + 200).map((v) => v.id));
+    // 'approximate' scores compare a young video with lifetime views of older ones: they are biased low
+    // and would wrongly read as "new videos do worse" (wear). Only same-age scores are used here.
+    const { data } = await db
+      .from('video_outliers')
+      .select('video_id, score, age_days')
+      .eq('method', 'same_age')
+      .in('video_id', list.slice(i, i + 200).map((v) => v.id));
+
     for (const o of (data ?? []) as { video_id: string; score: number; age_days: number }[]) scores.set(o.video_id, { score: Number(o.score), age: o.age_days });
   }
 
