@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { readFileSync } from 'fs';
 import { join } from 'path';
+import { reserveAiBudget, settleAiBudget } from '../ai/budget';
 
 // ── Constants ────────────────────────────────────────────────────────
 const PROMPT_VERSION = 'title_patterns_v1';
@@ -9,8 +10,8 @@ const MODEL = 'claude-haiku-4-5-20251001';
 const MODEL_TAG = `haiku-4.5-${PROMPT_VERSION}`;
 
 // Batch API pricing (50% off standard Haiku 4.5)
-const INPUT_COST_PER_MTOK = 0.40;
-const OUTPUT_COST_PER_MTOK = 2.0;
+const INPUT_COST_PER_MTOK = 0.5; // Haiku 4.5 Batch ($1 / $5 standard, -50 %)
+const OUTPUT_COST_PER_MTOK = 2.5;
 const EST_INPUT_TOKENS = 1500;
 const EST_OUTPUT_TOKENS = 800;
 
@@ -42,10 +43,6 @@ function loadSystemPrompt(): string {
   );
 }
 
-function monthKey(): string {
-  const d = new Date();
-  return `ai_spend_${d.getUTCFullYear()}_${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
-}
 
 // ── Main service ────────────────────────────────────────────────────
 
@@ -163,12 +160,10 @@ export async function extractTitlePatterns(
         (nicheCount * EST_INPUT_TOKENS * INPUT_COST_PER_MTOK) / 1_000_000 +
         (nicheCount * EST_OUTPUT_TOKENS * OUTPUT_COST_PER_MTOK) / 1_000_000;
 
-      const mk = monthKey();
-      const { data: spendRow } = await db.from('settings').select('value').eq('key', mk).single();
-      const currentSpend = typeof spendRow?.value === 'number' ? spendRow.value : 0;
-      const budgetLimit = parseFloat(process.env.AI_BUDGET_USD ?? '30');
+      // Atomic reservation, refunded below if nothing is submitted.
+      const reservation = await reserveAiBudget(db, estCost);
 
-      if (currentSpend + estCost > budgetLimit) {
+      if (!reservation.ok) {
         result.skippedBudget = true;
         result.estimatedCostUSD = estCost;
       } else {
@@ -209,14 +204,17 @@ export async function extractTitlePatterns(
           });
         }
 
-        if (requests.length > 0) {
-          const batch = await anthropic.messages.batches.create({ requests });
-          stillPending.push(batch.id);
-          result.batchSubmitted = true;
-          result.estimatedCostUSD = estCost;
-
-          // Update spend
-          await db.from('settings').upsert({ key: mk, value: currentSpend + estCost });
+        let submitted = false;
+        try {
+          if (requests.length > 0) {
+            const batch = await anthropic.messages.batches.create({ requests });
+            submitted = true;
+            stillPending.push(batch.id);
+            result.batchSubmitted = true;
+            result.estimatedCostUSD = estCost;
+          }
+        } finally {
+          if (!submitted) await settleAiBudget(db, reservation, 0).catch(() => undefined);
         }
       }
     }

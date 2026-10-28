@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { parseDuration } from '../youtube/client';
+import { reserveAiBudget, settleAiBudget } from '../ai/budget';
 
 /**
  * Analyse du contenu d'une vidéo YouTube publique : image, audio et texte à l'écran.
@@ -93,7 +94,7 @@ export interface RetentionContext {
 const DEFAULT_MODELS = ['gemini-3.1-flash-lite', 'gemini-3.5-flash-lite', 'gemini-2.5-flash'];
 const PRICE_IN = Number(process.env.GEMINI_PRICE_IN_PER_MTOK ?? 0.5); // prudence : tarif audio
 const PRICE_OUT = Number(process.env.GEMINI_PRICE_OUT_PER_MTOK ?? 2.5);
-const MAX_MIN = Number(process.env.VIDEO_ANALYSIS_MAX_MIN ?? 60);
+export const MAX_MIN = Number(process.env.VIDEO_ANALYSIS_MAX_MIN ?? 60);
 const RUNNING_TIMEOUT_MS = 6 * 60_000;
 
 export function videoAnalysisEnabled(): boolean {
@@ -103,11 +104,6 @@ export function videoAnalysisEnabled(): boolean {
 function models(): string[] {
   const env = (process.env.GEMINI_VIDEO_MODEL ?? '').split(',').map((m) => m.trim()).filter(Boolean);
   return [...new Set([...env, ...DEFAULT_MODELS])];
-}
-
-function monthKey(): string {
-  const d = new Date();
-  return `ai_spend_${d.getUTCFullYear()}_${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
 /** Images par seconde selon la durée : assez pour le montage, sans exploser le coût. */
@@ -423,9 +419,10 @@ export async function analyzeVideo(
   if (meta.durationS > MAX_MIN * 60) return failure('too_long');
 
   // Budget IA du mois (partagé avec les autres usages de l'IA).
-  const { data: spendRow } = await db.from('settings').select('value').eq('key', monthKey()).maybeSingle();
-  const spent = typeof spendRow?.value === 'number' ? spendRow.value : 0;
-  if (spent + estimateCostUsd(meta.durationS) > Number(process.env.AI_BUDGET_USD ?? 30)) return failure('budget');
+  // Reserved atomically: two simultaneous requests cannot both pass the cap.
+  const reservation = await reserveAiBudget(db, estimateCostUsd(meta.durationS));
+  if (!reservation.ok) return failure('budget');
+  let settled = false;
 
   const now = new Date().toISOString();
   await db.from('video_analyses').upsert({
@@ -442,7 +439,6 @@ export async function analyzeVideo(
 
   try {
     const out = await callGemini(videoId, buildPrompt(meta, opts.retention ?? null), fpsFor(meta.durationS));
-    const analysis = parseAnalysis(out.text);
     const cost = (out.tokensIn * PRICE_IN + out.tokensOut * PRICE_OUT) / 1_000_000;
 
     await db.from('ai_spend').insert({
@@ -453,9 +449,10 @@ export async function analyzeVideo(
       cost_usd: cost,
       meta: { video_id: videoId, topic_label: meta.title.slice(0, 120) },
     });
-    const { data: fresh } = await db.from('settings').select('value').eq('key', monthKey()).maybeSingle();
-    const spentNow = typeof fresh?.value === 'number' ? fresh.value : 0;
-    await db.from('settings').upsert({ key: monthKey(), value: spentNow + cost });
+    await settleAiBudget(db, reservation, cost);
+    settled = true;
+    // Parsed only after the spend is recorded: an unreadable answer is billed by Google too.
+    const analysis = parseAnalysis(out.text);
 
     const { data: row } = await db
       .from('video_analyses')
@@ -474,6 +471,7 @@ export async function analyzeVideo(
       .single();
     return { ok: true, cached: false, row: toStored(row as Record<string, unknown>) };
   } catch (e) {
+    if (!settled) await settleAiBudget(db, reservation, 0).catch(() => undefined);
     const err = e as Error & { kind?: string };
     const reason: AnalyzeFailure = err.kind === 'private' ? 'private' : 'gemini';
     const detail = err instanceof SyntaxError ? 'réponse illisible' : err.message?.slice(0, 200);

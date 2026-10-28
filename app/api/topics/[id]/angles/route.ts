@@ -8,13 +8,9 @@ import {
 } from '@/lib/nlp/angle-generator';
 import type { AngleInput } from '@/lib/nlp/angle-generator';
 import { timingSafeCompare } from '@/lib/auth/timing-safe';
+import { reserveAiBudget, settleAiBudget } from '@/lib/ai/budget';
 
 const uuidSchema = z.string().uuid();
-
-function monthKey(): string {
-  const d = new Date();
-  return `ai_spend_${d.getUTCFullYear()}_${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
-}
 
 export async function POST(
   _request: NextRequest,
@@ -49,23 +45,14 @@ export async function POST(
     rpm_coefficient: number;
   };
 
-  // ── Budget check ──────────────────────────────────────────────
+  // ── Budget check (atomic reservation, settled with the real cost below) ──
   const estimatedCost = estimateAngleCostUSD();
-  const mk = monthKey();
-  const { data: spendRow } = await db
-    .from('settings')
-    .select('value')
-    .eq('key', mk)
-    .single();
-  const currentSpend =
-    typeof spendRow?.value === 'number' ? spendRow.value : 0;
-  const budgetLimit = parseFloat(process.env.AI_BUDGET_USD ?? '30');
-
-  if (currentSpend + estimatedCost > budgetLimit) {
+  const reservation = await reserveAiBudget(db, estimatedCost);
+  if (!reservation.ok) {
     return NextResponse.json(
       {
         error: 'Budget IA mensuel dépassé.',
-        budgetRemainingUSD: budgetLimit - currentSpend,
+        budgetRemainingUSD: reservation.remainingUsd,
         estimatedCostUSD: estimatedCost,
       },
       { status: 402 },
@@ -163,12 +150,28 @@ export async function POST(
   try {
     result = await generator.generate(input);
   } catch (err: unknown) {
+    // Spend already billed by Anthropic (e.g. truncated answer) is kept, otherwise refunded.
+    const billed = (err as { costUSD?: number })?.costUSD ?? 0;
+    await settleAiBudget(db, reservation, billed).catch(() => undefined);
     console.error('Erreur lors de la generation des angles:', err);
     return NextResponse.json(
       { error: 'Le générateur a rencontré une erreur (API ou format de réponse).' },
       { status: 500 }
     );
   }
+
+  await settleAiBudget(db, reservation, result.costUSD);
+
+  // Record in ai_spend table for detailed tracking
+  await db.from('ai_spend').insert({
+    action: 'generate_angles',
+    model: result.model,
+    tokens_in: result.tokensIn,
+    tokens_out: result.tokensOut,
+    cost_usd: result.costUSD,
+    topic_id: id,
+    meta: { topic_label: topic.label, niche: niche.name },
+  });
 
   // ── Store angles ──────────────────────────────────────────────
   const rows = result.angles.map((a) => ({
@@ -187,28 +190,12 @@ export async function POST(
     );
   }
 
-  // ── Update monthly AI spend ───────────────────────────────────
-  await db
-    .from('settings')
-    .upsert({ key: mk, value: currentSpend + result.costUSD });
-
-  // Record in ai_spend table for detailed tracking
-  await db.from('ai_spend').insert({
-    action: 'generate_angles',
-    model: result.model,
-    tokens_in: result.tokensIn,
-    tokens_out: result.tokensOut,
-    cost_usd: result.costUSD,
-    topic_id: id,
-    meta: { topic_label: topic.label, niche: niche.name },
-  });
-
   // ── Return result ─────────────────────────────────────────────
   return NextResponse.json({
     ok: true,
     angles: result.angles,
     model: result.model,
     costUSD: result.costUSD,
-    budgetRemainingUSD: budgetLimit - currentSpend - result.costUSD,
+    budgetRemainingUSD: reservation.remainingUsd - result.costUSD,
   });
 }

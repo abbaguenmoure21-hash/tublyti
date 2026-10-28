@@ -1,5 +1,6 @@
 import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
+import { reserveAiBudget, settleAiBudget } from '../ai/budget';
 import { getQuotaSoftLimit } from './quota';
 
 const YT_BASE = 'https://www.googleapis.com/youtube/v3';
@@ -46,11 +47,6 @@ function estimateCost(count: number): number {
   const inputCost = (count * EST_INPUT_TOKENS * INPUT_COST_PER_MTOK) / 1_000_000;
   const outputCost = (count * EST_OUTPUT_TOKENS * OUTPUT_COST_PER_MTOK) / 1_000_000;
   return inputCost + outputCost;
-}
-
-function monthKey(): string {
-  const d = new Date();
-  return `ai_spend_${d.getUTCFullYear()}_${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
 function weekKey(): string {
@@ -321,13 +317,12 @@ export async function discoverChannels(
   // Estimate faceless probability via Claude Haiku (Batch API)
   const anthropicKey = process.env.ANTHROPIC_API_KEY;
   if (anthropicKey && channelInfos.length > 0) {
-    const mk = monthKey();
-    const { data: spendRow } = await db.from('settings').select('value').eq('key', mk).single();
-    const currentSpend = typeof spendRow?.value === 'number' ? spendRow.value : 0;
-    const budgetLimit = parseFloat(process.env.AI_BUDGET_USD ?? '30');
     const cost = estimateCost(channelInfos.length);
+    // Atomic reservation of the batch estimate (kept as the spend, like before).
+    const reservation = await reserveAiBudget(db, cost);
 
-    if (currentSpend + cost <= budgetLimit) {
+    if (reservation.ok) {
+      let submitted = false;
       try {
         const anthropic = new Anthropic();
         const systemPrompt = FACELESS_PROMPT;
@@ -351,6 +346,7 @@ export async function discoverChannels(
         });
 
         const batch = await anthropic.messages.batches.create({ requests });
+        submitted = true;
 
         // Store batch ID for retrieval
         const { data: pendingSetting } = await db
@@ -362,12 +358,10 @@ export async function discoverChannels(
         pending.push(batch.id);
         await db.from('settings').upsert({ key: 'pending_discovery_batches', value: pending });
 
-        // Update monthly spend
-        await db.from('settings').upsert({ key: mk, value: currentSpend + cost });
-
         result.estimatedCostUSD = cost;
         result.facelessEstimated = channelInfos.length;
       } catch (err) {
+        if (!submitted) await settleAiBudget(db, reservation, 0).catch(() => undefined);
         console.error(`Faceless batch error: ${(err as Error).message}`);
       }
     }

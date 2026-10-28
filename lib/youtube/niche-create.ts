@@ -11,6 +11,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
+import { reserveAiBudget, settleAiBudget } from '../ai/budget';
 import { cosine, parseVec, type Calibration } from './candidate-niche';
 
 const MIN_CHANNELS = Number(process.env.NICHE_AUTO_MIN_CHANNELS ?? 3);
@@ -49,11 +50,6 @@ function mean(vs: number[][]) {
   for (const v of vs) for (let i = 0; i < out.length; i++) out[i] += v[i];
   return normalize(out);
 }
-function monthKey() {
-  const d = new Date();
-  return `ai_spend_${d.getUTCFullYear()}_${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
-}
-
 const STOP = new Set(
   'the a an and or of to in on for with how why what when your you my i is are was be this that it from by at as vs best top new get make about into can will do does not no more most all every ever just how-to'.split(' '),
 );
@@ -88,9 +84,9 @@ async function nameWithHaiku(
 ): Promise<{ naming: Naming | null; cost: number }> {
   if (!process.env.ANTHROPIC_API_KEY || process.env.NICHE_AUTO_AI === 'false') return { naming: null, cost: 0 };
   // Plafond mensuel commun à toutes les dépenses IA
-  const { data: spendRow } = await db.from('settings').select('value').eq('key', monthKey()).maybeSingle();
-  const spent = typeof spendRow?.value === 'number' ? spendRow.value : 0;
-  if (spent + 0.01 > Number(process.env.AI_BUDGET_USD ?? 30)) return { naming: null, cost: 0 };
+  const reservation = await reserveAiBudget(db, 0.01);
+  if (!reservation.ok) return { naming: null, cost: 0 };
+  let settled = false;
 
   const categories = [...new Set(existing.map((e) => e.category))];
   try {
@@ -124,11 +120,13 @@ Answer with JSON only.`,
       cost_usd: cost,
       meta: { titles: titles.length },
     });
-    await db.from('settings').upsert({ key: monthKey(), value: spent + cost });
+    await settleAiBudget(db, reservation, cost);
+    settled = true;
     let text = res.content[0]?.type === 'text' ? res.content[0].text : '';
     text = text.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
     return { naming: JSON.parse(text) as Naming, cost };
   } catch (e) {
+    if (!settled) await settleAiBudget(db, reservation, 0).catch(() => undefined);
     console.error(`  nommage de niche : ${(e as Error).message}`);
     return { naming: null, cost: 0 };
   }

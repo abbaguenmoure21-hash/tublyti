@@ -3,11 +3,8 @@
 import { assertAdmin } from '@/lib/auth/session';
 
 import { createServiceClient } from '@/lib/supabase/server';
+import { aiMonthKey as monthKey } from '@/lib/ai/budget';
 
-function monthKey(): string {
-  const d = new Date();
-  return `ai_spend_${d.getUTCFullYear()}_${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
-}
 
 export interface AiBudgetStatus {
   budgetLimitUSD: number;
