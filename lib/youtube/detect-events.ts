@@ -56,20 +56,16 @@ export async function detectChanges(
         eventType: 'title_change',
         oldValue: current.title,
         newValue: snap.title,
+        meta: { views_at_change: snap.views },
       });
 
       // Update stored title
       await db.from('videos').update({ title: snap.title }).eq('id', snap.videoId);
     }
 
-    // Thumbnail change
+    // Thumbnail change : YouTube garde la même adresse quand la miniature change, la vraie détection
+    // se fait par empreinte d'image (étape thumb-watch). Ici on ne fait que tenir l'adresse à jour.
     if (snap.thumbnailUrl && current.thumbnailUrl && snap.thumbnailUrl !== current.thumbnailUrl) {
-      events.push({
-        videoId: snap.videoId,
-        eventType: 'thumbnail_change',
-        oldValue: current.thumbnailUrl,
-        newValue: snap.thumbnailUrl,
-      });
 
       // Update stored thumbnail
       await db.from('videos').update({ thumbnail_url: snap.thumbnailUrl }).eq('id', snap.videoId);

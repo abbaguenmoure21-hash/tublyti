@@ -5,6 +5,7 @@ export function jobLabel(kind: string): string {
     ['nightly', 'Collecte de nuit'],
     ['user-channels', 'Abonnés des chaînes clients'],
     ['reach', 'Impressions et CTR des miniatures'],
+    ['thumb-watch', 'Miniatures changées'],
     ['enrich-insufficient', 'Renfort des sujets émergents'],
     ['search-emerging', 'Recherche pour sujets émergents'],
     ['discover-topics', 'Nouveaux sujets'],

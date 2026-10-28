@@ -49,7 +49,10 @@ export const SECTION_TABS: Record<SpaceKey, { href: string; label: string; match
     { href: '/my-channel', label: 'Ma chaîne', match: ['/my-channel'] },
   ],
   preflight: [],
-  veille: [{ href: '/activity', label: 'À voir cette semaine', match: ['/activity'] }],
+  veille: [
+    { href: '/activity', label: 'À voir cette semaine', match: ['/activity'] },
+    { href: '/activity/changes', label: 'Titres et miniatures modifiés', match: ['/activity/changes'] },
+  ],
   admin: [
     { href: '/admin', label: 'Vue d’ensemble', match: ['/admin'] },
     { href: '/admin/sujets', label: 'Sujets à valider', match: ['/admin/sujets'] },

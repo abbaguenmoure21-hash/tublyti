@@ -47,6 +47,7 @@ import { runAttachInsufficient, searchForEmergingTopics, type EmergingSearchResu
 import { rejectStaleTopics } from '../lib/topics/reject-stale';
 import { updateUserChannelSubs } from '../lib/youtube/update-user-channels';
 import { syncReachReports } from '../lib/youtube/reporting';
+import { runThumbWatch } from '../lib/youtube/thumb-watch';
 import { ResendAlertSender, ConsoleAlertSender } from '../lib/email/resend-alerts';
 import { SupabaseJobRunner } from '../lib/jobs/supabase-runner';
 
@@ -199,6 +200,15 @@ async function main() {
     console.log(`  Channels: ${r.channels}, New jobs: ${r.jobsCreated}, Files: ${r.files}, Rows: ${r.rows}${r.errors.length ? `, Errors: ${r.errors.join(' | ')}` : ''}`);
     if (r.errors.length && r.rows === 0 && r.channels > 0 && r.errors.length === r.channels) throw new Error(r.errors[0]);
     return { quota: 0, items: r.rows };
+  });
+
+  // ── Step 5a-bis: THUMB-WATCH (miniatures changées, empreinte d'image, 4 min max) ──
+  console.log('\n========== THUMB-WATCH ==========');
+
+  await runStep(runner, deadline, 'thumb-watch', async () => {
+    const r = await runThumbWatch(db, Math.min(Date.now() + parseInt(process.env.THUMB_WATCH_MIN ?? '4', 10) * 60_000, deadline));
+    console.log(`  Checked: ${r.checked}, Changed: ${r.changed}, Archived: ${r.archived}, Errors: ${r.errors}`);
+    return { quota: 0, items: r.changed };
   });
 
   // ── Step 5b: COMMENTS (own window: up to COMMENTS_MIN minutes, quota budget « comments ») ──
