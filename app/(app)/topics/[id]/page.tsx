@@ -7,6 +7,7 @@ import { resolveScope } from '@/lib/scope';
 import { PhaseBadge, MgiScore, PHASE_LABELS } from '@/components/tublyti';
 import { getMgiBand, type ConfidenceResult } from '@/lib/scoring/mgi';
 import { OutlierBadge } from '@/components/tublyti/outlier-badge';
+import { GRADE_COLORS } from '@/components/tublyti/feasibility-badge';
 import { AnalyzeVideoButton } from '@/components/tublyti/video-analysis';
 import { TopicSaturationCard, OutlierSaturationButton } from '@/components/tublyti/saturation';
 import { topicSaturation } from '@/lib/saturation';
@@ -405,13 +406,7 @@ export default async function TopicPage({
         {/* Feasibility card */}
         {showFeasibility && (
           <div className="bento-card !px-[18px] !py-3.5 flex items-center gap-3">
-            <span className={`inline-flex items-center justify-center h-8 w-8 rounded-[8px] text-[16px] font-bold ${
-              userFeasibility.grade === 'A' ? 'bg-[#30D158]/15 text-[#30D158]'
-              : userFeasibility.grade === 'B' ? 'bg-[#0A84FF]/15 text-[#0A84FF]'
-              : userFeasibility.grade === 'C' ? 'bg-muted text-muted-foreground'
-              : userFeasibility.grade === 'D' ? 'bg-[#FF9F0A]/15 text-[#FF9F0A]'
-              : 'bg-[#FF453A]/15 text-[#FF453A]'
-            }`}>
+            <span className={`inline-flex items-center justify-center h-8 w-8 rounded-[8px] text-[16px] font-bold ${GRADE_COLORS[userFeasibility.grade]}`}>
               {userFeasibility.grade}
             </span>
             <div className="flex flex-col gap-0.5">
@@ -592,10 +587,12 @@ function ScoreCard({ label, value, unit, sub }: { label: string; value: string; 
   );
 }
 
+// Palette catégorielle des sources (DESIGN.md), distincte des couleurs de phase.
 const SIGNAL_COLORS: Record<string, string> = {
-  trends: '#0A84FF',
-  yt_views: '#30D158',
-  hn: '#FF9F0A',
+  trends: 'var(--chart-1)',
+  yt_views: 'var(--chart-2)',
+  hn: 'var(--chart-3)',
+  se: 'var(--chart-4)',
 };
 
 const SIGNAL_LABELS: Record<string, string> = {
@@ -650,7 +647,7 @@ function SignalSection({ signals }: { signals: Record<string, { date: string; va
       </div>
 
       <svg width="100%" viewBox={`0 0 ${W} ${H + 20}`} role="img" aria-label="Signaux sur 90 jours">
-        <g stroke="var(--glass-border)" strokeDasharray="3 4">
+        <g stroke="var(--border)" strokeDasharray="3 4">
           {[T, 80, 140].map((y) => (
             <line key={y} x1={L} y1={y} x2={R} y2={y} />
           ))}
