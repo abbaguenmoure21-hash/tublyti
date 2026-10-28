@@ -3,8 +3,12 @@ import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/
 import { createMcpServer } from '@/lib/mcp/server';
 import { authenticateToken } from '@/lib/mcp/auth';
 
+// Long-running (YouTube collection, AI batches, Gemini video analysis): explicit Vercel limit.
+// Internal deadlines (MAX_DURATION_MS = 4 min) keep >= 20 s of margin for finish/releaseLock.
+export const maxDuration = 300;
+
 async function handleMcp(request: NextRequest): Promise<Response> {
-  const rawToken = request.headers.get('authorization')?.replace('Bearer ', '');
+  const rawToken = request.headers.get('authorization')?.match(/^Bearer\s+(\S+)\s*$/i)?.[1];
 
   if (!rawToken) {
     return new Response(
