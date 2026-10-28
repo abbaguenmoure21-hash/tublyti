@@ -35,47 +35,69 @@ export interface RateLimitResult {
   allowed: boolean;
   remaining: number;
   limit: number;
+  /** true when the counter could not be read/written (call refused, fail closed). */
+  error?: boolean;
 }
 
+export function dailyLimit(toolName: string): number {
+  return DAILY_LIMITS[toolName] ?? DEFAULT_LIMIT;
+}
+
+const MAX_CAS_ATTEMPTS = 10;
+
 /**
- * Check and increment usage for a token + tool combination.
- * Returns whether the call is allowed and how many calls remain.
+ * Check and increment usage for a token + tool combination, atomically.
+ *
+ * No SQL function needed: the row is created with ON CONFLICT DO NOTHING, then
+ * incremented with a compare-and-swap (`update ... where call_count = <read value>`).
+ * Two concurrent calls cannot both write the same value: the loser sees 0 updated
+ * rows and retries with the fresh count. Fails closed on database errors.
+ * (A single-statement RPC `increment_api_usage` is proposed in the audit notes.)
  */
 export async function checkRateLimit(
   tokenId: string,
   toolName: string,
 ): Promise<RateLimitResult> {
-  const limit = DAILY_LIMITS[toolName] ?? DEFAULT_LIMIT;
+  const limit = dailyLimit(toolName);
   const db = createServiceClient();
   const today = new Date().toISOString().slice(0, 10);
+  const key = { token_id: tokenId, tool_name: toolName, usage_date: today };
 
-  // Get current count
-  const { data: existing } = await db
+  const { error: insErr } = await db
     .from('api_usage')
-    .select('call_count')
-    .eq('token_id', tokenId)
-    .eq('tool_name', toolName)
-    .eq('usage_date', today)
-    .single();
-
-  const currentCount = existing?.call_count ?? 0;
-
-  if (currentCount >= limit) {
-    return { allowed: false, remaining: 0, limit };
+    .upsert({ ...key, call_count: 0 }, { onConflict: 'token_id,tool_name,usage_date', ignoreDuplicates: true });
+  if (insErr) {
+    console.error('[mcp:rate-limit] insert failed', insErr);
+    return { allowed: false, remaining: 0, limit, error: true };
   }
 
-  // Increment (upsert)
-  await db
-    .from('api_usage')
-    .upsert(
-      {
-        token_id: tokenId,
-        tool_name: toolName,
-        usage_date: today,
-        call_count: currentCount + 1,
-      },
-      { onConflict: 'token_id,tool_name,usage_date' },
-    );
+  for (let attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt++) {
+    const { data: row, error: selErr } = await db
+      .from('api_usage')
+      .select('call_count')
+      .match(key)
+      .maybeSingle();
+    if (selErr) {
+      console.error('[mcp:rate-limit] read failed', selErr);
+      return { allowed: false, remaining: 0, limit, error: true };
+    }
+    const current = Number(row?.call_count ?? 0);
+    if (current >= limit) return { allowed: false, remaining: 0, limit };
 
-  return { allowed: true, remaining: limit - currentCount - 1, limit };
+    const { data: updated, error: updErr } = await db
+      .from('api_usage')
+      .update({ call_count: current + 1 })
+      .match(key)
+      .eq('call_count', current)
+      .select('call_count');
+    if (updErr) {
+      console.error('[mcp:rate-limit] update failed', updErr);
+      return { allowed: false, remaining: 0, limit, error: true };
+    }
+    if (updated && updated.length === 1) {
+      return { allowed: true, remaining: limit - current - 1, limit };
+    }
+    // Lost the race: another call incremented first. Retry with the fresh value.
+  }
+  return { allowed: false, remaining: 0, limit, error: true };
 }
