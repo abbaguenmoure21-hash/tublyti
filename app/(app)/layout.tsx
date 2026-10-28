@@ -72,7 +72,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           />
           <div className="flex min-w-0 flex-1 flex-col">
             {!ready && (
-              <p role="status" className="mx-4 mt-4 rounded-2xl bg-phase-1-soft px-4 py-3 text-[13px] text-phase-1-ink shadow-sm md:mx-8">
+              <p role="status" className="mx-4 mt-4 rounded-2xl bg-warning-soft px-4 py-3 text-[13px] text-warning-ink shadow-sm md:mx-8">
                 Mise à jour de la base à faire : exécute la migration <strong>00018_clients_et_roles.sql</strong> dans Supabase pour activer
                 les comptes clients. En attendant, l’app fonctionne comme avant.
               </p>
