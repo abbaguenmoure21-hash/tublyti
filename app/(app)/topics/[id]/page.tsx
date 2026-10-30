@@ -19,6 +19,7 @@ import { DossierExport } from './_components/dossier-export';
 import { getFavoriteIds } from '@/lib/actions/collections';
 import { computeFeasibilityForUser, isNoChannelResult } from '@/lib/scoring/feasibility-for-user';
 import { getUserSubsByNiche } from '@/lib/scoring/user-subs';
+import { getLatestSnapshots } from '@/lib/youtube/latest-snapshots';
 
 // L'analyse vidéo (Gemini) peut prendre jusqu'à 2-3 minutes.
 export const maxDuration = 300;
@@ -140,77 +141,88 @@ export default async function TopicPage({
     if (!topicNiche || !mine.some((n) => n.id === topicNiche)) notFound();
   }
 
-  // Saturation : concurrence récente et performance des nouvelles vidéos du sujet.
-  const saturation = await topicSaturation(db, id).catch(() => null);
-
-  // Latest score
-  const { data: score } = await db
-    .from('topic_scores')
-    .select('mgi, demand, frustration, supply_q, monetization, phase, scored_at, confidence, confidence_reason, feasibility_grade, feasibility_reason, competitor_subs')
-    .eq('topic_id', id)
-    .order('scored_at', { ascending: false })
-    .limit(1)
-    .single();
-
-  // Previous score (7 days ago) for delta
-  let mgiDelta: number | null = null;
-  if (score) {
-    const prevDate = new Date(new Date(score.scored_at).getTime() - 7 * 86_400_000)
-      .toISOString().slice(0, 10);
-    const { data: prevScore } = await db
+  // Independent reads in parallel (were ~12 sequential round-trips).
+  const ninetyDaysAgo = new Date(Date.now() - 90 * 86_400_000).toISOString().slice(0, 10);
+  const [saturation, { data: score }, { data: videos }, { data: frustrations }, { data: angles }, { data: trendPoints }, { data: favoriteTopicIds }, userSubsByNiche] = await Promise.all([
+    // Saturation : concurrence récente et performance des nouvelles vidéos du sujet.
+    topicSaturation(db, id).catch(() => null),
+    // Latest score
+    db
       .from('topic_scores')
-      .select('mgi')
+      .select('mgi, demand, frustration, supply_q, monetization, phase, scored_at, confidence, confidence_reason, feasibility_grade, feasibility_reason, competitor_subs')
       .eq('topic_id', id)
-      .eq('scored_at', prevDate)
-      .single();
-    if (prevScore) {
-      mgiDelta = Number(score.mgi) - Number(prevScore.mgi);
-    }
-  }
+      .order('scored_at', { ascending: false })
+      .limit(1)
+      .single(),
+    // Videos (competitors)
+    db
+      .from('videos')
+      .select('id, title, published_at, duration_s, is_qualified, channel_id, channels(title)')
+      .eq('topic_id', id)
+      .order('published_at', { ascending: false })
+      .limit(20),
+    // Frustrated comments
+    db
+      .from('comment_labels')
+      .select(`
+      label, requested_angle, confidence,
+      comments!inner(id, text, like_count, video_id, videos!inner(topic_id))
+    `)
+      .eq('comments.videos.topic_id', id)
+      .neq('label', 'none')
+      .gte('confidence', 0.7)
+      .order('comments(like_count)', { ascending: false })
+      .limit(20),
+    // Angles
+    (async () => {
+      let anglesQ = db
+        .from('angles')
+        .select('id, title, hook, rationale, status, video_id, created_at')
+        .eq('topic_id', id)
+        .order('created_at', { ascending: false });
+      if (await isDbReady()) anglesQ = anglesQ.or(`user_id.is.null,user_id.eq.${user.id}`);
+      return anglesQ;
+    })(),
+    // Signals (90 days)
+    db
+      .from('trend_points')
+      .select('source, captured_at, value')
+      .eq('topic_id', id)
+      .gte('captured_at', ninetyDaysAgo)
+      .order('captured_at', { ascending: true }),
+    // Check if topic is in favorites
+    getFavoriteIds('topic'),
+    // Per-user feasibility
+    getUserSubsByNiche(db, user.id),
+  ]);
 
-  // Videos (competitors)
-  const { data: videos } = await db
-    .from('videos')
-    .select('id, title, published_at, duration_s, is_qualified, channel_id, channels(title)')
-    .eq('topic_id', id)
-    .order('published_at', { ascending: false })
-    .limit(20);
-
-  // Get latest views
+  // Second level: depends on the score and on the video list.
   const videoIds = (videos ?? []).map((v: Record<string, unknown>) => v.id as string);
+  const prevDate = score ? new Date(new Date(score.scored_at).getTime() - 7 * 86_400_000).toISOString().slice(0, 10) : null;
+  const [prevRes, snaps, outliersRes] = await Promise.all([
+    // Previous score (7 days ago) for delta
+    prevDate ? db.from('topic_scores').select('mgi').eq('topic_id', id).eq('scored_at', prevDate).single() : Promise.resolve({ data: null }),
+    // Get latest views
+    getLatestSnapshots(db, videoIds),
+    // Fetch outlier scores for these videos
+    videoIds.length ? db.from('video_outliers').select('video_id, score, age_days, method, baseline').in('video_id', videoIds) : Promise.resolve({ data: null }),
+  ]);
+
+  let mgiDelta: number | null = null;
+  const prevScore = prevRes.data as { mgi: number | null } | null;
+  if (score && prevScore) mgiDelta = Number(score.mgi) - Number(prevScore.mgi);
+
   const videoViews: Record<string, number> = {};
-  if (videoIds.length > 0) {
-    const { data: snaps } = await db
-      .from('video_snapshots')
-      .select('video_id, views')
-      .in('video_id', videoIds)
-      .order('captured_at', { ascending: false });
+  for (const [vid, s] of snaps) videoViews[vid] = s.views ?? 0;
 
-    const seen = new Set<string>();
-    for (const s of snaps ?? []) {
-      if (!seen.has(s.video_id)) {
-        seen.add(s.video_id);
-        videoViews[s.video_id] = s.views ?? 0;
-      }
-    }
-  }
-
-  // Fetch outlier scores for these videos
   const videoOutliers: Record<string, { score: number; ageDays: number; method: string; baseline: number }> = {};
-  if (videoIds.length > 0) {
-    const { data: outliers } = await db
-      .from('video_outliers')
-      .select('video_id, score, age_days, method, baseline')
-      .in('video_id', videoIds);
-
-    for (const o of outliers ?? []) {
-      videoOutliers[o.video_id as string] = {
-        score: Number(o.score),
-        ageDays: o.age_days as number,
-        method: o.method as string,
-        baseline: Number(o.baseline),
-      };
-    }
+  for (const o of (outliersRes.data ?? []) as { video_id: string; score: number; age_days: number; method: string; baseline: number }[]) {
+    videoOutliers[o.video_id] = {
+      score: Number(o.score),
+      ageDays: o.age_days,
+      method: o.method,
+      baseline: Number(o.baseline),
+    };
   }
 
   const competitors: Competitor[] = (videos ?? []).map((v: Record<string, unknown>) => {
@@ -232,19 +244,6 @@ export default async function TopicPage({
     };
   });
 
-  // Frustrated comments
-  const { data: frustrations } = await db
-    .from('comment_labels')
-    .select(`
-      label, requested_angle, confidence,
-      comments!inner(id, text, like_count, video_id, videos!inner(topic_id))
-    `)
-    .eq('comments.videos.topic_id', id)
-    .neq('label', 'none')
-    .gte('confidence', 0.7)
-    .order('comments(like_count)', { ascending: false })
-    .limit(20);
-
   const frustrationList: FrustrationComment[] = (frustrations ?? []).map((f: Record<string, unknown>) => {
     const comment = f.comments as unknown as {
       id: string; text: string; like_count: number;
@@ -258,24 +257,6 @@ export default async function TopicPage({
     };
   });
 
-  // Angles
-  let anglesQ = db
-    .from('angles')
-    .select('id, title, hook, rationale, status, video_id, created_at')
-    .eq('topic_id', id)
-    .order('created_at', { ascending: false });
-  if (await isDbReady()) anglesQ = anglesQ.or(`user_id.is.null,user_id.eq.${user.id}`);
-  const { data: angles } = await anglesQ;
-
-  // Signals (90 days)
-  const ninetyDaysAgo = new Date(Date.now() - 90 * 86_400_000).toISOString().slice(0, 10);
-  const { data: trendPoints } = await db
-    .from('trend_points')
-    .select('source, captured_at, value')
-    .eq('topic_id', id)
-    .gte('captured_at', ninetyDaysAgo)
-    .order('captured_at', { ascending: true });
-
   const signals: Record<string, { date: string; value: number }[]> = {
     trends: [], hn: [], yt_views: [],
   };
@@ -286,12 +267,8 @@ export default async function TopicPage({
     }
   }
 
-  // Check if topic is in favorites
-  const { data: favoriteTopicIds } = await getFavoriteIds('topic');
   const isFavorite = favoriteTopicIds.includes(id);
 
-  // Per-user feasibility
-  const userSubsByNiche = await getUserSubsByNiche(db, user.id);
   const topicNicheId = (topic.niches as unknown as { id: string } | null)?.id;
   const userSubs = topicNicheId ? (userSubsByNiche.get(topicNicheId) ?? null) : null;
   const competitorSubs = (score as Record<string, unknown> | null)?.competitor_subs as number[] | null ?? null;

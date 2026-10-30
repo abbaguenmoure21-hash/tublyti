@@ -115,15 +115,24 @@ export default async function VeillePage({ searchParams }: { searchParams: Promi
   // Vues avant / après un changement de titre ou de miniature : une seule requête.
   const changed = events.filter((e) => e.kind === 'title_change' || e.kind === 'thumbnail_change').slice(0, 80);
   if (changed.length) {
-    const { data: snaps } = await db
-      .from('video_snapshots')
-      .select('video_id, captured_at, views')
-      .in('video_id', [...new Set(changed.map((e) => e.videoId))])
-      .gte('captured_at', new Date(Date.now() - 30 * 86_400_000).toISOString())
-      .order('captured_at', { ascending: true })
-      .limit(5000);
+    // Paginated: PostgREST caps each response at 1,000 rows (80 videos × 30 days exceeds it).
+    const snapIds = [...new Set(changed.map((e) => e.videoId))];
+    const snapSince = new Date(Date.now() - 30 * 86_400_000).toISOString();
+    const snaps: { video_id: string; captured_at: string; views: number | null }[] = [];
+    for (let from = 0; from < 10_000; from += 1000) {
+      const { data: page } = await db
+        .from('video_snapshots')
+        .select('video_id, captured_at, views')
+        .in('video_id', snapIds)
+        .gte('captured_at', snapSince)
+        .order('captured_at', { ascending: true })
+        .order('video_id', { ascending: true })
+        .range(from, from + 999);
+      snaps.push(...((page ?? []) as typeof snaps));
+      if ((page ?? []).length < 1000) break;
+    }
     const byVideo = new Map<string, { t: number; views: number }[]>();
-    for (const s of (snaps ?? []) as { video_id: string; captured_at: string; views: number | null }[]) {
+    for (const s of snaps) {
       const list = byVideo.get(s.video_id) ?? [];
       list.push({ t: new Date(s.captured_at).getTime(), views: Number(s.views ?? 0) });
       byVideo.set(s.video_id, list);

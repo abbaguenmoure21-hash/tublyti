@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { getLatestSnapshots } from '@/lib/youtube/latest-snapshots';
 
 /**
  * Statistiques publiques d'une chaîne vérifiée, calculées à partir des vidéos déjà collectées
@@ -85,15 +86,8 @@ export async function getPublicStats(db: SupabaseClient, userChannelId: string):
   const videos = (vids ?? []) as { id: string; title: string; published_at: string | null; duration_s: number | null; thumbnail_url: string | null }[];
 
   const latest = new Map<string, { views: number; likes: number; comments: number }>();
-  if (videos.length) {
-    const { data: snaps } = await db
-      .from('video_snapshots')
-      .select('video_id, captured_at, views, likes, comments')
-      .in('video_id', videos.map((v) => v.id))
-      .order('captured_at', { ascending: false });
-    for (const s of (snaps ?? []) as { video_id: string; views: number; likes: number | null; comments: number | null }[]) {
-      if (!latest.has(s.video_id)) latest.set(s.video_id, { views: Number(s.views) || 0, likes: Number(s.likes) || 0, comments: Number(s.comments) || 0 });
-    }
+  for (const [id, s] of await getLatestSnapshots(db, videos.map((v) => v.id))) {
+    latest.set(id, { views: Number(s.views) || 0, likes: Number(s.likes) || 0, comments: Number(s.comments) || 0 });
   }
 
   const list: PublicVideo[] = videos

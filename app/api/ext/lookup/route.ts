@@ -7,6 +7,7 @@ import { authenticateExtRequest, isAuthError } from '@/lib/ext/auth';
 import { canSeeNiche } from '@/lib/mcp/auth';
 import { RealYouTubeClient } from '@/lib/youtube/client';
 import { escapeLike } from '@/lib/utils';
+import { getLatestSnapshots } from '@/lib/youtube/latest-snapshots';
 
 const bodySchema = z.discriminatedUnion('type', [
   // Strict formats: an arbitrary string must not trigger YouTube calls (quota) nor pollute the cache.
@@ -228,17 +229,10 @@ async function lookupVideo(db: DB, videoId: string) {
 
       if (chVids && chVids.length > 2) {
         const ids = chVids.map((v: { id: string }) => v.id);
-        const { data: snaps } = await db
-          .from('video_snapshots')
-          .select('video_id, views')
-          .in('video_id', ids)
-          .order('captured_at', { ascending: false });
-
-        if (snaps) {
+        const snaps = await getLatestSnapshots(db, ids);
+        if (snaps.size) {
           const latest = new Map<string, number>();
-          for (const s of snaps as { video_id: string; views: number | null }[]) {
-            if (!latest.has(s.video_id) && s.views != null) latest.set(s.video_id, s.views);
-          }
+          for (const [vid, s] of snaps) if (s.views != null) latest.set(vid, s.views);
           const views = Array.from(latest.values()).filter((v) => v > 0).sort((a, b) => a - b);
           if (views.length > 2) {
             channelMedian = computeMedian(views);
@@ -309,17 +303,8 @@ async function lookupVideo(db: DB, videoId: string) {
   const competitors: { title: string; channelTitle: string; views: number | null; publishedAt: string }[] = [];
   if (compRows && compRows.length > 0) {
     const compIds = compRows.map((v: { id: string }) => v.id);
-    const { data: compSnaps } = await db
-      .from('video_snapshots')
-      .select('video_id, views')
-      .in('video_id', compIds)
-      .order('captured_at', { ascending: false });
     const viewMap = new Map<string, number>();
-    if (compSnaps) {
-      for (const s of compSnaps as { video_id: string; views: number | null }[]) {
-        if (!viewMap.has(s.video_id) && s.views != null) viewMap.set(s.video_id, s.views);
-      }
-    }
+    for (const [vid, s] of await getLatestSnapshots(db, compIds)) if (s.views != null) viewMap.set(vid, s.views);
     for (const v of compRows as { id: string; title: string; published_at: string; channels: unknown }[]) {
       competitors.push({
         title: v.title,
@@ -390,18 +375,8 @@ async function lookupChannel(db: DB, channelId: string) {
 
   if (videos && videos.length > 0) {
     const videoIds = videos.map((v: { id: string }) => v.id);
-    const { data: snapshots } = await db
-      .from('video_snapshots')
-      .select('video_id, views')
-      .in('video_id', videoIds)
-      .order('captured_at', { ascending: false });
-
     const viewMap = new Map<string, number>();
-    if (snapshots) {
-      for (const s of snapshots as { video_id: string; views: number | null }[]) {
-        if (!viewMap.has(s.video_id) && s.views != null) viewMap.set(s.video_id, s.views);
-      }
-    }
+    for (const [vid, s] of await getLatestSnapshots(db, videoIds)) if (s.views != null) viewMap.set(vid, s.views);
 
     const allViews = Array.from(viewMap.values()).filter((v) => v > 0).sort((a, b) => a - b);
     medianViews = allViews.length > 0 ? computeMedian(allViews) : null;

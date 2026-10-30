@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { CheckCircle2 } from 'lucide-react';
 import { createServiceClient } from '@/lib/supabase/server';
+import { readAllPages } from '@/lib/supabase/rpc-fallback';
 import { requireAdmin } from '@/lib/auth/session';
 import { nicheColor } from '@/lib/scope';
 import { proposedStatus, type ProposedStatus } from '@/lib/topics/auto-validate';
@@ -26,12 +27,14 @@ export default async function AdminSujetsPage({ searchParams }: { searchParams: 
     .eq('status', 'proposed')
     .order('created_at', { ascending: false })
     .limit(500);
-  let activeQ = db.from('topics').select('id, label, niche_id').in('status', ['active', 'in_production']).order('label').limit(2000);
-  if (niche) {
-    proposedQ = proposedQ.eq('niche_id', niche);
-    activeQ = activeQ.eq('niche_id', niche);
-  }
-  const [proposedRes, activeRes] = await Promise.all([proposedQ, activeQ]);
+  if (niche) proposedQ = proposedQ.eq('niche_id', niche);
+  // Merge targets: paginated (limit(2000) was capped at 1,000 rows by PostgREST).
+  const activePage = (from: number, to: number) => {
+    let q = db.from('topics').select('id, label, niche_id').in('status', ['active', 'in_production']);
+    if (niche) q = q.eq('niche_id', niche);
+    return q.order('label').order('id').range(from, to);
+  };
+  const [proposedRes, activeRes] = await Promise.all([proposedQ, readAllPages<{ id: string; label: string; niche_id: string }>(activePage, 20_000)]);
 
   type Row = {
     id: string;
@@ -73,7 +76,7 @@ export default async function AdminSujetsPage({ searchParams }: { searchParams: 
     .filter((c) => (view === 'decider' ? c.status === 'sensitive' : c.status !== 'sensitive'))
     .sort((a, b) => order[a.status] - order[b.status] || b.videoCount - a.videoCount);
 
-  const mergeTargets = ((activeRes.data ?? []) as { id: string; label: string; niche_id: string }[]).map((t) => ({
+  const mergeTargets = activeRes.data.map((t) => ({
     id: t.id,
     label: t.label,
     nicheId: t.niche_id,

@@ -8,6 +8,7 @@ import { isSensitiveTopic } from '@/lib/topics/sensitive';
 import { getFavoriteIds } from '@/lib/actions/collections';
 import { computeFeasibilityForUser, isNoChannelResult } from '@/lib/scoring/feasibility-for-user';
 import { getUserSubsByNiche } from '@/lib/scoring/user-subs';
+import { getTopicVideoCounts } from '@/lib/youtube/topic-video-counts';
 import { TitlePatternsView } from './_components/title-patterns-view';
 import { CarteView, type CarteTopic } from './_components/carte-view';
 
@@ -65,10 +66,7 @@ export default async function CartePage({ searchParams }: { searchParams: Promis
   // Nombre de vidéos repérées par sujet (pour les sujets encore sans mesure).
   const topicIds = rows.map((r) => r.topics.id);
   const videoCount = new Map<string, number>();
-  if (topicIds.length) {
-    const { data: vids } = await db.from('videos').select('topic_id').in('topic_id', topicIds).limit(20000);
-    for (const v of (vids ?? []) as { topic_id: string }[]) videoCount.set(v.topic_id, (videoCount.get(v.topic_id) ?? 0) + 1);
-  }
+  for (const [tid, c] of await getTopicVideoCounts(db, topicIds)) videoCount.set(tid, c.videos);
 
   const labelByNiche = labelsByNiche(niches);
   let all: CarteTopic[] = rows.map((r) => {

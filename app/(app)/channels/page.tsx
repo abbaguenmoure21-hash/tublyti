@@ -8,6 +8,7 @@ export const metadata = { title: 'Chaînes suivies' };
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { createServiceClient } from '@/lib/supabase/server';
 import { requireAdmin } from '@/lib/auth/session';
+import { readAllPages } from '@/lib/supabase/rpc-fallback';
 import { AddChannelForm } from './_components/add-channel-form';
 import { DeleteChannelButton } from './_components/delete-channel-button';
 
@@ -41,10 +42,15 @@ export default async function ChannelsPage() {
   const db = createServiceClient();
 
   const [channelsResult, nichesResult, candidatesResult] = await Promise.all([
-    db
-      .from('channels')
-      .select('id, title, subscriber_count, last_checked_at, niche_id, niches(name)')
-      .order('last_checked_at', { ascending: true, nullsFirst: true }),
+    // Paginated: a single read was capped at 1,000 channels without notice.
+    readAllPages<Channel>((from, to) =>
+      db
+        .from('channels')
+        .select('id, title, subscriber_count, last_checked_at, niche_id, niches(name)')
+        .order('last_checked_at', { ascending: true, nullsFirst: true })
+        .order('id', { ascending: true })
+        .range(from, to),
+    ),
     db.from('niches').select('id, name').order('name'),
     db
       .from('candidate_channels')
@@ -52,7 +58,7 @@ export default async function ChannelsPage() {
       .eq('status', 'pending'),
   ]);
 
-  const channels = (channelsResult.data ?? []) as unknown as Channel[];
+  const channels = channelsResult.data;
   const niches = (nichesResult.data ?? []) as unknown as Niche[];
   const candidatesCount = candidatesResult.count ?? 0;
   const fetchError = channelsResult.error?.message ?? null;

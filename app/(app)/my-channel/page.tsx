@@ -9,6 +9,7 @@ import { googleEnabled } from '@/lib/youtube/google-oauth';
 import { encryptionReady } from '@/lib/crypto/tokens';
 import { getChannelAnalytics, PERIODS, type AnalyticsData, type Period } from '@/lib/youtube/analytics';
 import { getPublicStats, type PublicStats, type PublicVideo } from '@/lib/youtube/public-stats';
+import { getVideoReachTotals } from '@/lib/youtube/reach-totals';
 import { AnalyticsControls, DailyChart, MonthlyChart, RefreshPublicButton } from './_components/channel-charts';
 import { TopVideos } from './_components/top-videos';
 import { AnalyzeVideoButton } from '@/components/tublyti/video-analysis';
@@ -497,20 +498,8 @@ async function AnalyticsSection({ channelId, period, canConnect, linked }: { cha
   // Impressions et CTR des miniatures (rapports quotidiens YouTube, depuis la connexion + 30 jours d'historique).
   const reach = new Map<string, { impressions: number; ctr: number | null }>();
   if (analytics.status === 'ok' && analytics.data.topVideos.length) {
-    const { data: rows } = await db
-      .from('video_reach_daily')
-      .select('video_id, impressions, ctr')
-      .eq('user_channel_id', channelId)
-      .in('video_id', analytics.data.topVideos.map((v) => v.id))
-      .limit(5000);
-    const acc = new Map<string, { imp: number; clicks: number }>();
-    for (const r of (rows ?? []) as { video_id: string; impressions: number; ctr: number | null }[]) {
-      const cur = acc.get(r.video_id) ?? { imp: 0, clicks: 0 };
-      cur.imp += Number(r.impressions);
-      cur.clicks += Number(r.impressions) * Number(r.ctr ?? 0);
-      acc.set(r.video_id, cur);
-    }
-    for (const [k, v] of acc) reach.set(k, { impressions: v.imp, ctr: v.imp ? v.clicks / v.imp : null });
+    const acc = await getVideoReachTotals(db, channelId, analytics.data.topVideos.map((v) => v.id));
+    for (const [k, v] of acc) reach.set(k, { impressions: v.impressions, ctr: v.impressions ? v.clicks / v.impressions : null });
   }
   // Où en est le rapport quotidien des miniatures (affiché tant qu'aucun chiffre n'est arrivé).
   let reachNote: string | null = null;

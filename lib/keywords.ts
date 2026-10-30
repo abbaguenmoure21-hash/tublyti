@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { escapeLike } from './utils';
+import { readAllPages } from './supabase/rpc-fallback';
 
 /**
  * « Market cap » d'un mot : compare plusieurs mots-clés sur les vidéos du catalogue
@@ -36,22 +37,28 @@ const median = (xs: number[]) => {
   return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
 };
 
-async function statFor(db: SupabaseClient, term: string, channelIds: string[] | null): Promise<KeywordStat> {
+type OutlierRow = { score: number; baseline: number };
+
+async function statFor(db: SupabaseClient, term: string, nicheIds: string[] | null): Promise<KeywordStat> {
   const pattern = `%${escapeLike(term)}%`;
-  const rows: { id: string; title: string; channel_id: string; published_at: string | null }[] = [];
-  if (channelIds) {
-    for (let i = 0; i < channelIds.length && rows.length < 2000; i += 100) {
-      const { data } = await db.from('videos').select('id, title, channel_id, published_at').in('channel_id', channelIds.slice(i, i + 100)).ilike('title', pattern).limit(1000);
-      rows.push(...((data ?? []) as typeof rows));
-    }
-  } else {
-    const { data } = await db.from('videos').select('id, title, channel_id, published_at').ilike('title', pattern).order('published_at', { ascending: false }).limit(2000);
-    rows.push(...((data ?? []) as typeof rows));
-  }
+  // One paginated query per word (outlier scores embedded, niche filtered through the channel join),
+  // instead of up to ~20 serial round-trips; served by the trigram index on videos.title (00031).
+  const { data: raw } = await readAllPages<{ id: string; title: string; channel_id: string; published_at: string | null; video_outliers: OutlierRow | OutlierRow[] | null }>(
+    (from, to) => {
+      let q = db
+        .from('videos')
+        .select(nicheIds ? 'id, title, channel_id, published_at, video_outliers(score, baseline), channels!inner(niche_id)' : 'id, title, channel_id, published_at, video_outliers(score, baseline)')
+        .ilike('title', pattern);
+      if (nicheIds) q = q.in('channels.niche_id', nicheIds);
+      return q.order('published_at', { ascending: false }).order('id', { ascending: true }).range(from, to);
+    },
+    2000,
+  );
+  const rows = raw.map(({ id, title, channel_id, published_at }) => ({ id, title, channel_id, published_at }));
   const scores = new Map<string, { score: number; baseline: number }>();
-  for (let i = 0; i < rows.length; i += 200) {
-    const { data } = await db.from('video_outliers').select('video_id, score, baseline').in('video_id', rows.slice(i, i + 200).map((r) => r.id));
-    for (const o of (data ?? []) as { video_id: string; score: number; baseline: number }[]) scores.set(o.video_id, { score: Number(o.score), baseline: Number(o.baseline) });
+  for (const r of raw) {
+    const o = Array.isArray(r.video_outliers) ? r.video_outliers[0] : r.video_outliers;
+    if (o) scores.set(r.id, { score: Number(o.score), baseline: Number(o.baseline) });
   }
   const scored = rows.filter((r) => scores.has(r.id));
   const sc = scored.map((r) => scores.get(r.id)!.score);
@@ -74,12 +81,7 @@ async function statFor(db: SupabaseClient, term: string, channelIds: string[] | 
 
 export async function compareKeywords(db: SupabaseClient, terms: string[], nicheIds: string[] | null): Promise<KeywordComparison> {
   const clean = [...new Set(terms.map((t) => t.trim()).filter((t) => t.length >= 2))].slice(0, 4);
-  let channelIds: string[] | null = null;
-  if (nicheIds?.length) {
-    const { data } = await db.from('channels').select('id').in('niche_id', nicheIds).limit(1000);
-    channelIds = ((data ?? []) as { id: string }[]).map((c) => c.id);
-  }
-  const stats = await Promise.all(clean.map((t) => statFor(db, t, channelIds)));
+  const stats = await Promise.all(clean.map((t) => statFor(db, t, nicheIds?.length ? nicheIds : null)));
 
   // Gagnant : meilleure sur-performance médiane, avec assez de vidéos pour que ce soit sérieux.
   const eligible = stats.filter((s) => s.medianScore !== null && s.videos >= 5);

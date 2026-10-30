@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { getLatestScoreDate } from '@/lib/scoring/latest-score-date';
 import { isSensitiveTopic } from '@/lib/topics/sensitive';
 import { isDbReady } from '@/lib/auth/session';
+import { getTopicVideoCounts } from '@/lib/youtube/topic-video-counts';
 
 export type Reliability = 'high' | 'medium' | 'low';
 
@@ -111,15 +112,21 @@ export interface TopicDetail {
 
 /** Détail d'un sujet pour le panneau latéral. */
 export async function getTopicDetail(db: SupabaseClient, topicId: string, userId: string): Promise<TopicDetail | null> {
-  const scoredAt = await getLatestScoreDate(db);
-  const since = new Date(Date.now() - 90 * 86_400_000).toISOString();
-  const ready = await isDbReady();
+  const [scoredAt, ready] = await Promise.all([getLatestScoreDate(db), isDbReady()]);
   let proposedAngles = db.from('angles').select('id, title, hook').eq('topic_id', topicId).eq('status', 'idea');
   if (ready) proposedAngles = proposedAngles.is('user_id', null);
-  const [topicRes, scoreRes, videosRes, anglesRes, mineRes, stateRes] = await Promise.all([
+  const [topicRes, scoreRes, counts, quotesRes, anglesRes, mineRes, stateRes] = await Promise.all([
     db.from('topics').select('id, label, status, niche_id, niches(name)').eq('id', topicId).single(),
     db.from('topic_scores').select('mgi, phase, confidence, competitor_subs').eq('topic_id', topicId).eq('scored_at', scoredAt).maybeSingle(),
-    db.from('videos').select('id, channel_id, published_at').eq('topic_id', topicId).limit(1000),
+    getTopicVideoCounts(db, [topicId]),
+    // Les 3 commentaires « frustrés » les plus likés du sujet.
+    db
+      .from('comment_labels')
+      .select('comment_id, comments!inner(text, like_count, videos!inner(topic_id))')
+      .eq('comments.videos.topic_id', topicId)
+      .neq('label', 'none')
+      .order('comments(like_count)', { ascending: false })
+      .limit(3),
     // Angles proposés par TubLyTI (communs à tous) : ceux qui n'appartiennent à personne.
     proposedAngles.order('created_at', { ascending: false }).limit(5),
     db.from('angles').select('id', { count: 'exact', head: true }).eq('topic_id', topicId).eq('user_id', userId),
@@ -131,30 +138,11 @@ export async function getTopicDetail(db: SupabaseClient, topicId: string, userId
     niches: { name: string } | null;
   };
 
-  const videos = (videosRes.data ?? []) as { id: string; channel_id: string; published_at: string | null }[];
-  const recent = videos.filter((v) => v.published_at && v.published_at >= since);
-  const channelCount = new Set(recent.map((v) => v.channel_id)).size;
-
-  // Les 3 commentaires « frustrés » les plus likés.
-  let quotes: { text: string; likes: number }[] = [];
-  const videoIds = videos.map((v) => v.id).slice(0, 200);
-  if (videoIds.length) {
-    const { data: comments } = await db
-      .from('comments')
-      .select('id, text, like_count')
-      .in('video_id', videoIds)
-      .order('like_count', { ascending: false })
-      .limit(150);
-    const ids = (comments ?? []).map((c) => c.id as string);
-    if (ids.length) {
-      const { data: labels } = await db.from('comment_labels').select('comment_id').in('comment_id', ids).neq('label', 'none');
-      const frustrated = new Set((labels ?? []).map((l) => l.comment_id as string));
-      quotes = (comments ?? [])
-        .filter((c) => frustrated.has(c.id as string))
-        .slice(0, 3)
-        .map((c) => ({ text: String(c.text).replace(/\s+/g, ' ').trim().slice(0, 220), likes: Number(c.like_count ?? 0) }));
-    }
-  }
+  const count = counts.get(topicId);
+  const channelCount = count?.channels90d ?? 0;
+  const quotes = ((quotesRes.data ?? []) as unknown as { comments: { text: string; like_count: number | null } | null }[])
+    .filter((r) => r.comments)
+    .map((r) => ({ text: String(r.comments!.text).replace(/\s+/g, ' ').trim().slice(0, 220), likes: Number(r.comments!.like_count ?? 0) }));
 
   const s = scoreRes.data as { mgi: number | null; phase: number | null; confidence: string | null; competitor_subs: number[] | null } | null;
   const conf = s?.confidence ?? null;
@@ -169,7 +157,7 @@ export async function getTopicDetail(db: SupabaseClient, topicId: string, userId
     phase: s?.phase ?? null,
     potential: s?.mgi != null ? Math.round(Number(s.mgi)) : null,
     reliability: conf && ['high', 'medium', 'low'].includes(conf) ? (conf as Reliability) : null,
-    videoCount90d: recent.length,
+    videoCount90d: count?.videos90d ?? 0,
     channelCount,
     quotes,
     angles: (anglesRes.data ?? []).map((a) => ({ id: a.id as string, title: String(a.title ?? ''), hook: (a.hook as string | null) ?? null })),
