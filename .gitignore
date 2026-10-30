@@ -22,3 +22,4 @@ _brouillons/
 # Extension build artifacts (WXT)
 extension/.output/
 extension/.wxt/
+.nightly-summary-sent

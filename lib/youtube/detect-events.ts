@@ -59,8 +59,17 @@ export async function detectChanges(
         meta: { views_at_change: snap.views },
       });
 
-      // Update stored title
-      await db.from('videos').update({ title: snap.title }).eq('id', snap.videoId);
+      // Update stored title; the old title's vector is stale: re-embed and re-compare next pass.
+      const { error: titleErr } = await db
+        .from('videos')
+        .update({ title: snap.title, title_embedding: null, attach_checked_at: null })
+        .eq('id', snap.videoId);
+      if (titleErr && /attach_checked_at/.test(titleErr.message)) {
+        // Migration 00033 not applied yet.
+        await db.from('videos').update({ title: snap.title, title_embedding: null }).eq('id', snap.videoId);
+      } else if (titleErr) {
+        console.error(`title update ${snap.videoId}: ${titleErr.message}`);
+      }
     }
 
     // Thumbnail change : YouTube garde la même adresse quand la miniature change, la vraie détection
@@ -191,7 +200,27 @@ export async function detectSpikes(
     }
   }
 
-  return events;
+  return dropRecentSpikes(db, events);
+}
+
+/** A video stays above the threshold for several nights: one « spike » per video every 72 h, not one per collect. */
+export const SPIKE_DEDUP_HOURS = 72;
+
+async function dropRecentSpikes(db: SupabaseClient, events: DetectedEvent[]): Promise<DetectedEvent[]> {
+  if (events.length === 0) return events;
+  const since = new Date(Date.now() - SPIKE_DEDUP_HOURS * 3_600_000).toISOString();
+  const { data, error } = await db
+    .from('video_events')
+    .select('video_id')
+    .eq('event_type', 'spike')
+    .in('video_id', [...new Set(events.map((e) => e.videoId))])
+    .gte('created_at', since);
+  if (error) {
+    console.error(`spike dedup: ${error.message}`);
+    return events;
+  }
+  const recent = new Set((data ?? []).map((r) => (r as { video_id: string }).video_id));
+  return events.filter((e) => !recent.has(e.videoId));
 }
 
 // ── Record events to DB ──────────────────────────────────────────────

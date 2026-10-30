@@ -215,13 +215,14 @@ export async function runYouTubeSearch(
           }
         }
 
-        // Insert into search_results (NOT videos — no FK violation)
+        // Insert into search_results (NOT videos — no FK violation), one upsert per search.
+        const resultRows: Record<string, unknown>[] = [];
         for (const videoId of newVideoIds) {
           const meta = videoMeta.get(videoId);
           if (!meta) continue;
           const enriched = enrichMap.get(videoId);
 
-          const { error } = await db.from('search_results').upsert(
+          resultRows.push(
             {
               workspace_id: '00000000-0000-0000-0000-000000000001',
               topic_id: topic.id,
@@ -236,12 +237,14 @@ export async function runYouTubeSearch(
               rank: meta.rank,
               searched_at: new Date().toISOString(),
             },
-            { onConflict: 'topic_id,video_id' },
           );
+        }
+        if (resultRows.length > 0) {
+          const { error } = await db.from('search_results').upsert(resultRows, { onConflict: 'topic_id,video_id' });
           if (error) {
-            console.error(`search_results upsert error for ${videoId}: ${error.message}`);
+            console.error(`search_results upsert error for "${query.query_text}": ${error.message}`);
           } else {
-            stats.videosDiscovered++;
+            stats.videosDiscovered += resultRows.length;
           }
         }
       } catch (err) {

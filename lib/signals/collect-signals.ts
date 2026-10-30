@@ -22,24 +22,36 @@ interface TopicQuery {
 }
 
 // ── Provider factory ─────────────────────────────────────────────────
-function createTrendProvider(): TrendProvider {
+// Fake providers write random numbers: only in tests or an explicit demo (DEMO=true), never in production.
+const allowFake = () => process.env.NODE_ENV === 'test' || process.env.DEMO === 'true';
+
+/** Null when no real provider is configured: the trends sub-step is then skipped (and logged). */
+export function createTrendProvider(): TrendProvider | null {
   const provider = process.env.TREND_PROVIDER ?? 'serpapi';
-  switch (provider) {
-    case 'serpapi':
-      return new SerpApiTrendProvider();
-    case 'searchapi':
-      return new SearchApiTrendProvider();
-    case 'fake':
-      return new FakeTrendProvider();
-    default:
-      return new FakeTrendProvider();
-  }
+  if (provider === 'fake') return allowFake() ? new FakeTrendProvider() : null;
+  if (provider === 'searchapi') return new SearchApiTrendProvider();
+  if (!process.env.SERPAPI_KEY) return null;
+  return new SerpApiTrendProvider();
 }
 
+/** HN (Algolia) needs no key and is always real. Reddit only with its keys (access refused: normally never). */
 function createSocialProvider(): SocialProvider {
-  const hasReddit = process.env.REDDIT_CLIENT_ID && process.env.REDDIT_CLIENT_SECRET;
-  if (hasReddit) return new RealSocialProvider();
-  return new FakeSocialProvider();
+  return allowFake() && process.env.TREND_PROVIDER === 'fake' ? new FakeSocialProvider() : new RealSocialProvider();
+}
+const hasRedditKeys = () => Boolean(process.env.REDDIT_CLIENT_ID && process.env.REDDIT_CLIENT_SECRET);
+
+type TrendPointRow = { topic_id: string; source: string; captured_at: string; value: number };
+
+/** One upsert per 200 rows instead of one per point. */
+async function upsertTrendPoints(db: SupabaseClient, rows: TrendPointRow[]): Promise<number> {
+  let written = 0;
+  for (let i = 0; i < rows.length; i += 200) {
+    const chunk = rows.slice(i, i + 200);
+    const { error } = await db.from('trend_points').upsert(chunk, { onConflict: 'topic_id,source,captured_at' });
+    if (error) console.error(`trend_points upsert error: ${error.message}`);
+    else written += chunk.length;
+  }
+  return written;
 }
 
 // ── Main service ─────────────────────────────────────────────────────
@@ -101,18 +113,19 @@ export async function collectSignals(
     );
 
     if (needsTrend.length > 0) {
-      let trends: TrendProvider;
+      let trends: TrendProvider | null = null;
       try {
         trends = createTrendProvider();
-      } catch {
-        console.error('TrendProvider unavailable, skipping trends');
-        trends = new FakeTrendProvider();
+      } catch (err) {
+        console.error(`TrendProvider unavailable: ${(err as Error).message}`);
       }
+      if (!trends) console.log(`    [signals] Google Trends skipped: no provider key (SERPAPI_KEY) — ${needsTrend.length} topics not measured`);
 
-      for (const q of needsTrend) {
+      const trendProvider = trends;
+      for (const q of trendProvider ? needsTrend : []) {
         if (isTimedOut()) break;
         try {
-          const points = await trends.getInterestOverTime(q.queryText, 90);
+          const points = await trendProvider!.getInterestOverTime(q.queryText, 90);
           // Store the most recent point as today's value
           const latestPoint = points[points.length - 1];
           if (latestPoint) {
@@ -145,16 +158,19 @@ export async function collectSignals(
 
   // Also generate social queries for topics that only have 'youtube' or 'trends' source
   // by reusing their query_text with reddit and hn
-  const topicsWithSocial = new Set(socialQueries.map((q) => q.topicId));
+  // (HN only: Reddit refused API access, so no reddit query is generated; stored reddit queries need its keys.)
+  const topicsWithSocial = new Set(socialQueries.filter((q) => q.source === 'hn').map((q) => q.topicId));
   const extraSocialQueries: TopicQuery[] = [];
   for (const q of topicQueries) {
     if (!topicsWithSocial.has(q.topicId)) {
-      extraSocialQueries.push({ ...q, source: 'reddit' });
       extraSocialQueries.push({ ...q, source: 'hn' });
       topicsWithSocial.add(q.topicId);
     }
   }
-  const allSocialQueries = [...socialQueries, ...extraSocialQueries];
+  const redditOk = hasRedditKeys();
+  const skippedReddit = socialQueries.filter((q) => q.source === 'reddit').length;
+  if (!redditOk && skippedReddit > 0) console.log(`    [signals] Reddit skipped (no API access): ${skippedReddit} queries`);
+  const allSocialQueries = [...socialQueries.filter((q) => q.source === 'hn' || redditOk), ...extraSocialQueries];
 
   if (allSocialQueries.length > 0) {
     // Only collect once per day per topic+source
@@ -176,6 +192,8 @@ export async function collectSignals(
     );
 
     const social = createSocialProvider();
+    const socialRows: TrendPointRow[] = [];
+    let socialErrors = 0;
 
     for (const q of needsSocial) {
       if (isTimedOut()) break;
@@ -185,34 +203,37 @@ export async function collectSignals(
           q.source as 'reddit' | 'hn',
           q.nicheCategory,
         );
-        await db.from('trend_points').upsert(
-          {
-            topic_id: q.topicId,
-            source: q.source,
-            captured_at: today,
-            value: mention.count,
-          },
-          { onConflict: 'topic_id,source,captured_at' },
-        );
-        result.socialPointsCollected++;
+        socialRows.push({ topic_id: q.topicId, source: q.source, captured_at: today, value: mention.count });
       } catch (err) {
+        socialErrors++;
         console.error(
           `Social error (${q.source}) for "${q.queryText}": ${(err as Error).message}`,
         );
       }
     }
+    result.socialPointsCollected += await upsertTrendPoints(db, socialRows);
+    if (socialErrors > 0) console.log(`    [signals] HN: ${socialErrors}/${needsSocial.length} queries failed`);
   }
 
   if (isTimedOut()) return result;
 
   // ── Step 8: yt_views from video_snapshots ─────────────────────────
   // For each topic that has videos, compute avg daily views
-  const { data: topicVideos } = await db
-    .from('videos')
-    .select('topic_id, id')
-    .not('topic_id', 'is', null);
+  // Paginated: Supabase caps each select at 1 000 rows (topics beyond were silently never measured).
+  const topicVideos: { topic_id: string | null; id: string }[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await db
+      .from('videos')
+      .select('topic_id, id')
+      .not('topic_id', 'is', null)
+      .order('id')
+      .range(from, from + 999);
+    if (error) throw new Error(`signals: read videos: ${error.message}`);
+    topicVideos.push(...(data ?? []));
+    if ((data ?? []).length < 1000) break;
+  }
 
-  if (topicVideos && topicVideos.length > 0) {
+  if (topicVideos.length > 0) {
     // Group videos by topic
     const byTopic = new Map<string, string[]>();
     for (const v of topicVideos) {
@@ -233,6 +254,7 @@ export async function collectSignals(
       (existingYt ?? []).map((t) => t.topic_id),
     );
 
+    const ytRows: TrendPointRow[] = [];
     for (const [topicId, videoIds] of byTopic) {
       if (isTimedOut()) break;
       if (hasYtToday.has(topicId)) continue;
@@ -260,17 +282,9 @@ export async function collectSignals(
       );
       const avgViews = Math.round(totalViews / latestByVideo.size);
 
-      await db.from('trend_points').upsert(
-        {
-          topic_id: topicId,
-          source: 'yt_views',
-          captured_at: today,
-          value: avgViews,
-        },
-        { onConflict: 'topic_id,source,captured_at' },
-      );
-      result.ytViewPointsCollected++;
+      ytRows.push({ topic_id: topicId, source: 'yt_views', captured_at: today, value: avgViews });
     }
+    result.ytViewPointsCollected += await upsertTrendPoints(db, ytRows);
   }
 
   return result;
