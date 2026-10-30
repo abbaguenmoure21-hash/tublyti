@@ -3,11 +3,15 @@ import type { Metadata } from 'next';
 import { fetchDossierData } from '@/lib/dossier/generate';
 import { getMgiBand } from '@/lib/scoring/mgi';
 import { createServiceClient } from '@/lib/supabase/server';
-import { requireUser } from '@/lib/auth/session';
+import { getSessionUser, requireUser } from '@/lib/auth/session';
 import { resolveScope } from '@/lib/scope';
+import { canSeeTopic } from '@/lib/auth/topic-access';
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params;
+  // Do not leak a topic label in the tab title to an account that cannot see the topic.
+  const user = await getSessionUser();
+  if (!user || !(await canSeeTopic(user, id))) return { title: 'Sujet' };
   const db = createServiceClient();
   const { data } = await db.from('topics').select('label').eq('id', id).single();
   return { title: data?.label ? `Impression - ${data.label}` : 'Impression' };
@@ -49,7 +53,7 @@ export default async function PrintDossierPage({
     ]);
     if (!t || !mine.some((n) => n.id === (t.niche_id as string))) notFound();
   }
-  const data = await fetchDossierData(id);
+  const data = await fetchDossierData(id, { viewerId: user.id });
   if (!data) notFound();
 
   const { topic, niche, score, frustrations, competitors, titlePatterns, angles, sparkline } = data;

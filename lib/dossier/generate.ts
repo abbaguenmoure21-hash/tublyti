@@ -68,7 +68,15 @@ export interface DossierData {
 
 // ── Fetch ────────────────────────────────────────────────────────────
 
-export async function fetchDossierData(topicId: string): Promise<DossierData | null> {
+/**
+ * @param opts.viewerId account reading the dossier: its own videos are included with the
+ * shared angles. Without a viewer (cron), only shared angles (user_id null) are read —
+ * never another client's private videos.
+ */
+export async function fetchDossierData(
+  topicId: string,
+  opts: { viewerId?: string | null } = {},
+): Promise<DossierData | null> {
   const db = createServiceClient();
 
   const { data: topic } = await db
@@ -209,6 +217,7 @@ export async function fetchDossierData(topicId: string): Promise<DossierData | n
     .from('angles')
     .select('title, hook, rationale, formula, frustration_resolved')
     .eq('topic_id', topicId)
+    .or(opts.viewerId ? `user_id.is.null,user_id.eq.${opts.viewerId}` : 'user_id.is.null')
     .order('created_at', { ascending: false })
     .limit(5);
 

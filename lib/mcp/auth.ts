@@ -1,7 +1,7 @@
 import { createHash } from 'crypto';
 import { createServiceClient } from '@/lib/supabase/server';
 import { listScopeNiches } from '@/lib/scope';
-import { isAdminEmail } from '@/lib/auth/session';
+import { isAdminEmail, isMissingSchemaError } from '@/lib/auth/session';
 
 type Db = ReturnType<typeof createServiceClient>;
 
@@ -18,7 +18,9 @@ async function resolveLegacyOwner(db: Db, tokenId: string): Promise<string | nul
 
     if (!owner && (process.env.ADMIN_EMAILS ?? '').trim()) {
       const { data } = await db.auth.admin.listUsers({ page: 1, perPage: 200 });
-      const match = (data?.users ?? []).filter((u: { id: string; email?: string }) => isAdminEmail(u.email));
+      const match = (data?.users ?? []).filter(
+        (u: { id: string; email?: string; email_confirmed_at?: string }) => Boolean(u.email_confirmed_at) && isAdminEmail(u.email),
+      );
       if (match.length === 1) owner = match[0].id;
     }
 
@@ -32,19 +34,20 @@ async function resolveLegacyOwner(db: Db, tokenId: string): Promise<string | nul
       await db.from('api_tokens').update({ user_id: owner }).eq('id', tokenId).is('user_id', null);
     }
   } catch {
-    // Best effort : sans propriétaire, le jeton garde ses droits d'avant.
+    // Best effort: without an owner the token is refused (fail closed).
   }
   return owner;
 }
 
 /** Le compte est-il administrateur (profil ou ADMIN_EMAILS) ? */
 async function isAdminUser(db: Db, userId: string): Promise<boolean> {
-  const { data: profile } = await db.from('profiles').select('role').eq('user_id', userId).maybeSingle();
+  const { data: profile, error } = await db.from('profiles').select('role').eq('user_id', userId).maybeSingle();
+  if (error) throw new Error('profile lookup failed');
   if (profile?.role === 'admin') return true;
   if (!(process.env.ADMIN_EMAILS ?? '').trim()) return false;
   try {
     const { data } = await db.auth.admin.getUserById(userId);
-    return isAdminEmail(data?.user?.email);
+    return Boolean(data?.user?.email_confirmed_at) && isAdminEmail(data?.user?.email);
   } catch {
     return false;
   }
@@ -75,9 +78,12 @@ export async function authenticateToken(rawToken: string): Promise<McpTokenInfo 
   type TokenRow = { id: string; name: string; permission: string; user_id?: string | null };
   let row: TokenRow | null = null;
   const withOwner = await db.from('api_tokens').select('id, name, permission, user_id').eq('token_hash', hash).is('revoked_at', null).maybeSingle();
-  if (withOwner.error) {
-    // Avant la migration 00019 : pas de colonne user_id, jeton du propriétaire.
+  // Before migration 00019 (no user_id column) only. Any other error → refuse (fail closed).
+  const preOwnerSchema = isMissingSchemaError(withOwner.error);
+  if (withOwner.error && !preOwnerSchema) return null;
+  if (preOwnerSchema) {
     const legacy = await db.from('api_tokens').select('id, name, permission').eq('token_hash', hash).is('revoked_at', null).maybeSingle();
+    if (legacy.error) return null;
     row = (legacy.data as TokenRow | null) ?? null;
   } else {
     row = (withOwner.data as TokenRow | null) ?? null;
@@ -88,14 +94,27 @@ export async function authenticateToken(rawToken: string): Promise<McpTokenInfo 
   // Mise à jour de la date d'utilisation (sans attendre)
   db.from('api_tokens').update({ last_used_at: new Date().toISOString() }).eq('id', token.id).then(() => {});
 
-  const legacy = !token.user_id && !withOwner.error;
+  // Token created before 00019 (user_id empty): resolve and attach its owner.
+  const legacy = !token.user_id && !preOwnerSchema;
   const userId = token.user_id ?? (legacy ? await resolveLegacyOwner(db, token.id) : null);
-  let isAdmin = true;
-  let nicheIds: string[] | null = null;
-  // Un jeton ancien rattaché automatiquement garde ses droits d'administrateur.
-  if (userId && !legacy) {
-    isAdmin = await isAdminUser(db, userId);
-    if (!isAdmin) nicheIds = (await listScopeNiches(db, userId)).map((n) => n.id);
+
+  // Deny by default: no rights until the owner is proven admin, no niche until listed.
+  let isAdmin = false;
+  let nicheIds: string[] | null = [];
+  if (preOwnerSchema) {
+    // Single-owner database (before 00019): the only tokens are the owner's.
+    isAdmin = true;
+    nicheIds = null;
+  } else if (userId) {
+    try {
+      isAdmin = await isAdminUser(db, userId);
+      nicheIds = isAdmin ? null : (await listScopeNiches(db, userId)).map((n) => n.id);
+    } catch {
+      return null;
+    }
+  } else {
+    // Unresolvable owner: refuse rather than guess.
+    return null;
   }
 
   return {

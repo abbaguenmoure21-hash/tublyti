@@ -7,7 +7,7 @@ import {
   estimateAngleCostUSD,
 } from '@/lib/nlp/angle-generator';
 import type { AngleInput } from '@/lib/nlp/angle-generator';
-import { timingSafeCompare } from '@/lib/auth/timing-safe';
+import { isCronAuthorized } from '@/lib/auth/cron';
 
 const uuidSchema = z.string().uuid();
 
@@ -27,7 +27,7 @@ export async function POST(
   }
 
   const authHeader = _request.headers.get('authorization');
-  if (!timingSafeCompare(authHeader ?? '', `Bearer ${process.env.CRON_SECRET}`)) {
+  if (!isCronAuthorized(authHeader)) {
     return NextResponse.json({ error: 'Non autorisé.' }, { status: 401 });
   }
 

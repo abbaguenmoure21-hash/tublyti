@@ -7,6 +7,7 @@ export const dynamic = 'force-dynamic';
 export const metadata = { title: 'Chaînes suivies' };
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { createServiceClient } from '@/lib/supabase/server';
+import { requireAdmin } from '@/lib/auth/session';
 import { AddChannelForm } from './_components/add-channel-form';
 import { DeleteChannelButton } from './_components/delete-channel-button';
 
@@ -35,6 +36,8 @@ function formatDate(d: string | null) {
 }
 
 export default async function ChannelsPage() {
+  // Guard at the data level, not only in the layout (RSC requests can skip layouts).
+  await requireAdmin();
   const db = createServiceClient();
 
   const [channelsResult, nichesResult, candidatesResult] = await Promise.all([

@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { createServiceClient } from '@/lib/supabase/server';
+import { requireAdmin } from '@/lib/auth/session';
 import { Users } from 'lucide-react';
 import { CandidateActions } from './_components/candidate-actions';
 
@@ -35,6 +36,8 @@ export default async function CandidatesPage({
   searchParams: Promise<{ sort?: string }>;
 }) {
   const params = await searchParams;
+  // Guard at the data level, not only in the layout (RSC requests can skip layouts).
+  await requireAdmin();
   const sortBy = params.sort === 'faceless' ? 'faceless' : 'views';
 
   const db = createServiceClient();

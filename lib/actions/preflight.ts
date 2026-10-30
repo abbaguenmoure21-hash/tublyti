@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { createServiceClient } from '@/lib/supabase/server';
+import { consumeUserQuota, QUOTA_MESSAGE } from '@/lib/auth/user-quota';
 import { getSessionUser } from '@/lib/auth/session';
 import { getPublicStats } from '@/lib/youtube/public-stats';
 import { runPreflight, type PreflightResult } from '@/lib/preflight/engine';
@@ -97,6 +98,7 @@ export async function startVideoUpload(input: { size: number; mimeType: string; 
   if (!geminiEnabled()) return { ok: false, message: 'Analyse vidéo non activée : ajoute la clé GEMINI_API_KEY.' };
   if (!/^video\//.test(input.mimeType)) return { ok: false, message: 'Choisis un fichier vidéo (MP4, MOV, WebM).' };
   if (!(input.size > 0) || input.size > MAX_VIDEO_BYTES) return { ok: false, message: 'Vidéo trop lourde : 2 Go maximum.' };
+  if (!(await consumeUserQuota(createServiceClient(), user, 'video_upload'))) return { ok: false, message: QUOTA_MESSAGE };
   try {
     return { ok: true, uploadUrl: await startUpload(input.size, input.mimeType, input.name || 'video') };
   } catch (e) {

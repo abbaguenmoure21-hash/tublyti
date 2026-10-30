@@ -1,5 +1,6 @@
 'use server';
 
+import { z } from 'zod';
 import { getAdminOrNull } from '@/lib/auth/session';
 
 import { revalidatePath } from 'next/cache';
@@ -7,6 +8,8 @@ import { revalidatePath } from 'next/cache';
 export async function generateAngles(topicId: string) {
   // Génération payante (IA) : déclenchée par l'administration uniquement.
   if (!(await getAdminOrNull())) return { error: 'La génération d’angles est faite par l’équipe TubLyTI.' };
+  // topicId is interpolated into an authenticated internal URL: accept a UUID only.
+  if (!z.string().uuid().safeParse(topicId).success) return { error: 'Sujet introuvable.' };
   // This calls the existing API route which uses Claude for generation.
   // We keep it as an API call because it's a long-running operation.
   const baseUrl = process.env.NEXT_PUBLIC_SITE_URL 

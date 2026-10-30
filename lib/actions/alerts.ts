@@ -134,6 +134,8 @@ export async function previewRuleTriggerCount(
 ): Promise<number> {
   const user = await getToolsUser();
   if (!user) return 0;
+  // Same access rules as rule creation (admin-only types, own niches/collections only).
+  if (await validateParams(user, { rule_type: ruleType, params, label: '', instant_email: false })) return 0;
   const db = createServiceClient();
   const thirtyDaysAgo = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
 

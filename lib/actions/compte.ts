@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { createServiceClient } from '@/lib/supabase/server';
+import { consumeUserQuota, QUOTA_MESSAGE } from '@/lib/auth/user-quota';
 import { getSessionUser } from '@/lib/auth/session';
 import { lookupChannel, latestVideos, type YouTubeChannelCard } from '@/lib/youtube/channel-lookup';
 import { cookies } from 'next/headers';
@@ -39,6 +40,7 @@ export interface ChannelPreview {
 export async function previewMyChannel(input: string): Promise<{ error?: string; channel?: ChannelPreview; alreadyMine?: boolean }> {
   const user = await getSessionUser();
   if (!user) return NOT_SIGNED;
+  if (!(await consumeUserQuota(createServiceClient(), user, 'channel_lookup'))) return { error: QUOTA_MESSAGE };
   let card: YouTubeChannelCard | null;
   try {
     card = await lookupChannel(input);
@@ -80,6 +82,7 @@ export async function addMyChannel(input: { youtube: string; nicheId: string }):
   if (!niche) return { error: 'Cette thématique n’est pas disponible.' };
 
   // On relit toujours la chaîne côté serveur : on ne fait pas confiance aux données du navigateur.
+  if (!(await consumeUserQuota(db, user, 'channel_lookup'))) return { error: QUOTA_MESSAGE };
   let card: YouTubeChannelCard | null;
   try {
     card = await lookupChannel(input.youtube);
@@ -161,6 +164,7 @@ export async function verifyMyChannel(id: string): Promise<{ error?: string; suc
   if (!ch?.youtube_channel_id) return { error: 'Chaîne introuvable.' };
 
   if (!ch.verified_at) {
+    if (!(await consumeUserQuota(db, user, 'channel_lookup'))) return { error: QUOTA_MESSAGE };
     let card: YouTubeChannelCard | null;
     try {
       card = await lookupChannel(ch.youtube_channel_id as string);
@@ -354,7 +358,11 @@ export async function followNiche(nicheId: string) {
   const user = await getSessionUser();
   if (!user) return NOT_SIGNED;
   if (!z.string().uuid().safeParse(nicheId).success) return { error: 'Thématique introuvable.' };
-  const { error } = await createServiceClient().from('user_niches').upsert({ user_id: user.id, niche_id: nicheId });
+  const db = createServiceClient();
+  // Only active niches can be followed (same rule as addMyChannel).
+  const { data: niche } = await db.from('niches').select('id').eq('id', nicheId).eq('status', 'active').maybeSingle();
+  if (!niche) return { error: 'Thématique introuvable.' };
+  const { error } = await db.from('user_niches').upsert({ user_id: user.id, niche_id: nicheId });
   if (error) return { error: 'La thématique n’a pas pu être suivie.' };
   refresh();
   return { success: true };

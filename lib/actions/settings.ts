@@ -1,5 +1,6 @@
 'use server';
 
+import { z } from 'zod';
 import { assertAdmin } from '@/lib/auth/session';
 
 import { revalidatePath } from 'next/cache';
@@ -83,6 +84,19 @@ export async function previewTopTenWithWeights() {
   return { data: ranked };
 }
 
+const NicheUpdateSchema = z
+  .object({
+    name: z.string().trim().min(1).max(120),
+    category: z.string().trim().max(60).nullable(),
+    rpm_coefficient: z.number().finite().min(0).max(1000),
+    owner_channel: z.string().trim().max(200).nullable(),
+    rpm_low: z.number().finite().min(0).max(1000),
+    rpm_high: z.number().finite().min(0).max(1000),
+    rpm_source: z.string().trim().max(200).nullable(),
+  })
+  .partial()
+  .strict();
+
 export async function updateNiche(
   nicheId: string,
   updates: {
@@ -96,11 +110,15 @@ export async function updateNiche(
   },
 ) {
   await assertAdmin();
+  // Server action = public endpoint: only the known fields, with sane types.
+  const parsedId = z.string().uuid().safeParse(nicheId);
+  const parsed = NicheUpdateSchema.safeParse(updates);
+  if (!parsedId.success || !parsed.success) return { error: 'Valeurs invalides.' };
   const db = createServiceClient();
 
   const { error } = await db
     .from('niches')
-    .update(updates)
+    .update(parsed.data)
     .eq('id', nicheId);
 
   if (error) return { error: error.message };

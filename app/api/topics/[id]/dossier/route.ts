@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { fetchDossierData, renderDossierMarkdown } from '@/lib/dossier/generate';
-import { createClient } from '@/lib/supabase/server';
-import { timingSafeCompare } from '@/lib/auth/timing-safe';
+import { getSessionUser } from '@/lib/auth/session';
+import { isCronAuthorized } from '@/lib/auth/cron';
+import { canSeeTopic } from '@/lib/auth/topic-access';
 
 const uuidSchema = z.string().uuid();
 
@@ -16,19 +17,23 @@ export async function GET(
     return NextResponse.json({ error: 'Identifiant invalide.' }, { status: 400 });
   }
 
-  // Authenticate: require logged-in user OR CRON_SECRET
-  const authHeader = _request.headers.get('authorization');
-  const isCron = authHeader && timingSafeCompare(authHeader, `Bearer ${process.env.CRON_SECRET}`);
-  
+  // Authenticate: logged-in user with access to the topic's niche, OR CRON_SECRET.
+  const isCron = isCronAuthorized(_request.headers.get('authorization'));
+  let viewerId: string | null = null;
+
   if (!isCron) {
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const user = await getSessionUser();
     if (!user) {
       return NextResponse.json({ error: 'Non autorisé.' }, { status: 401 });
     }
+    // Same rule as the topic page: a client only sees topics of its own niches.
+    if (!(await canSeeTopic(user, id))) {
+      return NextResponse.json({ error: 'Sujet introuvable.' }, { status: 404 });
+    }
+    viewerId = user.id;
   }
 
-  const data = await fetchDossierData(id);
+  const data = await fetchDossierData(id, { viewerId });
   if (!data) {
     return NextResponse.json({ error: 'Sujet introuvable.' }, { status: 404 });
   }

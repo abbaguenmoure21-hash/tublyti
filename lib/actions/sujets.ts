@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { createServiceClient } from '@/lib/supabase/server';
+import { canSeeTopic } from '@/lib/auth/topic-access';
 import { getSessionUser, getAdminOrNull, isDbReady } from '@/lib/auth/session';
 import { resolveScope } from '@/lib/scope';
 
@@ -28,6 +29,8 @@ export async function createVideoFromTopic(topicId: string, angleId?: string | n
   const user = await getSessionUser();
   if (!user) return NOT_SIGNED;
   if (!Id.safeParse(topicId).success) return { error: 'Sujet introuvable.' };
+  // A client can only start a video from a topic of its own niches.
+  if (!(await canSeeTopic(user, topicId))) return { error: 'Sujet introuvable.' };
   const db = createServiceClient();
 
   const { data: topic } = await db.from('topics').select('id, label, niche_id').eq('id', topicId).single();
@@ -36,7 +39,10 @@ export async function createVideoFromTopic(topicId: string, angleId?: string | n
   let title = topic.label as string;
   let hook: string | null = null;
   if (angleId && Id.safeParse(angleId).success) {
-    const { data: angle } = await db.from('angles').select('title, hook').eq('id', angleId).eq('topic_id', topicId).maybeSingle();
+    // Only a shared proposed angle (user_id null) can be copied, never another client's video.
+    let angleQ = db.from('angles').select('title, hook').eq('id', angleId).eq('topic_id', topicId);
+    if (await isDbReady()) angleQ = angleQ.is('user_id', null);
+    const { data: angle } = await angleQ.maybeSingle();
     if (angle?.title) {
       title = angle.title as string;
       hook = (angle.hook as string | null) ?? null;
