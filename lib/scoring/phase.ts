@@ -16,13 +16,28 @@ export interface PhaseInputs {
   medianOutlierAgeDays: number | null;
   /** Total videos attached to the topic */
   totalVideos: number;
+  /** Qualified videos published in the last 72 h (used with thresholds). */
+  qualifiedIn72h?: number;
+  /** Qualified supply O_q (used with thresholds; null = unknown). */
+  supplyQ?: number | null;
 }
 
-export function computePhase(inputs: PhaseInputs): number {
+/** Settings → Scoring thresholds that the phase actually uses. */
+export interface PhaseThresholds {
+  /** Above this qualified supply, a topic cannot be in the ideal window (phase 2). */
+  phase2MaxSupply: number;
+  /** From this many qualified videos in 72 h, the topic is saturating (phase 3). */
+  phase3QualifiedIn72h: number;
+}
+
+export function computePhase(inputs: PhaseInputs, thresholds?: PhaseThresholds): number {
   const { uploadsRecent4w, uploadsOlder8w, medianOutlierAgeDays, totalVideos } = inputs;
 
   // Emergence: very few videos overall
   if (totalVideos < 5) return 0;
+
+  // Burst of qualified competition (Réglages : « Vidéos qualifiées en 72h pour Phase 3 »).
+  if (thresholds && (inputs.qualifiedIn72h ?? 0) >= thresholds.phase3QualifiedIn72h) return 3;
 
   // Weekly upload rates
   const recentWeekly = uploadsRecent4w / 4;
@@ -47,7 +62,9 @@ export function computePhase(inputs: PhaseInputs): number {
   }
 
   // Window: accelerating with young outliers OR strong slope
-  if ((slope > 2 && uploadsRecent4w >= 3) || (slope > 1.5 && youngOutliers)) {
+  // (Réglages : « Max supply pour Phase 2 » — too much qualified supply is not a window.)
+  const supplyOk = !thresholds || inputs.supplyQ == null || inputs.supplyQ <= thresholds.phase2MaxSupply;
+  if (supplyOk && ((slope > 2 && uploadsRecent4w >= 3) || (slope > 1.5 && youngOutliers))) {
     return 2;
   }
 
@@ -58,4 +75,35 @@ export function computePhase(inputs: PhaseInputs): number {
 
   // Default: short virality
   return 1;
+}
+
+/** Days a topic stays in phase 3 once it entered it (Réglages burst or saturation). */
+export const PHASE3_HOLD_DAYS = 14;
+
+/**
+ * Hysteresis on phase 3. A 72 h burst of qualified videos puts a topic in phase 3, but the
+ * slope alone would bring it back to phase 2 as soon as the burst leaves the 72 h window
+ * (2 → 3 → 2, and a misleading "now in the ideal window" alert right after a saturation).
+ * A topic that entered phase 3 less than PHASE3_HOLD_DAYS ago stays in phase 3, unless its
+ * activity really collapsed (computed phase 0: almost no uploads any more).
+ *
+ * @param history previous scores of the topic (any order), dates YYYY-MM-DD before `today`
+ */
+export function applyPhase3Hold(
+  computed: number,
+  history: { scored_at: string; phase: number | null }[],
+  today: string,
+  holdDays = PHASE3_HOLD_DAYS,
+): number {
+  if (computed === 3 || computed === 0) return computed;
+  const prev = [...history].filter((h) => h.scored_at < today).sort((a, b) => b.scored_at.localeCompare(a.scored_at));
+  if (!prev.length || prev[0].phase !== 3) return computed;
+  // Start of the current uninterrupted run of phase 3.
+  let entry = prev[0].scored_at;
+  for (const h of prev) {
+    if (h.phase !== 3) break;
+    entry = h.scored_at;
+  }
+  const days = (Date.parse(`${today}T00:00:00Z`) - Date.parse(`${entry}T00:00:00Z`)) / 86_400_000;
+  return days < holdDays ? 3 : computed;
 }

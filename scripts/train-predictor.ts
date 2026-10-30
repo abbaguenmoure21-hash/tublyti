@@ -4,9 +4,15 @@
  *   npx tsx scripts/train-predictor.ts            (en local, lit .env.local)
  *   GitHub → Actions → « Train predictor » (chaque dimanche, ou à la main)
  *
- * Cible : log(score de sur-performance) = log(vues ÷ vues habituelles de la chaîne au même âge),
- * pour les vidéos d'au moins 7 jours. Validation sur les 15 % de vidéos les plus récentes
- * (on prédit le futur à partir du passé), puis entraînement final sur tout.
+ * Version 2 (sans fuite de données) :
+ *  - cible = log(vues à 7 jours ÷ vues habituelles à 7 jours de la chaîne), la même mesure que le
+ *    résultat réel suivi après publication (lib/preflight/engine.ts) ; recalculée ici à partir des
+ *    relevés, plus de `video_outliers.score` (âge quelconque, méthode « approximate ») ;
+ *  - chaque paramètre est lu tel qu'il était connu à la date de publication (lib/predictor/context.ts) :
+ *    vues habituelles et élan sur les vidéos précédentes déjà à 7 jours, potentiel et phase du sujet
+ *    notés avant le jour de publication ; abonnés retirés (pas d'historique daté) ;
+ *  - validation sur les 15 % de vidéos les plus récentes ; les résidus enregistrés viennent de ce test
+ *    (et non de l'échantillon d'entraînement) ; le modèle n'est enregistré que s'il bat la base.
  */
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { readFileSync, existsSync } from 'fs';
@@ -24,13 +30,37 @@ if (existsSync(envPath)) {
   }
 }
 
-import { MODEL_KEY, fitRidge, predictRaw, probAbove, vectorize, type FeatureContext, type TrainedModel } from '../lib/predictor/model';
+import {
+  MODEL_KEY,
+  MODEL_VERSION,
+  fitRidge,
+  predictRaw,
+  probAbove,
+  residualQuantiles,
+  vectorize,
+  type FeatureContext,
+  type TrainedModel,
+} from '../lib/predictor/model';
+import {
+  HORIZON_DAYS,
+  channelContextAt,
+  clampLog,
+  topicScoreBefore,
+  viewsAt,
+  weeklyToSnaps,
+  type ChannelVideo,
+  type Snap,
+} from '../lib/predictor/context';
+
+const DAY = 86_400_000;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function all<T>(db: SupabaseClient, table: string, cols: string, filter?: (q: any) => any): Promise<T[]> {
+async function all<T>(db: SupabaseClient, table: string, cols: string, order: string[], filter?: (q: any) => any): Promise<T[]> {
   const out: T[] = [];
-  for (let from = 0; from < 500_000; from += 1000) {
-    let q = db.from(table).select(cols).order(cols.split(',')[0].trim()).range(from, from + 999);
+  for (let from = 0; from < 20_000_000; from += 1000) {
+    let q = db.from(table).select(cols);
+    for (const o of order) q = q.order(o);
+    q = q.range(from, from + 999);
     if (filter) q = filter(q);
     const { data, error } = await q;
     if (error) throw new Error(`${table} : ${error.message}`);
@@ -40,67 +70,123 @@ async function all<T>(db: SupabaseClient, table: string, cols: string, filter?: 
   return out;
 }
 
-const clampLog = (s: number) => Math.log(Math.min(100, Math.max(0.05, s)));
-
 async function main() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) throw new Error('NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY manquantes');
   const db = createClient(url, key);
 
-  console.log('Chargement des données…');
-  const [outliers, videos, channels, topics, scores] = await Promise.all([
-    all<{ video_id: string; score: number; baseline: number; age_days: number }>(db, 'video_outliers', 'video_id, score, baseline, age_days'),
-    all<{ id: string; channel_id: string; topic_id: string | null; title: string | null; published_at: string | null; duration_s: number | null }>(db, 'videos', 'id, channel_id, topic_id, title, published_at, duration_s'),
-    all<{ id: string; subscriber_count: number | null }>(db, 'channels', 'id, subscriber_count'),
-    all<{ id: string; phase: number | null }>(db, 'topics', 'id, phase'),
-    all<{ topic_id: string; scored_at: string; mgi: number | null }>(db, 'topic_scores', 'topic_id, scored_at, mgi', (q) =>
-      q.gte('scored_at', new Date(Date.now() - 4 * 86_400_000).toISOString().slice(0, 10)),
+  console.log(`Chargement des données… (cible = score à ${HORIZON_DAYS} j)`);
+  const [videos, scores] = await Promise.all([
+    all<{ id: string; channel_id: string; topic_id: string | null; title: string | null; published_at: string | null; duration_s: number | null }>(
+      db,
+      'videos',
+      'id, channel_id, topic_id, title, published_at, duration_s',
+      ['id'],
     ),
+    all<{ topic_id: string; scored_at: string; mgi: number | null; phase: number | null }>(db, 'topic_scores', 'topic_id, scored_at, mgi, phase', ['topic_id', 'scored_at']),
   ]);
-  console.log(`  ${outliers.length} scores, ${videos.length} vidéos, ${channels.length} chaînes, ${topics.length} sujets`);
+  // Long videos only: the real result is measured on long videos (Shorts follow another curve).
+  const vids = videos.filter((v) => v.published_at && v.title && (v.duration_s ?? 0) > 60);
+  const pubById = new Map(vids.map((v) => [v.id, new Date(v.published_at!).getTime()]));
 
-  const score = new Map(outliers.map((o) => [o.video_id, o]));
-  const subs = new Map(channels.map((c) => [c.id, c.subscriber_count]));
-  const phase = new Map(topics.map((t) => [t.id, t.phase]));
-  const mgi = new Map<string, { at: string; v: number | null }>();
-  for (const s of scores) if (!mgi.has(s.topic_id) || mgi.get(s.topic_id)!.at < s.scored_at) mgi.set(s.topic_id, { at: s.scored_at, v: s.mgi });
+  // Only the snapshots around day 7 are kept in memory.
+  const near = new Map<string, Snap[]>();
+  const keepNear = (videoId: string, s: Snap) => {
+    const pub = pubById.get(videoId);
+    if (pub === undefined || Math.abs(s.at - (pub + HORIZON_DAYS * DAY)) > 3 * DAY) return;
+    near.set(videoId, [...(near.get(videoId) ?? []), s]);
+  };
+  // Never the whole snapshot table: videos sorted by publication date, in chunks of 50 whose
+  // publication dates are close, and only the rows inside [first pub + 4 d, last pub + 10 d].
+  const weeklyById = new Map<string, { week_start: string; views: number }[]>();
+  let snapCount = 0;
+  let weeklyCount = 0;
+  const byPub = [...vids].sort((a, b) => a.published_at!.localeCompare(b.published_at!));
+  const chunks: (typeof vids)[] = [];
+  for (let i = 0; i < byPub.length; i += 50) chunks.push(byPub.slice(i, i + 50));
+  const loadChunk = async (chunk: typeof vids) => {
+    const ids = chunk.map((v) => v.id);
+    const first = pubById.get(chunk[0].id)!;
+    const last = pubById.get(chunk[chunk.length - 1].id)!;
+    const from = new Date(first + (HORIZON_DAYS - 3) * DAY).toISOString();
+    const to = new Date(last + (HORIZON_DAYS + 3) * DAY).toISOString();
+    const rows = await all<{ video_id: string; captured_at: string; views: number }>(
+      db,
+      'video_snapshots',
+      'video_id, captured_at, views',
+      ['video_id', 'captured_at'],
+      (q) => q.in('video_id', ids).gte('captured_at', from).lte('captured_at', to),
+    );
+    snapCount += rows.length;
+    for (const r of rows) keepNear(r.video_id, { at: new Date(r.captured_at).getTime(), views: Number(r.views) || 0 });
+    const wk = await all<{ video_id: string; week_start: string; views: number }>(
+      db,
+      'video_stats_weekly',
+      'video_id, week_start, views',
+      ['video_id', 'week_start'],
+      (q) =>
+        q
+          .in('video_id', ids)
+          .gte('week_start', new Date(first - 7 * DAY).toISOString().slice(0, 10))
+          .lte('week_start', new Date(last + (HORIZON_DAYS + 3) * DAY).toISOString().slice(0, 10)),
+    );
+    weeklyCount += wk.length;
+    for (const w of wk) weeklyById.set(w.video_id, [...(weeklyById.get(w.video_id) ?? []), w]);
+  };
+  // 4 requests in flight at most.
+  for (let i = 0; i < chunks.length; i += 4) await Promise.all(chunks.slice(i, i + 4).map(loadChunk));
+  console.log(`  ${vids.length} vidéos longues, ${snapCount} relevés autour du 7e jour, ${weeklyCount} relevés hebdo, ${scores.length} notes de sujets`);
 
-  // Par chaîne : vidéos dans l'ordre de publication (élan + écart avec la précédente).
-  const vids = videos.filter((v) => v.published_at && v.title);
+  const views7 = new Map<string, number | null>();
+  let fromWeekly = 0;
+  for (const v of vids) {
+    const pub = pubById.get(v.id)!;
+    let x = viewsAt(near.get(v.id) ?? [], pub, HORIZON_DAYS);
+    if (x === null && weeklyById.has(v.id)) {
+      x = viewsAt(weeklyToSnaps(weeklyById.get(v.id)!), pub, HORIZON_DAYS);
+      if (x !== null) fromWeekly++;
+    }
+    views7.set(v.id, x);
+  }
+
+  const scoresByTopic = new Map<string, typeof scores>();
+  for (const s of scores) scoresByTopic.set(s.topic_id, [...(scoresByTopic.get(s.topic_id) ?? []), s]);
+  const byTopic = new Map<string, number[]>();
+  for (const v of vids) if (v.topic_id) byTopic.set(v.topic_id, [...(byTopic.get(v.topic_id) ?? []), pubById.get(v.id)!]);
+
   const byChannel = new Map<string, typeof vids>();
   for (const v of vids) byChannel.set(v.channel_id, [...(byChannel.get(v.channel_id) ?? []), v]);
-  // Par sujet : dates de publication (concurrence des 7 jours précédents).
-  const byTopic = new Map<string, number[]>();
-  for (const v of vids) if (v.topic_id) byTopic.set(v.topic_id, [...(byTopic.get(v.topic_id) ?? []), new Date(v.published_at!).getTime()]);
-  for (const arr of byTopic.values()) arr.sort((a, b) => a - b);
 
   const rows: { t: number; x: number[]; y: number }[] = [];
   for (const list of byChannel.values()) {
-    list.sort((a, b) => a.published_at!.localeCompare(b.published_at!));
-    for (let i = 0; i < list.length; i++) {
-      const v = list[i];
-      const o = score.get(v.id);
-      if (!o || o.age_days < 7 || !(o.baseline > 0)) continue;
-      const t = new Date(v.published_at!).getTime();
-      const prev = list.slice(Math.max(0, i - 5), i).map((p) => score.get(p.id)).filter(Boolean) as typeof outliers;
+    const history: ChannelVideo[] = list.map((v) => ({ id: v.id, publishedMs: pubById.get(v.id)!, views7d: views7.get(v.id) ?? null }));
+    for (const v of list) {
+      const t = pubById.get(v.id)!;
+      const y7 = views7.get(v.id);
+      if (!(y7 && y7 > 0)) continue;
+      const ch = channelContextAt(history, t);
+      if (!ch.baselineViews) continue;
+      // No value may come from after the publication (look-ahead guard).
+      if (ch.latestSourceMs !== null && ch.latestSourceMs > t) throw new Error(`Fuite : la vidéo ${v.id} utilise une valeur postérieure à sa publication.`);
+      const ts = v.topic_id ? topicScoreBefore(scoresByTopic.get(v.topic_id) ?? [], t) : null;
       const topicTimes = v.topic_id ? byTopic.get(v.topic_id) ?? [] : [];
       const ctx: FeatureContext = {
         durationS: v.duration_s,
         publishedAt: new Date(t),
-        subscribers: subs.get(v.channel_id) ?? null,
-        baselineViews: o.baseline,
-        momentum: prev.length >= 2 ? prev.reduce((s, p) => s + clampLog(Number(p.score)), 0) / prev.length : null,
-        daysSincePrev: i > 0 ? (t - new Date(list[i - 1].published_at!).getTime()) / 86_400_000 : null,
+        baselineViews: ch.baselineViews,
+        momentum: ch.momentum,
+        daysSincePrev: ch.daysSincePrev,
         title: v.title!,
-        topicPhase: v.topic_id ? phase.get(v.topic_id) ?? null : null,
-        topicMgi: v.topic_id ? mgi.get(v.topic_id)?.v ?? null : null,
-        topicRecent7d: topicTimes.filter((x) => x < t && x >= t - 7 * 86_400_000).length,
+        topicPhase: ts?.phase ?? null,
+        topicMgi: ts?.mgi ?? null,
+        topicRecent7d: topicTimes.filter((x) => x < t && x >= t - 7 * DAY).length,
       };
-      rows.push({ t, x: vectorize(ctx), y: clampLog(Number(o.score)) });
+      rows.push({ t, x: vectorize(ctx), y: clampLog(y7 / ch.baselineViews) });
     }
   }
-  if (rows.length < 300) throw new Error(`Pas assez de vidéos mesurées (${rows.length}) pour entraîner le modèle.`);
+  console.log(`  ${rows.length} lignes d'entraînement (cible = score à ${HORIZON_DAYS} j ; ${fromWeekly} vues à 7 j lues dans les relevés hebdo)`);
+  if (rows.length < 300) throw new Error(`Pas assez de vidéos mesurées à ${HORIZON_DAYS} j (${rows.length}) pour entraîner le modèle.`);
   rows.sort((a, b) => a.t - b.t);
 
   // Validation : on apprend sur le passé, on teste sur les 15 % les plus récents.
@@ -108,6 +194,9 @@ async function main() {
   const train = rows.slice(0, cut);
   const test = rows.slice(cut);
   const m0 = fitRidge(train.map((r) => r.x), train.map((r) => r.y));
+  // Out-of-sample residuals: the probabilities p2x / p10x must not be over-confident.
+  const testResiduals = residualQuantiles(test.map((r) => r.y - predictRaw(m0, r.x)));
+  const m0t = { ...m0, residuals: testResiduals };
   const yBar = train.reduce((s, r) => s + r.y, 0) / train.length;
   let sse = 0, sst = 0, mae = 0, brier = 0, baseBrier = 0;
   const baseP2x = train.filter((r) => r.y >= Math.log(2)).length / train.length;
@@ -117,7 +206,7 @@ async function main() {
     sst += (r.y - yBar) ** 2;
     mae += Math.abs(r.y - p);
     const hit = r.y >= Math.log(2) ? 1 : 0;
-    brier += (probAbove(m0, p, Math.log(2)) - hit) ** 2;
+    brier += (probAbove(m0t, p, Math.log(2)) - hit) ** 2;
     baseBrier += (baseP2x - hit) ** 2;
   }
   const metrics = {
@@ -127,14 +216,18 @@ async function main() {
     brierP2x: Math.round((brier / test.length) * 1000) / 1000,
     baseBrierP2x: Math.round((baseBrier / test.length) * 1000) / 1000,
     baseP2x: Math.round(baseP2x * 1000) / 1000,
+    horizonDays: HORIZON_DAYS,
   };
-  console.log('Validation sur les vidéos les plus récentes :', metrics);
+  console.log(`Validation sur les vidéos les plus récentes (score à ${HORIZON_DAYS} j) :`, metrics);
+  if (!(metrics.brierP2x < metrics.baseBrierP2x)) {
+    throw new Error(`Le modèle ne fait pas mieux que la moyenne (Brier ${metrics.brierP2x} ≥ ${metrics.baseBrierP2x}) : non enregistré.`);
+  }
 
   const final = fitRidge(rows.map((r) => r.x), rows.map((r) => r.y));
-  const model: TrainedModel = { version: 1, trainedAt: new Date().toISOString(), ...final, metrics };
+  const model: TrainedModel = { version: MODEL_VERSION as 2, trainedAt: new Date().toISOString(), ...final, residuals: testResiduals, metrics };
   const { error } = await db.from('settings').upsert({ key: MODEL_KEY, value: model });
   if (error) throw new Error(`settings : ${error.message}`);
-  console.log(`Modèle enregistré : ${model.n} vidéos, ${model.features.length} paramètres.`);
+  console.log(`Modèle enregistré (${MODEL_KEY}) : ${model.n} vidéos, ${model.features.length} paramètres.`);
 }
 
 main().catch((e) => {

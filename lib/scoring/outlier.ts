@@ -65,10 +65,8 @@ export function getViewsAtAge(
   return best.views;
 }
 
-/**
- * Get the latest views from snapshots.
- */
-export function getLatestViews(snapshots: VideoSnapshot[]): number | null {
+/** Latest snapshot (null when none). */
+export function getLatestSnapshot(snapshots: VideoSnapshot[]): VideoSnapshot | null {
   if (snapshots.length === 0) return null;
   let latest = snapshots[0];
   for (const snap of snapshots) {
@@ -76,7 +74,26 @@ export function getLatestViews(snapshots: VideoSnapshot[]): number | null {
       latest = snap;
     }
   }
-  return latest.views;
+  return latest;
+}
+
+/**
+ * Get the latest views from snapshots.
+ */
+export function getLatestViews(snapshots: VideoSnapshot[]): number | null {
+  return getLatestSnapshot(snapshots)?.views ?? null;
+}
+
+/**
+ * Views of a video brought to another age with a square-root view curve
+ * (views ∝ √age), factor clamped to [0.1, 3]. Used when no snapshot exists at
+ * the same age: comparing a 5-day-old video to the lifetime views of 6-month-old
+ * ones made young videos look like flops.
+ */
+export function viewsScaledToAge(views: number, fromAgeDays: number, toAgeDays: number): number {
+  if (!(fromAgeDays > 0) || !(toAgeDays > 0)) return views;
+  const f = Math.sqrt(toAgeDays / fromAgeDays);
+  return views * Math.min(3, Math.max(0.1, f));
 }
 
 /**
@@ -87,7 +104,8 @@ export function getLatestViews(snapshots: VideoSnapshot[]): number | null {
  * 2. Find the 10 previous videos from the same channel (by published_at).
  * 3. For each previous video, get views at the same age from video_snapshots.
  * 4. If ≥3 previous videos have same-age data, use median of those → method='same_age'.
- * 5. Otherwise, fall back to latest views of previous videos → method='approximate'.
+ * 5. Otherwise, fall back to latest views of previous videos, scaled to the same age
+ *    with a √age curve → method='approximate'.
  * 6. Score = video's views at age N / median baseline.
  *
  * @param video The video to score
@@ -104,11 +122,14 @@ export function computeOutlierScore(
   if (previousVideos.length === 0) return null;
 
   const pubTime = new Date(video.publishedAt).getTime();
-  const ageDays = Math.floor((Date.now() - pubTime) / 86_400_000);
+  // Age at the moment of the latest snapshot (the views we compare), not "now".
+  const latestSnap = getLatestSnapshot(videoSnapshots);
+  const refTime = latestSnap ? new Date(latestSnap.capturedAt).getTime() : Date.now();
+  const ageDays = Math.floor((refTime - pubTime) / 86_400_000);
   if (ageDays < 1) return null;
 
   // Get this video's views at its current age
-  const currentViews = getLatestViews(videoSnapshots);
+  const currentViews = latestSnap?.views ?? null;
   if (currentViews === null || currentViews === 0) return null;
 
   // Try same-age method: get views of previous videos at the same age
@@ -134,13 +155,14 @@ export function computeOutlierScore(
     }
   }
 
-  // Fallback: use latest views of previous videos
+  // Fallback: latest views of previous videos, brought to this video's age (√age curve).
   const latestViews: number[] = [];
   for (const prev of previousVideos) {
     const prevSnaps = previousSnapshots.get(prev.id) ?? [];
-    const views = getLatestViews(prevSnaps);
-    if (views !== null && views > 0) {
-      latestViews.push(views);
+    const snap = getLatestSnapshot(prevSnaps);
+    if (snap && snap.views > 0) {
+      const prevAge = (new Date(snap.capturedAt).getTime() - new Date(prev.publishedAt).getTime()) / 86_400_000;
+      latestViews.push(viewsScaledToAge(snap.views, prevAge, ageDays));
     }
   }
 

@@ -2,7 +2,8 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { scoreTitles, topNicheOutliers, type TitleScore } from './titles';
 import { scoreScript, scoreThumbnail, type ScriptScore, type ThumbnailScore } from './creative';
 import { geminiEnabled } from '../ai/gemini';
-import { deleteFile, scoreVideoFile, type VideoFileScore } from './video-file';
+import { deleteFile, fileState, scoreVideoFile, type VideoFileScore } from './video-file';
+import { viewsAt, type Snap } from '../predictor/context';
 import { loadModel, plannedContext, predictWithModel, probAbove, type ModelPrediction } from '../predictor/predict';
 import { getVideoReachTotals } from '../youtube/reach-totals';
 import { readAllPages } from '../supabase/rpc-fallback';
@@ -23,6 +24,8 @@ export interface Prediction {
   baselineViews: number | null;
   /** Facteur appris sur les vidéos déjà publiées de la chaîne (1 = pas encore assez de recul). */
   calibration: { factor: number; n: number };
+  /** Multiple BEFORE the calibration factor: the calibration learns on this one (no feedback loop). */
+  multipleRaw?: number;
   basis: string;
 }
 
@@ -58,15 +61,8 @@ export interface PreflightInput {
 
 // ── Vues à un âge donné (instantanés quotidiens) ─────────────────────
 
-type Snap = { at: number; views: number };
+// Same rules as the model training (lib/predictor/context.ts).
 
-function viewsAt(snaps: Snap[], publishedMs: number, ageDays: number): number | null {
-  const target = publishedMs + ageDays * 86_400_000;
-  const tol = Math.max(1.5, ageDays * 0.25) * 86_400_000;
-  let best: Snap | null = null;
-  for (const s of snaps) if (Math.abs(s.at - target) <= tol && (!best || Math.abs(s.at - target) < Math.abs(best.at - target))) best = s;
-  return best ? best.views : null;
-}
 
 const median = (xs: number[]) => {
   if (!xs.length) return 0;
@@ -94,9 +90,10 @@ async function loadOwnVideos(db: SupabaseClient, ytChannelId: string, limit = 40
   const list = ((vids ?? []) as { id: string; title: string; published_at: string; duration_s: number | null }[]).filter((v) => (v.duration_s ?? 0) > 60);
   const snapsById = new Map<string, Snap[]>();
   const ids = list.map((v) => v.id);
-  // Batches in parallel; total order (captured_at, video_id) so pages never skip or repeat rows.
+  // Batches of 20 videos read in parallel, each paged to the end (a 20 000-row cap used to drop
+  // recent snapshots); total order (captured_at, video_id) so pages never skip or repeat rows.
   const batches: string[][] = [];
-  for (let i = 0; i < ids.length; i += 50) batches.push(ids.slice(i, i + 50));
+  for (let i = 0; i < ids.length; i += 20) batches.push(ids.slice(i, i + 20));
   const pages = await Promise.all(
     batches.map((batch) =>
       readAllPages<{ video_id: string; captured_at: string; views: number }>((from, to) =>
@@ -107,11 +104,12 @@ async function loadOwnVideos(db: SupabaseClient, ytChannelId: string, limit = 40
           .order('captured_at', { ascending: true })
           .order('video_id', { ascending: true })
           .range(from, to),
-        20_000,
+        2_000_000,
       ),
     ),
   );
-  for (const { data: rows } of pages) {
+  for (const { data: rows, error } of pages) {
+    if (error) throw new Error(`Lecture des relevés impossible : ${error.message}`);
     for (const r of rows) {
       const list = snapsById.get(r.video_id) ?? [];
       list.push({ at: new Date(r.captured_at).getTime(), views: Number(r.views) || 0 });
@@ -123,27 +121,100 @@ async function loadOwnVideos(db: SupabaseClient, ytChannelId: string, limit = 40
 
 /** Vues habituelles de la chaîne au même âge, d'après les vidéos publiées avant celle-ci. */
 function baselineAt(videos: OwnVideo[], before: number, ageDays: number): number | null {
-  const prev = videos.filter((v) => v.publishedMs < before - ageDays * 86_400_000).slice(0, 12);
-  const vals = prev.map((v) => viewsAt(v.snaps, v.publishedMs, ageDays)).filter((x): x is number => x !== null && x > 0);
+  // 12 most recent measured videos (filter first, then take 12: same as the training baseline).
+  const vals = videos
+    .filter((v) => v.publishedMs <= before - ageDays * 86_400_000)
+    .map((v) => viewsAt(v.snaps, v.publishedMs, ageDays))
+    .filter((x): x is number => x !== null && x > 0)
+    .slice(0, 12);
   return vals.length >= 3 ? median(vals) : null;
 }
 
 // ── Recalibrage ──────────────────────────────────────────────────────
 
-export async function getCalibration(db: SupabaseClient, userId: string, userChannelId: string | null) {
-  let q = db.from('preflight_checks').select('predicted_multiple, actual_multiple, predicted_p2x').eq('user_id', userId).not('actual_multiple', 'is', null).order('created_at', { ascending: false }).limit(30);
-  if (userChannelId) q = q.eq('user_channel_id', userChannelId);
-  const { data } = await q;
-  const rows = ((data ?? []) as { predicted_multiple: number; actual_multiple: number; predicted_p2x: number | null }[]).filter((r) => Number(r.predicted_multiple) > 0 && Number(r.actual_multiple) > 0);
-  if (rows.length < 3) return { factor: 1, n: rows.length, hits: null as null | { predictedHigh: number; actualHigh: number } };
-  const logs = rows.map((r) => Math.log(Number(r.actual_multiple) / Number(r.predicted_multiple)));
-  const factor = Math.min(3, Math.max(0.33, Math.exp(median(logs))));
-  const high = rows.filter((r) => Number(r.predicted_p2x ?? 0) >= 0.3);
+/**
+ * Calibration factor = median of log(actual / raw prediction) on the channel's measured videos.
+ * Learned on the prediction BEFORE calibration (result.prediction.multipleRaw): learning on the
+ * calibrated value made the factor oscillate (×2 → predictions right → factor back to 1 → ...).
+ * Old rows without multipleRaw are de-calibrated with the factor they stored.
+ * Shrunk towards 1 while fewer than 10 videos are measured: exp(median × min(1, n / 10)).
+ */
+export function calibrationFrom(
+  rows: { predicted_multiple: number; actual_multiple: number; predicted_p2x: number | null; raw: number | null }[],
+) {
+  const ok = rows.filter((r) => Number(r.actual_multiple) > 0 && Number(r.raw ?? r.predicted_multiple) > 0);
+  if (ok.length < 3) return { factor: 1, n: ok.length, hits: null as null | { predictedHigh: number; actualHigh: number } };
+  const logs = ok.map((r) => Math.log(Number(r.actual_multiple) / Number(r.raw ?? r.predicted_multiple)));
+  const shrink = Math.min(1, ok.length / 10);
+  const factor = Math.min(3, Math.max(0.33, Math.exp(median(logs) * shrink)));
+  const high = ok.filter((r) => Number(r.predicted_p2x ?? 0) >= 0.3);
   return {
     factor: Math.round(factor * 100) / 100,
-    n: rows.length,
+    n: ok.length,
     hits: high.length ? { predictedHigh: high.length, actualHigh: high.filter((r) => Number(r.actual_multiple) >= 2).length } : null,
   };
+}
+
+export async function getCalibration(db: SupabaseClient, userId: string, userChannelId: string | null) {
+  let q = db
+    .from('preflight_checks')
+    .select('predicted_multiple, actual_multiple, predicted_p2x, result')
+    .eq('user_id', userId)
+    .not('actual_multiple', 'is', null)
+    .order('created_at', { ascending: false })
+    .limit(30);
+  if (userChannelId) q = q.eq('user_channel_id', userChannelId);
+  const { data } = await q;
+  const rows = ((data ?? []) as {
+    predicted_multiple: number;
+    actual_multiple: number;
+    predicted_p2x: number | null;
+    result: { prediction?: { multipleRaw?: number; calibration?: { factor?: number } } } | null;
+  }[]).map((r) => {
+    const pr = r.result?.prediction;
+    const stored = Number(pr?.calibration?.factor) > 0 ? Number(pr?.calibration?.factor) : 1;
+    const raw = Number(pr?.multipleRaw) > 0 ? Number(pr?.multipleRaw) : Number(r.predicted_multiple) / stored;
+    return { predicted_multiple: r.predicted_multiple, actual_multiple: r.actual_multiple, predicted_p2x: r.predicted_p2x, raw };
+  });
+  return calibrationFrom(rows);
+}
+
+// ── Probabilités sans modèle ─────────────────────────────────────────
+
+/** Standard normal CDF (Abramowitz-Stegun 26.2.17, error < 1e-7). */
+function normCdf(x: number): number {
+  const t = 1 / (1 + 0.2316419 * Math.abs(x));
+  const d = 0.3989422804014327 * Math.exp((-x * x) / 2);
+  const p = d * t * (0.31938153 + t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + t * 1.330274429))));
+  return x >= 0 ? 1 - p : p;
+}
+
+/** Inverse of normCdf (bisection, plenty for a few calls). */
+function normInv(p: number): number {
+  let lo = -8;
+  let hi = 8;
+  for (let i = 0; i < 60; i++) {
+    const mid = (lo + hi) / 2;
+    if (normCdf(mid) < p) lo = mid;
+    else hi = mid;
+  }
+  return (lo + hi) / 2;
+}
+
+/**
+ * P(log score + delta > threshold), assuming log scores ~ Normal(mu, sigma) where sigma is
+ * the one that reproduces the base probability pBase = P(log score > threshold).
+ * Always a probability (monotone in delta), whatever the size of delta.
+ */
+export function shiftedProb(pBase: number, mu: number, threshold: number, delta: number): number {
+  const p = Math.min(0.999, Math.max(0.001, pBase));
+  const z = normInv(1 - p);
+  let sigma = Math.abs(z) > 0.05 ? (threshold - mu) / z : NaN;
+  if (!Number.isFinite(sigma) || sigma <= 0.2 || sigma > 3) sigma = 1;
+  // Keep the base exactly when delta = 0, then move along the fitted normal.
+  const zBase = (threshold - mu) / sigma;
+  const offset = normInv(1 - p) - zBase;
+  return 1 - normCdf((threshold - mu - delta) / sigma + offset);
 }
 
 // ── Évaluation ───────────────────────────────────────────────────────
@@ -185,7 +256,9 @@ export async function runPreflight(db: SupabaseClient, input: PreflightInput): P
     if (input.video) {
       const vf = input.video;
       tasks.push(
-        scoreVideoFile(db, { uri: vf.uri, mimeType: vf.mimeType }, best.title, vf.durationS ?? null)
+        // Duration read server-side from Google only; unknown -> budget estimated at the cap.
+        fileState(vf.name)
+          .then((st) => scoreVideoFile(db, { uri: vf.uri, mimeType: vf.mimeType }, best.title, st.durationS ?? null))
           .then((r) => void (video = r))
           .catch((e) => void errors.push(`Vidéo : ${(e as Error).message.slice(0, 160)}`))
           .finally(() => deleteFile(vf.name)),
@@ -214,35 +287,44 @@ export async function runPreflight(db: SupabaseClient, input: PreflightInput): P
   const durationS = vd?.durationS ?? input.video?.durationS ?? (sc ? Math.round(sc.est_minutes * 60) : null);
   let modelPart: PreflightResult['model'] = null;
   let logCore: number;
-  if (model) {
-    const ctx = await plannedContext(db, {
-      ytChannelId: input.ytChannelId ?? null,
-      title: best.title,
-      durationS,
-      publishAt,
-      neighborIds: best.neighborIds,
-      fallbackBaseline: input.baselineViews ?? null,
-    });
-    const mp = predictWithModel(model, ctx);
+  // The model is trained on channels with a measured 7-day history only: for a channel without
+  // one, its "usual views" would follow another definition, so we use the title neighbours instead.
+  const ctx = model
+    ? await plannedContext(db, {
+        ytChannelId: input.ytChannelId ?? null,
+        title: best.title,
+        durationS,
+        publishAt,
+        neighborIds: best.neighborIds,
+        fallbackBaseline: null,
+      })
+    : null;
+  const useModel = model && ctx && ctx.baselineViews !== null ? model : null;
+  if (useModel && ctx) {
+    const mp = predictWithModel(useModel, ctx);
     const knnDelta = best.multiple !== null ? Math.log(best.multiple) - prior.logMean : 0;
     logCore = mp.logPred + 0.6 * knnDelta;
     modelPart = { trainedAt: mp.trainedAt, n: mp.n, metrics: mp.metrics, drivers: mp.drivers, topicPhase: ctx.topicPhase, topicRecent7d: ctx.topicRecent7d };
   } else {
     logCore = Math.log(best.multiple ?? 1);
   }
+  // Quality adjustment only when something was actually scored (no 0.5 default).
   const quality = [th?.score, sc?.score, vd?.score].filter((x): x is number => typeof x === 'number');
-  const q = quality.length ? quality.reduce((a, b) => a + b, 0) / quality.length / 100 : 0.5;
-  const logFinal = logCore + Math.log(0.7 + 0.6 * q) + Math.log(calibration.factor);
+  const qualityLog = quality.length ? Math.log(0.7 + (0.6 * quality.reduce((a, b) => a + b, 0)) / quality.length / 100) : 0;
+  const logRaw = logCore + qualityLog;
+  const logFinal = logRaw + Math.log(calibration.factor);
   const multiple = Math.round(Math.exp(logFinal) * 100) / 100;
   let p2x: number;
   let p10x: number;
-  if (model) {
-    p2x = probAbove(model, logFinal, Math.log(2));
-    p10x = probAbove(model, logFinal, Math.log(10));
+  if (useModel) {
+    p2x = probAbove(useModel, logFinal, Math.log(2));
+    p10x = probAbove(useModel, logFinal, Math.log(10));
   } else {
-    const adj = (0.7 + 0.6 * q) * Math.sqrt(calibration.factor);
-    p2x = (best.p2x ?? prior.p2x) * adj;
-    p10x = (best.p10x ?? prior.p10x) * adj;
+    // No model: shift the niche / neighbours distribution in log space (not p × factor).
+    const mu = best.multiple !== null ? Math.log(best.multiple) : prior.logMean;
+    const delta = qualityLog + Math.log(calibration.factor);
+    p2x = shiftedProb(best.p2x ?? prior.p2x, mu, Math.log(2), delta);
+    p10x = shiftedProb(best.p10x ?? prior.p10x, mu, Math.log(10), delta);
   }
   p2x = Math.min(0.95, Math.max(0.01, p2x));
   p10x = Math.min(0.5, Math.max(0.002, p10x));
@@ -263,8 +345,9 @@ export async function runPreflight(db: SupabaseClient, input: PreflightInput): P
       expectedViews: baselineViews ? Math.round(baselineViews * multiple) : null,
       baselineViews,
       calibration: { factor: calibration.factor, n: calibration.n },
-      basis: model
-        ? `Modèle entraîné sur ${nf(model.n)} vidéos suivies par TubLyTI, plus la ressemblance du titre avec les gagnants de ta niche.`
+      multipleRaw: Math.round(Math.exp(logRaw) * 1000) / 1000,
+      basis: useModel
+        ? `Modèle entraîné sur ${nf(useModel.n)} vidéos suivies par TubLyTI, plus la ressemblance du titre avec les gagnants de ta niche.`
         : best.multiple === null
           ? 'Pas encore assez de vidéos comparables dans la niche : estimation sur la moyenne de la niche.'
           : `Basé sur les vidéos de la niche aux titres les plus proches (poids de preuve ${best.evidence}). Le modèle complet s’activera après son premier entraînement.`,

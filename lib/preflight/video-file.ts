@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { geminiJson } from '../ai/gemini';
+import { estimateCostUsd, MAX_MIN } from '../video/analyze';
 
 /**
  * Vidéo finie, avant publication : envoyée directement par le navigateur à Gemini (Files API, 2 Go max,
@@ -34,13 +35,26 @@ export async function startUpload(size: number, mimeType: string, displayName: s
   return url;
 }
 
-export async function fileState(name: string): Promise<{ state: string; uri?: string; mimeType?: string; error?: string }> {
+export async function fileState(
+  name: string,
+): Promise<{ state: string; uri?: string; mimeType?: string; durationS?: number | null; error?: string }> {
   if (!/^files\/[\w-]+$/.test(name)) throw new Error('Fichier invalide');
   const res = await fetch(`${BASE}/v1beta/${name}`, { headers: { 'x-goog-api-key': key() }, cache: 'no-store' });
-  const j = (await res.json().catch(() => ({}))) as { state?: string; uri?: string; mimeType?: string; error?: { message?: string } };
+  const j = (await res.json().catch(() => ({}))) as {
+    state?: string;
+    uri?: string;
+    mimeType?: string;
+    videoMetadata?: { videoDuration?: string };
+    error?: { message?: string };
+  };
   if (!res.ok) return { state: 'FAILED', error: j.error?.message ?? `HTTP ${res.status}` };
-  return { state: j.state ?? 'PROCESSING', uri: j.uri, mimeType: j.mimeType };
+  // Duration as measured by Google (e.g. "312.5s"), never the one sent by the browser.
+  const d = parseFloat(String(j.videoMetadata?.videoDuration ?? '').replace(/s$/, ''));
+  return { state: j.state ?? 'PROCESSING', uri: j.uri, mimeType: j.mimeType, durationS: Number.isFinite(d) && d > 0 ? d : null };
 }
+
+/** Max length of a finished video sent to « Avant publication » (same cap as the video analysis). */
+export const PREFLIGHT_VIDEO_MAX_S = MAX_MIN * 60;
 
 export async function deleteFile(name: string): Promise<void> {
   if (!/^files\/[\w-]+$/.test(name)) return;
@@ -80,7 +94,12 @@ export async function scoreVideoFile(
   title: string,
   durationS: number | null,
 ): Promise<VideoFileScore> {
+  if (durationS !== null && durationS > PREFLIGHT_VIDEO_MAX_S) {
+    throw new Error(`Vidéo trop longue : l’analyse est limitée à ${MAX_MIN} minutes.`);
+  }
   const long = (durationS ?? 0) > 20 * 60;
+  // Unknown duration: estimate at the cap, so the budget check stays on the safe side.
+  const estUsd = estimateCostUsd(durationS ?? PREFLIGHT_VIDEO_MAX_S);
   const { data } = await geminiJson<Record<string, unknown>>(
     db,
     [
@@ -97,7 +116,7 @@ Answer JSON only:
 {"duration_s": 0, "criteria": {${CRITERIA.map(([k]) => `"${k}": {"score": 0, "note": ""}`).join(', ')}}, "retention": [1, 0.7, 0.6, 0.55, 0.5, 0.47, 0.44, 0.41, 0.38, 0.35, 0.3], "drops": [{"at_s": 0, "issue": "", "fix": ""}], "audio": "", "cuts_per_minute": 0, "score": 0, "strengths": [""], "fixes": [""]}`,
       },
     ],
-    { action: 'preflight_video', maxOutputTokens: 3000, timeoutMs: 240_000, mediaResolution: 'MEDIA_RESOLUTION_LOW', meta: { title } },
+    { action: 'preflight_video', estUsd, maxOutputTokens: 3000, timeoutMs: 240_000, mediaResolution: 'MEDIA_RESOLUTION_LOW', meta: { title } },
   );
   const c = (data.criteria ?? {}) as Record<string, { score?: number; note?: string }>;
   const criteria = CRITERIA.map(([k, label]) => ({ key: k, label, score: clamp(c[k]?.score), note: str(c[k]?.note, 260) }));

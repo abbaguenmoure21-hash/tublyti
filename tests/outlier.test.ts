@@ -178,9 +178,11 @@ describe('computeOutlierScore', () => {
     const result = computeOutlierScore(video, videoSnaps, prev, prevSnaps);
     expect(result).not.toBeNull();
     expect(result!.method).toBe('approximate');
-    // Latest views: v2=1000, v1=3000. Median = 2000. Score = 8000/2000 = 4
-    expect(result!.baseline).toBe(2000);
-    expect(result!.score).toBe(4);
+    // Video age at its latest snapshot: 16 d. Latest views scaled to 16 d with √age:
+    // v2 = 1000 × √(16/17), v1 = 3000 × √(16/60). Median of the two.
+    const expected = (1000 * Math.sqrt(16 / 17) + 3000 * Math.sqrt(16 / 60)) / 2;
+    expect(result!.baseline).toBeCloseTo(expected, 6);
+    expect(result!.score).toBeCloseTo(8000 / expected, 6);
   });
 
   it('handles channel with fewer than 10 previous videos', () => {
@@ -196,8 +198,23 @@ describe('computeOutlierScore', () => {
     const result = computeOutlierScore(video, videoSnaps, prev, prevSnaps);
     expect(result).not.toBeNull();
     expect(result!.method).toBe('approximate');
-    expect(result!.baseline).toBe(2000);
-    expect(result!.score).toBe(3);
+    // 11 d old vs a 30-day-old reference: 2000 × √(11/30).
+    expect(result!.baseline).toBeCloseTo(2000 * Math.sqrt(11 / 30), 6);
+    expect(result!.score).toBeCloseTo(6000 / (2000 * Math.sqrt(11 / 30)), 6);
+  });
+
+  it('a young video following the channel curve scores about 1 (approximate)', () => {
+    // 5-day-old video; previous ones are 180 days old with 6× more views (√36 = 6).
+    const video = makeVideo('v9', '2025-01-26T00:00:00Z');
+    const videoSnaps = [makeSnap('v9', '2025-01-31T00:00:00Z', 1000)];
+    const prev = ['a', 'b', 'c'].map((id, i) => makeVideo(id, new Date(Date.UTC(2024, 7, 4 - i)).toISOString()));
+    const prevSnaps = new Map<string, VideoSnapshot[]>(
+      prev.map((p) => [p.id, [makeSnap(p.id, new Date(new Date(p.publishedAt).getTime() + 180 * 86_400_000).toISOString(), 6000)]]),
+    );
+    const result = computeOutlierScore(video, videoSnaps, prev, prevSnaps);
+    expect(result!.method).toBe('approximate');
+    expect(result!.score).toBeGreaterThan(0.7);
+    expect(result!.score).toBeLessThan(1.4);
   });
 });
 

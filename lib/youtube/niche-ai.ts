@@ -8,10 +8,10 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
+import { reserveAiBudget, settleAiBudget } from '../ai/budget';
+import { HAIKU_45, costUsd } from '../ai/pricing';
 
 const MODEL = 'claude-haiku-4-5-20251001';
-const IN_PER_MTOK = 1.0;
-const OUT_PER_MTOK = 5.0;
 
 export interface AIClassification {
   nicheId: string | null;
@@ -25,11 +25,6 @@ export function aiClassifyEnabled(): boolean {
   return process.env.CANDIDATE_AI_CLASSIFY === 'true' && Boolean(process.env.ANTHROPIC_API_KEY);
 }
 
-function monthKey() {
-  const d = new Date();
-  return `ai_spend_${d.getUTCFullYear()}_${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
-}
-
 let categoriesCache: string[] | null = null;
 
 export async function classifyWithAI(
@@ -38,9 +33,9 @@ export async function classifyWithAI(
   niches: { id: string; name: string }[],
   nearest: string[],
 ): Promise<AIClassification | null> {
-  const { data: spendRow } = await db.from('settings').select('value').eq('key', monthKey()).maybeSingle();
-  const spent = typeof spendRow?.value === 'number' ? spendRow.value : 0;
-  if (spent + 0.005 > Number(process.env.AI_BUDGET_USD ?? 30)) return null;
+  const reservation = await reserveAiBudget(db, 0.005);
+  if (!reservation.ok) return null;
+  let settled = false;
 
   if (!categoriesCache) {
     const { data } = await db.from('niches').select('category');
@@ -75,7 +70,7 @@ Answer with JSON only:
         },
       ],
     });
-    const cost = (res.usage.input_tokens * IN_PER_MTOK + res.usage.output_tokens * OUT_PER_MTOK) / 1_000_000;
+    const cost = costUsd(HAIKU_45, res.usage.input_tokens, res.usage.output_tokens);
     await db.from('ai_spend').insert({
       action: 'classify_channel_niche',
       model: 'haiku-4.5',
@@ -83,7 +78,8 @@ Answer with JSON only:
       tokens_out: res.usage.output_tokens,
       cost_usd: cost,
     });
-    await db.from('settings').upsert({ key: monthKey(), value: spent + cost });
+    await settleAiBudget(db, reservation, cost);
+    settled = true;
 
     let text = res.content[0]?.type === 'text' ? res.content[0].text : '';
     text = text.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
@@ -112,6 +108,7 @@ Answer with JSON only:
       reason: String(j.reason ?? '').slice(0, 200),
     };
   } catch (e) {
+    if (!settled) await settleAiBudget(db, reservation, 0).catch(() => undefined);
     console.error(`  classement IA : ${(e as Error).message}`);
     return null;
   }

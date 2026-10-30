@@ -37,6 +37,17 @@ const median = (xs: number[]) => {
   return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
 };
 
+/**
+ * Whole-word match (Unicode-aware): « AI » matches « AI tools » or « l'AI », not « said » or « rain ».
+ * The database `ilike '%ai%'` only pre-filters; this decides.
+ */
+export function containsWord(title: string, term: string): boolean {
+  const t = term.trim();
+  if (!t) return false;
+  const escaped = t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+');
+  return new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, 'iu').test(title);
+}
+
 type OutlierRow = { score: number; baseline: number };
 
 async function statFor(db: SupabaseClient, term: string, nicheIds: string[] | null): Promise<KeywordStat> {
@@ -54,9 +65,11 @@ async function statFor(db: SupabaseClient, term: string, nicheIds: string[] | nu
     },
     2000,
   );
-  const rows = raw.map(({ id, title, channel_id, published_at }) => ({ id, title, channel_id, published_at }));
+  // Keep only whole-word matches (short terms like AI / ETF used to match inside other words).
+  const matchedRaw = raw.filter((r) => containsWord(r.title ?? '', term));
+  const rows = matchedRaw.map(({ id, title, channel_id, published_at }) => ({ id, title, channel_id, published_at }));
   const scores = new Map<string, { score: number; baseline: number }>();
-  for (const r of raw) {
+  for (const r of matchedRaw) {
     const o = Array.isArray(r.video_outliers) ? r.video_outliers[0] : r.video_outliers;
     if (o) scores.set(r.id, { score: Number(o.score), baseline: Number(o.baseline) });
   }

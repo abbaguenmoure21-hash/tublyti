@@ -1,4 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { aiBudgetLeft, reserveAiBudget, settleAiBudget } from './budget';
+import { costUsd, geminiPrice } from './pricing';
 
 /**
  * Appel générique à Gemini (texte + images), réponse JSON.
@@ -7,8 +9,6 @@ import type { SupabaseClient } from '@supabase/supabase-js';
  */
 
 const DEFAULT_MODELS = ['gemini-3.1-flash-lite', 'gemini-3.5-flash-lite', 'gemini-2.5-flash'];
-const PRICE_IN = Number(process.env.GEMINI_PRICE_IN_PER_MTOK ?? 0.5);
-const PRICE_OUT = Number(process.env.GEMINI_PRICE_OUT_PER_MTOK ?? 2.5);
 
 export type GeminiPart =
   | { text: string }
@@ -20,20 +20,37 @@ export function geminiEnabled(): boolean {
 }
 
 function models(): string[] {
-  const env = (process.env.GEMINI_VIDEO_MODEL ?? '').split(',').map((m) => m.trim()).filter(Boolean);
+  const env = (process.env.GEMINI_VIDEO_MODEL ?? '')
+    .split(',')
+    .map((m) => m.trim())
+    .filter(Boolean);
   return [...new Set([...env, ...DEFAULT_MODELS])];
 }
 
-function monthKey(): string {
-  const d = new Date();
-  return `ai_spend_${d.getUTCFullYear()}_${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+export { aiBudgetLeft };
+
+/** Raised before any network call when the monthly AI budget cannot cover the estimate. */
+export class AiBudgetExceeded extends Error {
+  constructor() {
+    super(
+      'Le budget IA du mois est atteint. Réessaie le mois prochain (ou augmente AI_BUDGET_USD).',
+    );
+    this.name = 'AiBudgetExceeded';
+  }
 }
 
-export async function aiBudgetLeft(db: SupabaseClient): Promise<number> {
-  const { data } = await db.from('settings').select('value').eq('key', monthKey()).maybeSingle();
-  const spent = typeof data?.value === 'number' ? data.value : 0;
-  return Number(process.env.AI_BUDGET_USD ?? 30) - spent;
+/** Rough pre-call estimate: prompt tokens (text ≈ 4 chars/token, image ≈ 1 300 tokens) + max output. */
+export function estimateGeminiCostUsd(parts: GeminiPart[], maxOutputTokens: number): number {
+  let tokensIn = 0;
+  for (const p of parts) {
+    if ('text' in p) tokensIn += Math.ceil(p.text.length / 4);
+    else if ('inlineData' in p) tokensIn += 1_300;
+    else tokensIn += 1_300; // fileData: callers should pass opts.estUsd (video)
+  }
+  return costUsd(geminiPrice(), tokensIn, maxOutputTokens);
 }
+
+const RETRYABLE = new Set([429, 500, 502, 503, 504]);
 
 export interface GeminiJsonResult<T> {
   data: T;
@@ -47,58 +64,148 @@ export interface GeminiJsonResult<T> {
 export async function geminiJson<T>(
   db: SupabaseClient,
   parts: GeminiPart[],
-  opts: { action: string; maxOutputTokens?: number; temperature?: number; meta?: Record<string, unknown>; timeoutMs?: number; mediaResolution?: string },
+  opts: {
+    action: string;
+    maxOutputTokens?: number;
+    temperature?: number;
+    meta?: Record<string, unknown>;
+    timeoutMs?: number;
+    mediaResolution?: string;
+    /** Pre-call cost estimate (USD). Defaults to estimateGeminiCostUsd(parts). */
+    estUsd?: number;
+  },
 ): Promise<GeminiJsonResult<T>> {
   const key = process.env.GEMINI_API_KEY;
   if (!key) throw new Error('GEMINI_API_KEY manquante');
-  let lastErr = 'Aucun modèle Gemini disponible.';
-  for (const model of models()) {
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
-      signal: AbortSignal.timeout(opts.timeoutMs ?? 90_000),
-      body: JSON.stringify({
-        contents: [{ parts }],
-        generationConfig: {
-          responseMimeType: 'application/json',
-          temperature: opts.temperature ?? 0.3,
-          maxOutputTokens: opts.maxOutputTokens ?? 4000,
-          ...(opts.mediaResolution ? { mediaResolution: opts.mediaResolution } : {}),
-        },
-      }),
-    });
-    const body = (await res.json().catch(() => ({}))) as {
-      error?: { message?: string };
-      candidates?: { content?: { parts?: { text?: string; thought?: boolean }[] }; finishReason?: string }[];
-      usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number; thoughtsTokenCount?: number };
-    };
-    if (!res.ok) {
-      const msg = body.error?.message ?? `HTTP ${res.status}`;
-      if (res.status === 404 || /not found|not supported|is not available/i.test(msg)) {
-        lastErr = `${model} : ${msg}`;
+  const maxOut = opts.maxOutputTokens ?? 4000;
+
+  // Budget check BEFORE any call (AI_RULES 8), reserved atomically so parallel calls cannot all pass.
+  const reservation = await reserveAiBudget(
+    db,
+    opts.estUsd ?? estimateGeminiCostUsd(parts, maxOut),
+  );
+  if (!reservation.ok) throw new AiBudgetExceeded();
+  let settled = false;
+  try {
+    let lastErr = 'Aucun modèle Gemini disponible.';
+    for (const model of models()) {
+      const out = await callModel(model);
+      if (out.kind === 'next') {
+        lastErr = out.err;
         continue;
       }
-      throw new Error(msg);
+      // Count the spend as soon as Google answered, before parsing (a bad answer is still billed).
+      await db
+        .from('ai_spend')
+        .insert({
+          action: opts.action,
+          model,
+          tokens_in: out.tokensIn,
+          tokens_out: out.tokensOut,
+          cost_usd: out.costUsd,
+          meta: opts.meta ?? null,
+        });
+      // Billed by Google from here on: never refund the reservation, even if settling fails
+      // (the reserved estimate then stays counted, which errs on the safe side).
+      settled = true;
+      await settleAiBudget(db, reservation, out.costUsd).catch((e: unknown) =>
+        console.error('[ai-budget] settle failed:', e instanceof Error ? e.message : e),
+      );
+      if (out.finishReason === 'MAX_TOKENS')
+        throw new Error('Réponse de Gemini coupée (trop longue). Réessaie.');
+      if (!out.text) throw new Error('Réponse vide de Gemini.');
+      return {
+        data: JSON.parse(out.text) as T,
+        model,
+        tokensIn: out.tokensIn,
+        tokensOut: out.tokensOut,
+        costUsd: out.costUsd,
+      };
     }
-    const text = (body.candidates?.[0]?.content?.parts ?? [])
-      .filter((p) => !p.thought)
-      .map((p) => p.text ?? '')
-      .join('')
-      .replace(/^```(?:json)?\s*/i, '')
-      .replace(/```\s*$/i, '')
-      .trim();
-    if (!text) throw new Error('Réponse vide de Gemini.');
-    const u = body.usageMetadata ?? {};
-    const tokensIn = u.promptTokenCount ?? 0;
-    const tokensOut = (u.candidatesTokenCount ?? 0) + (u.thoughtsTokenCount ?? 0);
-    const costUsd = (tokensIn * PRICE_IN + tokensOut * PRICE_OUT) / 1_000_000;
-
-    await db.from('ai_spend').insert({ action: opts.action, model, tokens_in: tokensIn, tokens_out: tokensOut, cost_usd: costUsd, meta: opts.meta ?? null });
-    const { data: row } = await db.from('settings').select('value').eq('key', monthKey()).maybeSingle();
-    const spent = typeof row?.value === 'number' ? row.value : 0;
-    await db.from('settings').upsert({ key: monthKey(), value: spent + costUsd });
-
-    return { data: JSON.parse(text) as T, model, tokensIn, tokensOut, costUsd };
+    throw new Error(lastErr);
+  } finally {
+    // Nothing billed (all models refused / network error): give the reservation back.
+    if (!settled) await settleAiBudget(db, reservation, 0).catch(() => undefined);
   }
-  throw new Error(lastErr);
+
+  type CallOut =
+    | { kind: 'next'; err: string }
+    | {
+        kind: 'ok';
+        text: string;
+        tokensIn: number;
+        tokensOut: number;
+        costUsd: number;
+        finishReason?: string;
+      };
+
+  async function callModel(model: string): Promise<CallOut> {
+    for (let attempt = 0; ; attempt++) {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key! },
+          signal: AbortSignal.timeout(opts.timeoutMs ?? 90_000),
+          body: JSON.stringify({
+            contents: [{ parts }],
+            generationConfig: {
+              responseMimeType: 'application/json',
+              temperature: opts.temperature ?? 0.3,
+              maxOutputTokens: maxOut,
+              // JSON answers: no reasoning tokens eating the output budget (2.5 models only; the
+              // newer ones use another setting and may reject this one).
+              ...(/^gemini-2\.5/.test(model) ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
+              ...(opts.mediaResolution ? { mediaResolution: opts.mediaResolution } : {}),
+            },
+          }),
+        },
+      );
+      const body = (await res.json().catch(() => ({}))) as {
+        error?: { message?: string };
+        candidates?: {
+          content?: { parts?: { text?: string; thought?: boolean }[] };
+          finishReason?: string;
+        }[];
+        usageMetadata?: {
+          promptTokenCount?: number;
+          candidatesTokenCount?: number;
+          thoughtsTokenCount?: number;
+        };
+      };
+      if (!res.ok) {
+        const msg = body.error?.message ?? `HTTP ${res.status}`;
+        if (res.status === 404 || /not found|not supported|is not available/i.test(msg))
+          return { kind: 'next', err: `${model} : ${msg}` };
+        // Overload / rate limit: retry once after a short pause, then try the next model.
+        if (RETRYABLE.has(res.status)) {
+          if (attempt === 0) {
+            await new Promise((r) => setTimeout(r, 2_000));
+            continue;
+          }
+          return { kind: 'next', err: `${model} : ${msg}` };
+        }
+        throw new Error(msg);
+      }
+      const text = (body.candidates?.[0]?.content?.parts ?? [])
+        .filter((p) => !p.thought)
+        .map((p) => p.text ?? '')
+        .join('')
+        .replace(/^```(?:json)?\s*/i, '')
+        .replace(/```\s*$/i, '')
+        .trim();
+      const u = body.usageMetadata ?? {};
+      const tokensIn = u.promptTokenCount ?? 0;
+      const tokensOut = (u.candidatesTokenCount ?? 0) + (u.thoughtsTokenCount ?? 0);
+      const cost = costUsd(geminiPrice(), tokensIn, tokensOut);
+      return {
+        kind: 'ok',
+        text,
+        tokensIn,
+        tokensOut,
+        costUsd: cost,
+        finishReason: body.candidates?.[0]?.finishReason,
+      };
+    }
+  }
 }

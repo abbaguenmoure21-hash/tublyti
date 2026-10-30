@@ -1,20 +1,53 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { readFileSync } from 'fs';
 import { join } from 'path';
+import { z } from 'zod';
+import { claudePrice, costUsd } from '../ai/pricing';
 
 // ── Constants ────────────────────────────────────────────────────────
 const PROMPT_VERSION = 'angles_v2';
-const MODEL = 'claude-3-5-sonnet-latest';
-const MODEL_TAG = `sonnet-5.5-${PROMPT_VERSION}`;
+// The former Sonnet 3.5 "latest" alias was retired by Anthropic: every call failed.
+// Model is configurable; if it is unknown to the API (404), we fall back to
+// Haiku 4.5, the model already used everywhere else in the codebase.
+const DEFAULT_MODEL = 'claude-sonnet-4-5';
+const FALLBACK_MODEL = 'claude-haiku-4-5-20251001';
+const MAX_TOKENS = 2_000;
+
+function anglesModel(): string {
+  return process.env.ANGLES_MODEL?.trim() || DEFAULT_MODEL;
+}
+
+/** Tag stored in ai_spend.model: real model + prompt version (AI_RULES 17). */
+export function angleModelTag(model: string): string {
+  return `${model.replace(/^claude-/, '')}-${PROMPT_VERSION}`;
+}
+
+
+const angleSchema = z.object({
+  title: z.string().min(1),
+  hook: z.string().min(1),
+  rationale: z.string().default(''),
+  formula: z.string().nullish(),
+  frustration_resolved: z.string().nullish(),
+});
+const anglesSchema = z.array(angleSchema).min(5);
+
+/** Error after a billed call (truncated / invalid answer): carries the cost to count. */
+export class AngleGenerationError extends Error {
+  constructor(
+    message: string,
+    public costUSD: number,
+  ) {
+    super(message);
+    this.name = 'AngleGenerationError';
+  }
+}
 
 import { estimateAngleCostUSD } from './angle-costs';
 
 // Re-export for API route consumers
 export { estimateAngleCostUSD } from './angle-costs';
 
-// Sonnet pricing per million tokens
-const INPUT_COST_PER_MTOK = 3.0;
-const OUTPUT_COST_PER_MTOK = 15.0;
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -115,59 +148,60 @@ export class ClaudeAngleGenerator implements AngleGenerator {
     const systemPrompt = loadSystemPrompt();
     const userMessage = buildUserMessage(input);
 
-    const response = await anthropic.messages.create({
-      model: MODEL,
-      max_tokens: 8192,
-      system: systemPrompt,
-      messages: [{ role: 'user', content: userMessage }],
-    });
-
-    const textBlock = response.content.find((block) => block.type === 'text');
-    if (!textBlock || !('text' in textBlock)) {
-      throw new Error('Unexpected response type from Claude: No text block found');
+    let model = anglesModel();
+    const ask = (m: string) =>
+      anthropic.messages.create({
+        model: m,
+        max_tokens: MAX_TOKENS,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: userMessage }],
+      });
+    let response;
+    try {
+      response = await ask(model);
+    } catch (err) {
+      const status = (err as { status?: number }).status;
+      if (status !== 404 || model === FALLBACK_MODEL) throw err;
+      model = FALLBACK_MODEL;
+      response = await ask(model);
     }
 
-    // Strip markdown fences if present
-    let jsonText = textBlock.text.trim();
-    const fenceMatch = jsonText.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if (fenceMatch) {
-      jsonText = fenceMatch[1].trim();
-    } else {
-      // Fallback: strip leading ```json and trailing ``` manually if the response was truncated
-      jsonText = jsonText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
-    }
-
-    // Attempt to fix truncated JSON by adding closing brackets if needed
-    if (jsonText.trim().startsWith('[') && !jsonText.trim().endsWith(']')) {
-      jsonText += ']';
-    } else if (jsonText.trim().startsWith('[') && jsonText.trim().endsWith('}')) {
-      jsonText += ']';
-    }
-
-    const parsed = JSON.parse(jsonText) as unknown[];
-    if (!Array.isArray(parsed) || parsed.length === 0) {
-      throw new Error('Invalid response: expected array of angles');
-    }
-
-    const angles: GeneratedAngle[] = parsed.slice(0, 5).map((raw) => {
-      const a = raw as Record<string, unknown>;
-      return {
-        title: String(a.title ?? '').slice(0, 60),
-        hook: String(a.hook ?? ''),
-        rationale: String(a.rationale ?? ''),
-        formula: a.formula ? String(a.formula) : null,
-        frustration_resolved: a.frustration_resolved ? String(a.frustration_resolved) : null,
-      };
-    });
-
-    // Compute actual cost from usage
     const inputTokens = response.usage.input_tokens;
     const outputTokens = response.usage.output_tokens;
-    const costUSD =
-      (inputTokens * INPUT_COST_PER_MTOK) / 1_000_000 +
-      (outputTokens * OUTPUT_COST_PER_MTOK) / 1_000_000;
+    const costUSD = costUsd(claudePrice(model), inputTokens, outputTokens);
 
-    return { angles, model: MODEL_TAG, costUSD, tokensIn: inputTokens, tokensOut: outputTokens };
+    if (response.stop_reason === 'max_tokens') {
+      throw new AngleGenerationError('La réponse de l’IA a été coupée avant la fin. Réessaie.', costUSD);
+    }
+    const textBlock = response.content.find((block) => block.type === 'text');
+    if (!textBlock || !('text' in textBlock)) {
+      throw new AngleGenerationError('Réponse de l’IA vide.', costUSD);
+    }
+
+    let jsonText = textBlock.text.trim();
+    const fenceMatch = jsonText.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (fenceMatch) jsonText = fenceMatch[1].trim();
+
+    let raw: unknown;
+    try {
+      raw = JSON.parse(jsonText);
+    } catch {
+      throw new AngleGenerationError('Réponse de l’IA illisible. Réessaie.', costUSD);
+    }
+    const parsed = anglesSchema.safeParse(raw);
+    if (!parsed.success) {
+      throw new AngleGenerationError('Réponse de l’IA incomplète (5 idées attendues). Réessaie.', costUSD);
+    }
+
+    const angles: GeneratedAngle[] = parsed.data.slice(0, 5).map((a) => ({
+      title: a.title.slice(0, 60),
+      hook: a.hook,
+      rationale: a.rationale,
+      formula: a.formula ? a.formula : null,
+      frustration_resolved: a.frustration_resolved ? a.frustration_resolved : null,
+    }));
+
+    return { angles, model: angleModelTag(model), costUSD, tokensIn: inputTokens, tokensOut: outputTokens };
   }
 }
 

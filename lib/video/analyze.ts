@@ -1,5 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { parseDuration } from '../youtube/client';
+import { reserveAiBudget, settleAiBudget } from '../ai/budget';
+import { costUsd, geminiPrice } from '../ai/pricing';
 
 /**
  * Analyse du contenu d'une vidéo YouTube publique : image, audio et texte à l'écran.
@@ -91,9 +93,7 @@ export interface RetentionContext {
 // ── Réglages ──────────────────────────────────────────────────────────
 
 const DEFAULT_MODELS = ['gemini-3.1-flash-lite', 'gemini-3.5-flash-lite', 'gemini-2.5-flash'];
-const PRICE_IN = Number(process.env.GEMINI_PRICE_IN_PER_MTOK ?? 0.5); // prudence : tarif audio
-const PRICE_OUT = Number(process.env.GEMINI_PRICE_OUT_PER_MTOK ?? 2.5);
-const MAX_MIN = Number(process.env.VIDEO_ANALYSIS_MAX_MIN ?? 60);
+export const MAX_MIN = Number(process.env.VIDEO_ANALYSIS_MAX_MIN ?? 60);
 const RUNNING_TIMEOUT_MS = 6 * 60_000;
 
 export function videoAnalysisEnabled(): boolean {
@@ -103,11 +103,6 @@ export function videoAnalysisEnabled(): boolean {
 function models(): string[] {
   const env = (process.env.GEMINI_VIDEO_MODEL ?? '').split(',').map((m) => m.trim()).filter(Boolean);
   return [...new Set([...env, ...DEFAULT_MODELS])];
-}
-
-function monthKey(): string {
-  const d = new Date();
-  return `ai_spend_${d.getUTCFullYear()}_${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
 /** Images par seconde selon la durée : assez pour le montage, sans exploser le coût. */
@@ -121,7 +116,7 @@ function fpsFor(durationS: number): number {
 /** Estimation avant appel (basse résolution ≈ 66 jetons par image + 32 jetons/s d'audio). */
 export function estimateCostUsd(durationS: number): number {
   const tokensIn = durationS * (fpsFor(durationS) * 70 + 32) + 2_000;
-  return (tokensIn * PRICE_IN + 8_000 * PRICE_OUT) / 1_000_000;
+  return costUsd(geminiPrice(), tokensIn, 8_000);
 }
 
 export function parseVideoId(input: string): string | null {
@@ -250,7 +245,10 @@ interface GeminiOut {
   model: string;
   tokensIn: number;
   tokensOut: number;
+  finishReason?: string;
 }
+
+const RETRYABLE = new Set([429, 500, 502, 503, 504]);
 
 class GeminiError extends Error {
   constructor(
@@ -264,61 +262,73 @@ class GeminiError extends Error {
 async function callGemini(videoId: string, prompt: string, fps: number): Promise<GeminiOut> {
   const key = process.env.GEMINI_API_KEY as string;
   let lastErr: GeminiError | null = null;
-  for (const model of models()) {
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
-      signal: AbortSignal.timeout(280_000),
-      body: JSON.stringify({
-        contents: [
-          {
-            parts: [
-              { fileData: { fileUri: `https://www.youtube.com/watch?v=${videoId}` }, videoMetadata: { fps } },
-              { text: prompt },
-            ],
+  nextModel: for (const model of models()) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
+        signal: AbortSignal.timeout(280_000),
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [
+                { fileData: { fileUri: `https://www.youtube.com/watch?v=${videoId}` }, videoMetadata: { fps } },
+                { text: prompt },
+              ],
+            },
+          ],
+          generationConfig: {
+            responseMimeType: 'application/json',
+            mediaResolution: 'MEDIA_RESOLUTION_LOW',
+            temperature: 0.4,
+            maxOutputTokens: 24_000,
+            // JSON answers: no reasoning tokens eating the output budget (2.5 models only; the
+            // newer ones use another setting and may reject this one).
+            ...(/^gemini-2\.5/.test(model) ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
           },
-        ],
-        generationConfig: {
-          responseMimeType: 'application/json',
-          mediaResolution: 'MEDIA_RESOLUTION_LOW',
-          temperature: 0.4,
-          maxOutputTokens: 24_000,
-        },
-      }),
-    }).catch((e: unknown) => {
-      throw new GeminiError(e instanceof Error && e.name === 'TimeoutError' ? 'Gemini a mis trop de temps à répondre.' : 'Gemini injoignable.', 'other');
-    });
+        }),
+      }).catch((e: unknown) => {
+        throw new GeminiError(e instanceof Error && e.name === 'TimeoutError' ? 'Gemini a mis trop de temps à répondre.' : 'Gemini injoignable.', 'other');
+      });
 
-    const body = (await res.json().catch(() => ({}))) as {
-      error?: { message?: string; status?: string };
-      candidates?: { content?: { parts?: { text?: string; thought?: boolean }[] }; finishReason?: string }[];
-      usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number; thoughtsTokenCount?: number };
-    };
+      const body = (await res.json().catch(() => ({}))) as {
+        error?: { message?: string; status?: string };
+        candidates?: { content?: { parts?: { text?: string; thought?: boolean }[] }; finishReason?: string }[];
+        usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number; thoughtsTokenCount?: number };
+      };
 
-    if (!res.ok) {
-      const msg = body.error?.message ?? `HTTP ${res.status}`;
-      // Modèle inconnu ou retiré : on essaie le suivant.
-      if (res.status === 404 || /not found|not supported|is not available/i.test(msg)) {
-        lastErr = new GeminiError(`${model} : ${msg}`, 'model');
-        continue;
+      if (!res.ok) {
+        const msg = body.error?.message ?? `HTTP ${res.status}`;
+        // Modèle inconnu ou retiré : on essaie le suivant.
+        if (res.status === 404 || /not found|not supported|is not available/i.test(msg)) {
+          lastErr = new GeminiError(`${model} : ${msg}`, 'model');
+          continue nextModel;
+        }
+        if (/private|unlisted|permission|not accessible|cannot be accessed/i.test(msg)) throw new GeminiError(msg, 'private');
+        // Overload / rate limit: one retry after a pause, then the next model (nothing billed).
+        if (RETRYABLE.has(res.status)) {
+          lastErr = new GeminiError(`${model} : ${msg}`, 'other');
+          if (attempt === 0) await new Promise((r) => setTimeout(r, 2_000));
+          continue;
+        }
+        throw new GeminiError(msg, 'other');
       }
-      if (/private|unlisted|permission|not accessible|cannot be accessed/i.test(msg)) throw new GeminiError(msg, 'private');
-      throw new GeminiError(msg, 'other');
-    }
 
-    const cand = body.candidates?.[0];
-    const text = (cand?.content?.parts ?? [])
-      .filter((p) => !p.thought)
-      .map((p) => p.text ?? '')
-      .join('');
-    if (!text) throw new GeminiError(`Réponse vide (${cand?.finishReason ?? 'inconnue'}).`, 'other');
-    const u = body.usageMetadata ?? {};
-    return {
-      text,
-      model,
-      tokensIn: u.promptTokenCount ?? 0,
-      tokensOut: (u.candidatesTokenCount ?? 0) + (u.thoughtsTokenCount ?? 0),
-    };
+      const cand = body.candidates?.[0];
+      const text = (cand?.content?.parts ?? [])
+        .filter((p) => !p.thought)
+        .map((p) => p.text ?? '')
+        .join('');
+      const u = body.usageMetadata ?? {};
+      // Returned even when empty or truncated: the caller records the (billed) spend first.
+      return {
+        text,
+        model,
+        tokensIn: u.promptTokenCount ?? 0,
+        tokensOut: (u.candidatesTokenCount ?? 0) + (u.thoughtsTokenCount ?? 0),
+        finishReason: cand?.finishReason,
+      };
+    }
   }
   throw lastErr ?? new GeminiError('Aucun modèle Gemini disponible.', 'model');
 }
@@ -423,12 +433,14 @@ export async function analyzeVideo(
   if (meta.durationS > MAX_MIN * 60) return failure('too_long');
 
   // Budget IA du mois (partagé avec les autres usages de l'IA).
-  const { data: spendRow } = await db.from('settings').select('value').eq('key', monthKey()).maybeSingle();
-  const spent = typeof spendRow?.value === 'number' ? spendRow.value : 0;
-  if (spent + estimateCostUsd(meta.durationS) > Number(process.env.AI_BUDGET_USD ?? 30)) return failure('budget');
+  // Reserved atomically: two simultaneous requests cannot both pass the cap.
+  const reservation = await reserveAiBudget(db, estimateCostUsd(meta.durationS));
+  if (!reservation.ok) return failure('budget');
+  let settled = false;
 
+  // Atomic lock: only one request can move the row to 'running' (two clicks = one paid analysis).
   const now = new Date().toISOString();
-  await db.from('video_analyses').upsert({
+  const runningRow = {
     video_id: videoId,
     status: 'running',
     title: meta.title,
@@ -437,13 +449,27 @@ export async function analyzeVideo(
     error: null,
     requested_by: opts.userId ?? null,
     updated_at: now,
-    ...(existing ? {} : { created_at: now }),
-  });
+  };
+  const staleBefore = new Date(Date.now() - RUNNING_TIMEOUT_MS).toISOString();
+  const claim = existing
+    ? await db
+        .from('video_analyses')
+        .update(runningRow)
+        .eq('video_id', videoId)
+        .or(`status.neq.running,updated_at.lt.${staleBefore}`)
+        .select('video_id')
+    : await db
+        .from('video_analyses')
+        .upsert({ ...runningRow, created_at: now }, { onConflict: 'video_id', ignoreDuplicates: true })
+        .select('video_id');
+  if (claim.error || !claim.data?.length) {
+    await settleAiBudget(db, reservation, 0).catch(() => undefined);
+    return failure('busy');
+  }
 
   try {
     const out = await callGemini(videoId, buildPrompt(meta, opts.retention ?? null), fpsFor(meta.durationS));
-    const analysis = parseAnalysis(out.text);
-    const cost = (out.tokensIn * PRICE_IN + out.tokensOut * PRICE_OUT) / 1_000_000;
+    const cost = costUsd(geminiPrice(), out.tokensIn, out.tokensOut);
 
     await db.from('ai_spend').insert({
       action: 'analyze_video',
@@ -453,9 +479,15 @@ export async function analyzeVideo(
       cost_usd: cost,
       meta: { video_id: videoId, topic_label: meta.title.slice(0, 120) },
     });
-    const { data: fresh } = await db.from('settings').select('value').eq('key', monthKey()).maybeSingle();
-    const spentNow = typeof fresh?.value === 'number' ? fresh.value : 0;
-    await db.from('settings').upsert({ key: monthKey(), value: spentNow + cost });
+    // Billed from here on: never refunded, even if settling fails.
+    settled = true;
+    await settleAiBudget(db, reservation, cost).catch((e: unknown) =>
+      console.error('[ai-budget] settle failed:', e instanceof Error ? e.message : e),
+    );
+    if (out.finishReason === 'MAX_TOKENS') throw new GeminiError('Réponse coupée (trop longue). Réessaie.', 'other');
+    if (!out.text) throw new GeminiError(`Réponse vide (${out.finishReason ?? 'inconnue'}).`, 'other');
+    // Parsed only after the spend is recorded: an unreadable answer is billed by Google too.
+    const analysis = parseAnalysis(out.text);
 
     const { data: row } = await db
       .from('video_analyses')
@@ -474,6 +506,7 @@ export async function analyzeVideo(
       .single();
     return { ok: true, cached: false, row: toStored(row as Record<string, unknown>) };
   } catch (e) {
+    if (!settled) await settleAiBudget(db, reservation, 0).catch(() => undefined);
     const err = e as Error & { kind?: string };
     const reason: AnalyzeFailure = err.kind === 'private' ? 'private' : 'gemini';
     const detail = err instanceof SyntaxError ? 'réponse illisible' : err.message?.slice(0, 200);
