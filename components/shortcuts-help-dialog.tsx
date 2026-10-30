@@ -8,10 +8,10 @@ const SHORTCUT_SECTIONS = [
   {
     title: 'Navigation globale',
     items: [
-      { keys: ['g', 't'], label: "Aujourd'hui" },
-      { keys: ['g', 'm'], label: 'Matrice' },
-      { keys: ['g', 'p'], label: 'Pipeline' },
-      { keys: ['g', 'f'], label: 'Frustrations' },
+      { keys: ['g', 't'], label: 'Sujets' },
+      { keys: ['g', 'm'], label: 'Carte des sujets' },
+      { keys: ['g', 'p'], label: 'Mes vidéos' },
+      { keys: ['g', 'f'], label: 'Questions du public' },
     ],
   },
   {

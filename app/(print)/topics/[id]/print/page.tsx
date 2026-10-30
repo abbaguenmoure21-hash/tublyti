@@ -4,9 +4,9 @@ import { fetchDossierData } from '@/lib/dossier/generate';
 import { getMgiBand } from '@/lib/scoring/mgi';
 import { createServiceClient } from '@/lib/supabase/server';
 import { getSessionUser, requireUser } from '@/lib/auth/session';
-import { resolveScope } from '@/lib/scope';
 import { canSeeTopic } from '@/lib/auth/topic-access';
 import { COMMENT_LABELS, FRUSTRATION_LABEL, RELIABILITY_SHORT, formatLongDate, formatSupply } from '@/lib/lexique';
+import { PHASE_LABELS } from '@/components/tublyti/phase-badge';
 import { PrintButton } from './print-button';
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
@@ -18,13 +18,6 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   const { data } = await db.from('topics').select('label').eq('id', id).single();
   return { title: data?.label ? `Impression - ${data.label}` : 'Impression' };
 }
-
-const PHASE_LABELS: Record<number, string> = {
-  0: 'À surveiller',
-  1: 'Ça monte',
-  2: 'C’est le moment',
-  3: 'Trop tard',
-};
 
 function formatViews(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)} M`;
@@ -39,15 +32,8 @@ export default async function PrintDossierPage({
 }) {
   const { id } = await params;
   const user = await requireUser();
-  if (user.role !== 'admin') {
-    // Un client n'exporte que les sujets de ses thématiques.
-    const db = createServiceClient();
-    const [{ niches: mine }, { data: t }] = await Promise.all([
-      resolveScope(db, user.id),
-      db.from('topics').select('niche_id').eq('id', id).maybeSingle(),
-    ]);
-    if (!t || !mine.some((n) => n.id === (t.niche_id as string))) notFound();
-  }
+  // Same rule as the topic page: a client only prints topics of its own themes.
+  if (!(await canSeeTopic(user, id))) notFound();
   const data = await fetchDossierData(id, { viewerId: user.id });
   if (!data) notFound();
 

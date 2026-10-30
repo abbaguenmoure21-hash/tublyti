@@ -47,7 +47,7 @@ export function useGlobalShortcuts({
       if (pendingPrefix.current === 'g') {
         clearPrefix();
         const routes: Record<string, string> = {
-          t: '/today',
+          t: '/sujets',
           m: '/dashboard',
           p: '/pipeline',
           f: '/frustrations',

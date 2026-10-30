@@ -47,7 +47,7 @@ function MgiScore({ data }: { data: MgiScoreData }) {
   return (
     <div className="bg-card border border-border rounded-lg p-3">
       <div className="flex items-center justify-between mb-1.5">
-        <span className="text-xs text-muted-foreground">MGI</span>
+        <span className="text-xs text-muted-foreground">Potentiel</span>
         <span className="text-[10px] text-muted-foreground">
           {CONFIDENCE_LABELS[data.confidence]} · {data.freshness}
         </span>
@@ -113,7 +113,7 @@ function FrustrationList({ items }: { items: FrustrationItem[] }) {
   if (items.length === 0) return null;
   return (
     <div>
-      <SectionTitle>Frustrations</SectionTitle>
+      <SectionTitle>Questions du public</SectionTitle>
       <div className="space-y-1.5">
         {items.map((f, i) => (
           <div key={i} className="bg-card border border-border rounded-lg px-3 py-2">

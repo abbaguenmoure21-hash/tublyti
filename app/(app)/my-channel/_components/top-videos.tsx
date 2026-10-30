@@ -189,7 +189,7 @@ export function TopVideos({ channelId, rows, hasRevenue }: { channelId: string; 
           <tr className="text-left text-[13px] text-muted-foreground">
             <th className="sticky left-0 z-10 bg-card px-4 py-2 font-medium">Vidéo</th>
             <th className="px-3 py-2 text-right font-medium" title="Nombre de fois où la miniature a été vue">Impressions</th>
-            <th className="px-3 py-2 text-right font-medium" title="Part des impressions qui ont donné un clic (CTR)">Taux de clic</th>
+            <th className="px-3 py-2 text-right font-medium" title="Part des impressions qui ont donné un clic">Taux de clic</th>
             <th className="px-3 py-2 text-right font-medium">Vues</th>
             <th className="px-3 py-2 text-right font-medium">Heures</th>
             <th className="px-3 py-2 text-right font-medium">Durée moy.</th>
