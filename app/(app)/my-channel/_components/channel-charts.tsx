@@ -7,6 +7,7 @@ import type { DailyChartProps, MonthlyChartProps } from './charts-recharts';
 import { RefreshCw } from 'lucide-react';
 import { disconnectAnalytics, refreshAnalytics, refreshChannelPublic } from '@/lib/actions/analytics';
 import type { Period } from '@/lib/youtube/analytics';
+import { buttonVariants } from '@/components/ui/button';
 
 // recharts (~105 KB gz) loads on demand; the placeholders reserve the exact chart height (no layout shift).
 export const DailyChart = dynamic<DailyChartProps>(() => import('./charts-recharts').then((m) => m.DailyChart), {
@@ -75,7 +76,7 @@ export function AnalyticsControls({ id, period }: { id: string; period: Period }
               type="button"
               disabled={pending}
               onClick={() => run(() => disconnectAnalytics(id))}
-              className="inline-flex h-9 items-center rounded-[10px] bg-destructive px-3 text-sm font-medium text-white disabled:opacity-60"
+              className={buttonVariants({ variant: 'destructive', size: 'lg' })}
             >
               Retirer l’accès
             </button>

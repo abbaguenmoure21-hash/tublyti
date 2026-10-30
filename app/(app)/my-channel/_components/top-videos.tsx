@@ -1,11 +1,12 @@
 'use client';
 
-import { Fragment, useState, useTransition } from 'react';
+import { Fragment, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { ChevronDown } from 'lucide-react';
 import { loadRetention } from '@/lib/actions/analytics';
 import type { RetentionState } from '@/lib/youtube/analytics';
 import { AnalyzeVideoButton } from '@/components/tublyti/video-analysis';
+import { Skeleton } from '@/components/ui/skeleton';
 
 // recharts loads only when a video's retention is opened; the h-48 parent reserves the height.
 const RetentionLineChart = dynamic(() => import('./retention-line-chart').then((m) => m.RetentionLineChart), {
@@ -79,7 +80,7 @@ function RetentionPanel({ state, lengthS }: { state: RetentionState; lengthS: nu
           </div>
         ))}
       </dl>
-      <div className="h-48 w-full" role="img" aria-label="Part des spectateurs encore présents au fil de la vidéo">
+      <div className="h-48 w-full" role="img" aria-label={`Part des spectateurs encore présents au fil de la vidéo : ${pct(start * 100)} après l’intro, ${pct(half * 100)} à mi-parcours, ${pct(end * 100)} à la fin.`}>
         <RetentionLineChart points={pts} lengthS={lengthS} dropAt={drop.size > 0.03 ? drop.at : null} />
       </div>
       <p className="text-[13px] leading-relaxed text-muted-foreground">
@@ -93,29 +94,102 @@ function RetentionPanel({ state, lengthS }: { state: RetentionState; lengthS: nu
 
 export function TopVideos({ channelId, rows, hasRevenue }: { channelId: string; rows: TopVideoRow[]; hasRevenue: boolean }) {
   const [open, setOpen] = useState<string | null>(null);
-  const [cache, setCache] = useState<Record<string, RetentionState>>({});
-  const [pending, start] = useTransition();
+  const [cache, setCache] = useState<Record<string, RetentionState | 'failed'>>({});
+  const [loading, setLoading] = useState<Record<string, boolean>>({});
+
+  const fetchRetention = async (id: string) => {
+    setLoading((l) => ({ ...l, [id]: true }));
+    setCache((c) => {
+      const next = { ...c };
+      delete next[id];
+      return next;
+    });
+    try {
+      const res = await loadRetention(channelId, id);
+      setCache((c) => ({ ...c, [id]: res as RetentionState }));
+    } catch {
+      setCache((c) => ({ ...c, [id]: 'failed' }));
+    } finally {
+      setLoading((l) => ({ ...l, [id]: false }));
+    }
+  };
 
   const toggle = (id: string) => {
     if (open === id) return setOpen(null);
     setOpen(id);
-    if (!cache[id]) {
-      start(async () => {
-        const res = await loadRetention(channelId, id);
-        setCache((c) => ({ ...c, [id]: res as RetentionState }));
-      });
+    if (!cache[id] && !loading[id]) void fetchRetention(id);
+  };
+
+  const retentionBody = (id: string, lengthS: number | null) => {
+    const state = cache[id];
+    if (state === 'failed') {
+      return (
+        <div className="flex flex-wrap items-center gap-3">
+          <p className="text-sm text-muted-foreground">La rétention n’a pas pu être lue.</p>
+          <button type="button" onClick={() => void fetchRetention(id)} className="inline-flex h-10 items-center rounded-lg px-3 text-[13px] font-medium text-primary hover:bg-muted md:h-8">
+            Réessayer
+          </button>
+        </div>
+      );
     }
+    if (state) return <RetentionPanel state={state} lengthS={lengthS} />;
+    return (
+      <div className="flex flex-col gap-3" aria-busy="true">
+        <span className="sr-only">Lecture de la rétention sur YouTube…</span>
+        <div className="grid grid-cols-3 gap-2">
+          {[0, 1, 2].map((i) => <Skeleton key={i} className="h-14 rounded-xl" />)}
+        </div>
+        <Skeleton className="h-48 rounded-xl" />
+      </div>
+    );
   };
   const cols = hasRevenue ? 10 : 9;
 
   return (
-    <div className="overflow-x-auto">
+    <>
+    {/* Phones: one card per video, nothing scrolls sideways */}
+    <ul className="md:hidden">
+      {rows.map((v) => {
+        const isOpen = open === v.id;
+        const lengthS = v.avgPercent > 0 ? v.avgDuration / (v.avgPercent / 100) : null;
+        return (
+          <li key={v.id} className="flex flex-col gap-3 border-t border-muted px-4 py-4 first:border-t-0">
+            <a href={`https://www.youtube.com/watch?v=${v.id}`} target="_blank" rel="noreferrer" className="line-clamp-2 text-[15px] font-medium hover:underline">{v.title}</a>
+            <div className="flex items-baseline gap-2">
+              <span className="text-[22px] font-semibold tabular-nums">{nf.format(v.views)}</span>
+              <span className="text-[13px] text-muted-foreground">vues</span>
+            </div>
+            <dl className="grid grid-cols-3 gap-2 text-[13px]">
+              <div><dt className="text-muted-foreground">Regardé</dt><dd className="tabular-nums">{pct(v.avgPercent)}</dd></div>
+              <div><dt className="text-muted-foreground">Taux de clic</dt><dd className="tabular-nums">{v.ctr == null ? '—' : pct(v.ctr * 100, 1)}</dd></div>
+              <div><dt className="text-muted-foreground">Abonnés</dt><dd className="tabular-nums">+{nf.format(v.subscribers)}</dd></div>
+            </dl>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => toggle(v.id)}
+                aria-expanded={isOpen}
+                className="inline-flex h-11 items-center justify-center gap-1 rounded-lg border border-border text-[14px] font-medium text-primary hover:bg-muted"
+              >
+                Rétention
+                <ChevronDown className={`h-3.5 w-3.5 transition-transform ${isOpen ? 'rotate-180' : ''}`} aria-hidden="true" />
+              </button>
+              <div className="flex items-center justify-center rounded-lg border border-border">
+                <AnalyzeVideoButton videoId={v.id} title={v.title} channelId={channelId} variant="link" />
+              </div>
+            </div>
+            {isOpen && <div className="rounded-xl bg-muted/40 p-3">{retentionBody(v.id, lengthS)}</div>}
+          </li>
+        );
+      })}
+    </ul>
+    <div className="hidden overflow-x-auto md:block">
       <table className="w-full min-w-[880px] text-sm">
         <thead>
           <tr className="text-left text-[13px] text-muted-foreground">
-            <th className="px-4 py-2 font-medium">Vidéo</th>
+            <th className="sticky left-0 z-10 bg-card px-4 py-2 font-medium">Vidéo</th>
             <th className="px-3 py-2 text-right font-medium" title="Nombre de fois où la miniature a été vue">Impressions</th>
-            <th className="px-3 py-2 text-right font-medium" title="Part des impressions qui ont donné un clic">CTR</th>
+            <th className="px-3 py-2 text-right font-medium" title="Part des impressions qui ont donné un clic (CTR)">Taux de clic</th>
             <th className="px-3 py-2 text-right font-medium">Vues</th>
             <th className="px-3 py-2 text-right font-medium">Heures</th>
             <th className="px-3 py-2 text-right font-medium">Durée moy.</th>
@@ -133,7 +207,7 @@ export function TopVideos({ channelId, rows, hasRevenue }: { channelId: string; 
             return (
               <Fragment key={v.id}>
                 <tr className="border-t border-muted">
-                  <td className="max-w-[300px] truncate px-4 py-2.5">
+                  <td className="sticky left-0 z-10 max-w-[300px] truncate bg-card px-4 py-2.5">
                     <a href={`https://www.youtube.com/watch?v=${v.id}`} target="_blank" rel="noreferrer" className="hover:underline">{v.title}</a>
                   </td>
                   <td className="px-3 py-2.5 text-right tabular-nums text-muted-foreground">{v.impressions == null ? '—' : nf.format(v.impressions)}</td>
@@ -160,11 +234,7 @@ export function TopVideos({ channelId, rows, hasRevenue }: { channelId: string; 
                 {isOpen && (
                   <tr>
                     <td colSpan={cols} className="bg-muted/40 px-4 py-4">
-                      {cache[v.id] ? (
-                        <RetentionPanel state={cache[v.id]} lengthS={lengthS} />
-                      ) : (
-                        <p className="text-sm text-muted-foreground">{pending ? 'Lecture de la rétention sur YouTube…' : '…'}</p>
-                      )}
+                      {retentionBody(v.id, lengthS)}
                     </td>
                   </tr>
                 )}
@@ -174,5 +244,6 @@ export function TopVideos({ channelId, rows, hasRevenue }: { channelId: string; 
         </tbody>
       </table>
     </div>
+    </>
   );
 }

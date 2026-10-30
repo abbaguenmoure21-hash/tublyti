@@ -12,6 +12,7 @@ import { getPublicStats, type PublicStats, type PublicVideo } from '@/lib/youtub
 import { getVideoReachTotals } from '@/lib/youtube/reach-totals';
 import { AnalyticsControls, DailyChart, MonthlyChart, RefreshPublicButton } from './_components/channel-charts';
 import { TopVideos } from './_components/top-videos';
+import { PeriodTabs } from './_components/period-tabs';
 import { AnalyzeVideoButton } from '@/components/tublyti/video-analysis';
 import { BarChart3, ExternalLink, Lock, Tv } from 'lucide-react';
 
@@ -23,7 +24,8 @@ const nf = new Intl.NumberFormat('fr-FR');
 const compact = new Intl.NumberFormat('fr-FR', { notation: 'compact', maximumFractionDigits: 1 });
 const usd = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 });
 const usd0 = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
-const pct = (v: number, d = 1) => `${v.toLocaleString('fr-FR', { maximumFractionDigits: d })} %`;
+/** Percent: no decimal from 10 % up, one decimal below (DESIGN number rule). */
+const pct = (v: number, d?: number) => `${v.toLocaleString('fr-FR', { maximumFractionDigits: d ?? (Math.abs(v) < 10 ? 1 : 0) })} %`;
 const regions = new Intl.DisplayNames(['fr'], { type: 'region' });
 
 function duration(s: number) {
@@ -77,7 +79,7 @@ const STATUS: Record<string, { tone: 'ok' | 'warn'; text: string }> = {
   'ok-sans-revenus': { tone: 'ok', text: 'YouTube Analytics est connecté, sans l’accès aux revenus. Reconnecte et coche « revenus » pour les voir.' },
   'autre-chaine': { tone: 'warn', text: 'Le compte Google choisi ne gère pas cette chaîne. Reconnecte-toi avec le compte propriétaire.' },
   erreur: { tone: 'warn', text: 'La connexion à YouTube Analytics n’a pas abouti. Réessaie.' },
-  migration: { tone: 'warn', text: 'Il manque la migration 00023 dans Supabase pour enregistrer l’accès.' },
+  migration: { tone: 'warn', text: 'Cette fonction n’est pas encore disponible. Réessaie plus tard.' },
   indisponible: { tone: 'warn', text: 'La connexion Google n’est pas encore configurée sur TubLyTI.' },
 };
 
@@ -125,37 +127,20 @@ function BarList({ rows }: { rows: { label: string; value: number }[] }) {
   return (
     <ul className="flex flex-col gap-2.5">
       {rows.map((r) => (
-        <li key={r.label} className="flex flex-col gap-1" title={`${r.label} : ${nf.format(r.value)} vues`}>
+        <li key={r.label} className="flex flex-col gap-1">
           <div className="flex items-baseline justify-between gap-3 text-sm">
             <span className="truncate">{r.label}</span>
-            <span className="shrink-0 tabular-nums text-muted-foreground">{total ? pct((r.value / total) * 100, 0) : '—'}</span>
+            <span className="shrink-0 tabular-nums text-muted-foreground">
+              {total ? pct((r.value / total) * 100, 0) : '—'}
+              <span className="sr-only"> ({nf.format(r.value)} vues)</span>
+            </span>
           </div>
-          <div className="well h-2 overflow-hidden rounded-full bg-background">
+          <div className="well h-2 overflow-hidden rounded-full bg-background" aria-hidden="true">
             <div className="h-full rounded-full bg-[var(--chart-1)]" style={{ width: `${(r.value / max) * 100}%` }} />
           </div>
         </li>
       ))}
     </ul>
-  );
-}
-
-function Segmented({ period }: { period: Period }) {
-  return (
-    <nav aria-label="Période" className="well inline-flex rounded-[10px] bg-background p-0.5">
-      {PERIODS.map((p) => (
-        <Link
-          key={p.key}
-          href={`/my-channel?periode=${p.key}`}
-          scroll={false}
-          aria-current={p.key === period ? 'page' : undefined}
-          className={`rounded-[8px] px-3 py-1.5 text-[13px] font-medium transition-colors ${
-            p.key === period ? 'elev-1 bg-card text-foreground' : 'text-muted-foreground hover:text-foreground'
-          }`}
-        >
-          {p.label}
-        </Link>
-      ))}
-    </nav>
   );
 }
 
@@ -192,7 +177,7 @@ function VideoRow({ v, rank, channelId }: { v: PublicVideo; rank?: number; chann
 
 /* ---------- sections ---------- */
 
-function AnalyticsBlock({ data, hasMonetary, channelId, reach, reachNote }: { data: AnalyticsData; hasMonetary: boolean; channelId: string; reach: Map<string, { impressions: number; ctr: number | null }>; reachNote: string | null }) {
+function AnalyticsBlock({ data, hasMonetary, channelId, reach, reachNote, reachSince }: { data: AnalyticsData; hasMonetary: boolean; channelId: string; reach: Map<string, { impressions: number; ctr: number | null }>; reachNote: string | null; reachSince: string | null }) {
   const t = data.totals;
   const subsNet = t.subscribersGained - t.subscribersLost;
   const engagement = t.views ? ((t.likes + t.comments + t.shares) / t.views) * 100 : 0;
@@ -203,8 +188,8 @@ function AnalyticsBlock({ data, hasMonetary, channelId, reach, reachNote }: { da
         <Tile label="Vues" value={compact.format(t.views)} hint={t.views >= 10_000 ? nf.format(t.views) : undefined} />
         <Tile label="Durée regardée" value={hours(t.minutesWatched)} hint={`${nf.format(Math.round(t.minutesWatched / 60))} heures`} />
         <Tile label="Durée moyenne" value={duration(t.averageViewDuration)} hint={`${pct(t.averageViewPercentage)} de la vidéo regardée`} />
-        <Tile label="Abonnés" value={`${subsNet >= 0 ? '+' : ''}${nf.format(subsNet)}`} hint={`+${nf.format(t.subscribersGained)} gagnés · −${nf.format(t.subscribersLost)} perdus`} />
-        <Tile label="Interactions" value={pct(engagement, 2)} hint={`${compact.format(t.likes)} j’aime · ${compact.format(t.comments)} comm. · ${compact.format(t.shares)} partages`} />
+        <Tile label="Nouveaux abonnés (net)" value={`${subsNet >= 0 ? '+' : ''}${nf.format(subsNet)}`} hint={`+${nf.format(t.subscribersGained)} gagnés · −${nf.format(t.subscribersLost)} perdus`} />
+        <Tile label="Interactions (avec partages)" value={pct(engagement)} hint={`${compact.format(t.likes)} j’aime · ${compact.format(t.comments)} comm. · ${compact.format(t.shares)} partages`} />
         <Tile label="Vues d’abonnés" value={subTotal ? pct((data.subscribed.subscribed / subTotal) * 100, 0) : '—'} hint="Le reste vient de nouveaux spectateurs" />
       </div>
 
@@ -241,7 +226,13 @@ function AnalyticsBlock({ data, hasMonetary, channelId, reach, reachNote }: { da
       </Panel>
 
       <div className="overflow-hidden rounded-2xl bg-card">
-        <h3 className="border-b border-border px-4 py-3 text-[15px] font-semibold">Meilleures vidéos sur la période <span className="font-normal text-muted-foreground">· clique sur « Rétention » pour voir où les spectateurs décrochent · impressions et CTR depuis le début des rapports YouTube (30 jours avant la connexion)</span></h3>
+        <div className="border-b border-border px-4 py-3">
+          <h3 className="text-[15px] font-semibold">Meilleures vidéos sur la période</h3>
+          <p className="text-xs text-muted-foreground">
+            Clique sur « Rétention » pour voir où les spectateurs décrochent.
+            {reachSince ? ` Impressions et taux de clic depuis le ${new Date(reachSince).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}.` : ''}
+          </p>
+        </div>
         {reachNote && <p className="border-b border-muted bg-muted/40 px-4 py-2.5 text-[13px] leading-relaxed text-muted-foreground">{reachNote}</p>}
         {data.topVideos.length ? (
           <TopVideos channelId={channelId} rows={data.topVideos.map((v) => ({ ...v, impressions: reach.get(v.id)?.impressions ?? null, ctr: reach.get(v.id)?.ctr ?? null }))} hasRevenue={Boolean(data.revenue)} />
@@ -280,9 +271,9 @@ function AnalyticsBlock({ data, hasMonetary, channelId, reach, reachNote }: { da
               {data.demographics.map((d) => {
                 const total = d.male + d.female + d.other;
                 return (
-                  <li key={d.age} className="grid grid-cols-[64px_1fr_52px] items-center gap-3 text-sm" title={`${d.age} ans : hommes ${pct(d.male)}, femmes ${pct(d.female)}, autre ${pct(d.other)}`}>
-                    <span className="tabular-nums">{d.age}</span>
-                    <div className="well flex h-3 overflow-hidden rounded-full bg-background">
+                  <li key={d.age} className="grid grid-cols-[64px_1fr_52px] items-center gap-3 text-sm">
+                    <span className="tabular-nums">{d.age}<span className="sr-only"> ans : hommes {pct(d.male)}, femmes {pct(d.female)}, autre {pct(d.other)}</span></span>
+                    <div className="well flex h-3 overflow-hidden rounded-full bg-background" aria-hidden="true">
                       <div className="h-full bg-[var(--chart-1)]" style={{ width: `${d.male}%` }} />
                       <div className="h-full border-l-2 border-card bg-[var(--chart-3)]" style={{ width: `${d.female}%` }} />
                       {d.other > 0 && <div className="h-full border-l-2 border-card bg-[var(--chart-4)]" style={{ width: `${d.other}%` }} />}
@@ -319,7 +310,7 @@ function PublicBlock({ s, linked, channelId }: { s: PublicStats; linked: boolean
         <>
           <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
             <Tile label="Vues habituelles" value={compact.format(s.medianViews)} hint={`Médiane des vidéos longues · moyenne ${compact.format(Math.round(s.averageViews))}`} />
-            <Tile label="Interactions" value={pct(s.engagementRate, 2)} hint={`${pct(s.likeRate, 2)} j’aime · ${pct(s.commentRate, 2)} commentaires`} />
+            <Tile label="Interactions publiques" value={pct(s.engagementRate)} hint={`${pct(s.likeRate)} j’aime · ${pct(s.commentRate)} commentaires`} />
             <Tile label="Rythme" value={`${s.uploadsPerWeek.toLocaleString('fr-FR', { maximumFractionDigits: 1 })} / sem.`} hint={s.daysSinceLast === null ? undefined : `Dernière vidéo ${s.daysSinceLast === 0 ? 'aujourd’hui' : `il y a ${s.daysSinceLast} j`}`} />
             <Tile label="Meilleur jour" value={s.bestWeekday ? s.bestWeekday.day : '—'} hint={s.bestWeekday ? `${compact.format(s.bestWeekday.median)} vues habituelles` : 'Pas encore assez de vidéos'} />
             <Tile label="Vidéos longues" value={compact.format(s.long.median)} hint={`${s.long.count} vidéos · vues habituelles`} />
@@ -356,12 +347,13 @@ function PublicBlock({ s, linked, channelId }: { s: PublicStats; linked: boolean
               {s.weekdays.map((w) => {
                 const max = Math.max(1, ...s.weekdays.map((x) => x.median));
                 return (
-                  <li key={w.day} className="flex flex-col items-center gap-1.5" title={`${w.day} : ${w.videos} vidéos, ${nf.format(Math.round(w.median))} vues habituelles`}>
-                    <div className="well flex h-24 w-full items-end overflow-hidden rounded-lg bg-background">
+                  <li key={w.day} className="flex flex-col items-center gap-1.5">
+                    <span className="sr-only">{w.day} : {w.videos} vidéos, {nf.format(Math.round(w.median))} vues habituelles</span>
+                    <div className="well flex h-24 w-full items-end overflow-hidden rounded-lg bg-background" aria-hidden="true">
                       <div className="w-full rounded-t-[4px] bg-[var(--chart-1)]" style={{ height: `${(w.median / max) * 100}%` }} />
                     </div>
-                    <span className="text-xs text-muted-foreground">{w.day.slice(0, 3)}.</span>
-                    <span className="text-xs tabular-nums">{w.videos ? compact.format(w.median) : '—'}</span>
+                    <span className="text-xs text-muted-foreground" aria-hidden="true">{w.day.slice(0, 3)}.</span>
+                    <span className="text-xs tabular-nums" aria-hidden="true">{w.videos ? compact.format(w.median) : '—'}</span>
                   </li>
                 );
               })}
@@ -423,7 +415,17 @@ export default async function MyChannelPage({ searchParams }: { searchParams: Pr
   // Only the public stats (read from our DB) block the first byte. YouTube Analytics (live API calls
   // when its cache is stale) streams in below, inside its own Suspense boundary.
   const stats = await getPublicStats(db, channelId);
-  if (!stats) return null;
+  if (!stats) {
+    return (
+      <div className="mx-auto flex max-w-lg flex-col items-center gap-3 px-6 py-24 text-center">
+        <h1 className="text-[22px] font-semibold tracking-[-0.01em]">Impossible d’afficher ta chaîne</h1>
+        <p className="text-[15px] leading-relaxed text-muted-foreground">Ses chiffres n’ont pas pu être lus. Réessaie dans un instant.</p>
+        <Link href="/my-channel" className="mt-2 inline-flex h-11 items-center rounded-[10px] bg-primary px-5 text-[15px] font-medium text-primary-foreground hover:opacity-90">
+          Réessayer
+        </Link>
+      </div>
+    );
+  }
   const c = stats.channel;
   const status = sp.analytics ? STATUS[sp.analytics] : null;
   const canConnect = googleEnabled() && encryptionReady();
@@ -497,20 +499,35 @@ async function AnalyticsSection({ channelId, period, canConnect, linked }: { cha
   const analytics = await getChannelAnalytics(db, channelId, period);
   // Impressions et CTR des miniatures (rapports quotidiens YouTube, depuis la connexion + 30 jours d'historique).
   const reach = new Map<string, { impressions: number; ctr: number | null }>();
+  // First day covered by the thumbnail reports when it starts after the period start.
+  let reachSince: string | null = null;
   if (analytics.status === 'ok' && analytics.data.topVideos.length) {
-    const acc = await getVideoReachTotals(db, channelId, analytics.data.topVideos.map((v) => v.id));
+    const { startDate, endDate } = analytics.data;
+    const acc = await getVideoReachTotals(db, channelId, analytics.data.topVideos.map((v) => v.id), {
+      from: startDate,
+      to: endDate,
+      onFirstDay: (day) => {
+        if (day && day > startDate) reachSince = day;
+      },
+    });
     for (const [k, v] of acc) reach.set(k, { impressions: v.impressions, ctr: v.impressions ? v.clicks / v.impressions : null });
   }
   // Où en est le rapport quotidien des miniatures (affiché tant qu'aucun chiffre n'est arrivé).
   let reachNote: string | null = null;
   if (analytics.status === 'ok' && reach.size === 0) {
     const { data: job, error: jobErr } = await db.from('reporting_jobs').select('created_at, last_sync_at, last_error').eq('user_channel_id', channelId).maybeSingle();
-    if (jobErr) reachNote = 'Impressions et CTR : il manque la migration 00027 dans Supabase.';
-    else if (!job) reachNote = 'Impressions et CTR : la demande de rapport n’a pas été enregistrée. Clique sur « Déconnecter » puis reconnecte YouTube Analytics.';
-    else if (job.last_error) reachNote = `Impressions et CTR : YouTube a répondu une erreur (${String(job.last_error).slice(0, 140)}).`;
+    if (jobErr) {
+      console.error('[my-channel] reporting_jobs read failed', jobErr.message);
+      reachNote = 'Impressions et taux de clic : pas encore disponibles. Réessaie plus tard.';
+    }
+    else if (!job) reachNote = 'Impressions et taux de clic : la demande de rapport n’a pas été enregistrée. Clique sur « Déconnecter » puis reconnecte YouTube Analytics.';
+    else if (job.last_error) {
+      console.error('[my-channel] reporting job error', String(job.last_error).slice(0, 300));
+      reachNote = 'Impressions et taux de clic : YouTube n’a pas encore livré ce rapport. Réessaie demain.';
+    }
     else {
       const ready = new Date(new Date(job.created_at as string).getTime() + 48 * 3_600_000);
-      reachNote = `Impressions et CTR : demande envoyée à YouTube le ${new Date(job.created_at as string).toLocaleDateString('fr-FR')}. YouTube livre le premier rapport d’ici le ${ready.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })} (avec les 30 jours précédents) ; il est importé la nuit suivante.`;
+      reachNote = `Impressions et taux de clic : demande envoyée à YouTube le ${new Date(job.created_at as string).toLocaleDateString('fr-FR')}. YouTube livre le premier rapport d’ici le ${ready.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })} (avec les 30 jours précédents) ; il est importé la nuit suivante.`;
     }
   }
   return (
@@ -525,14 +542,14 @@ async function AnalyticsSection({ channelId, period, canConnect, linked }: { cha
         action={
           analytics.status === 'ok' ? (
             <div className="flex flex-wrap items-center gap-3">
-              <Segmented period={period} />
+              <PeriodTabs period={period} periods={PERIODS.map((p) => ({ key: p.key, label: p.label }))} />
               <AnalyticsControls id={channelId} period={period} />
             </div>
           ) : undefined
         }
       >
         {analytics.status === 'ok' ? (
-          <AnalyticsBlock data={analytics.data} hasMonetary={analytics.hasMonetary} channelId={channelId} reach={reach} reachNote={reachNote} />
+          <AnalyticsBlock data={analytics.data} hasMonetary={analytics.hasMonetary} channelId={channelId} reach={reach} reachNote={reachNote} reachSince={reachSince} />
         ) : (
           <div className="flex flex-col items-start gap-3 rounded-2xl bg-card p-5 md:flex-row md:items-center">
             <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary-soft text-primary-ink">

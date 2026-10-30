@@ -2,25 +2,50 @@
 
 import { useDraggable } from '@dnd-kit/core';
 import Link from 'next/link';
-import { Copy, Check, TrendingUp, TrendingDown } from 'lucide-react';
+import { Copy, Check, TrendingUp, TrendingDown, ArrowRightLeft, GripVertical } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
-import type { PipelineCard } from '../page';
-import { PHASE_LABELS } from '@/components/tublyti/phase-badge';
+import type { PipelineCard, PipelineColumn } from '../page';
+import { PHASE_LABELS, PhaseBadge } from '@/components/tublyti/phase-badge';
+import { buttonVariants } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { COLUMNS } from './columns';
+
+const ratioFormat = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 1 });
+const viewsFormat = new Intl.NumberFormat('fr-FR');
 
 function daysSince(dateStr: string): number {
   return Math.floor((Date.now() - new Date(dateStr).getTime()) / 86_400_000);
 }
 
+/** Keeps clicks, touches and keys on inner controls from starting a drag. */
+const stopDrag = {
+  onPointerDown: (e: React.SyntheticEvent) => e.stopPropagation(),
+  onMouseDown: (e: React.SyntheticEvent) => e.stopPropagation(),
+  onTouchStart: (e: React.SyntheticEvent) => e.stopPropagation(),
+  onKeyDown: (e: React.SyntheticEvent) => e.stopPropagation(),
+};
+
 export function KanbanCardComponent({
   card,
+  column,
+  onMove,
   isDragging = false,
 }: {
   card: PipelineCard;
+  column?: PipelineColumn;
+  onMove?: (cardId: string, target: PipelineColumn) => void;
   isDragging?: boolean;
 }) {
-  const { attributes, listeners, setNodeRef, transform } = useDraggable({
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform } = useDraggable({
     id: card.angleId,
+    disabled: column === 'measured',
   });
   const [copied, setCopied] = useState(false);
 
@@ -31,49 +56,71 @@ export function KanbanCardComponent({
     ? { transform: `translate(${transform.x}px, ${transform.y}px)` }
     : undefined;
 
+  // « Passer à » targets: every column but the current one and « Mesurée » (automatic).
+  const targets = column && column !== 'measured' && onMove
+    ? COLUMNS.filter((c) => c.id !== column && c.id !== 'measured')
+    : [];
+
   async function handleCopyBrief() {
     const brief = [
-      `# Brief — ${card.angleTitle}`,
+      `# Résumé — ${card.angleTitle}`,
       '',
       `**Sujet :** ${card.topicLabel}`,
-      `**Niche :** ${card.nicheName}`,
-      `**Phase :** ${phaseLabel}`,
+      `**Thématique :** ${card.nicheName}`,
+      `**Moment :** ${phaseLabel}`,
       card.mgi ? `**Potentiel :** ${Math.round(card.mgi)}/100` : '',
       '',
       `## Angle`,
       '',
       `**Titre :** ${card.angleTitle}`,
-      card.angleHook ? `**Hook :** ${card.angleHook}` : '',
+      card.angleHook ? `**Accroche :** ${card.angleHook}` : '',
     ]
       .filter(Boolean)
       .join('\n');
 
-    await navigator.clipboard.writeText(brief);
-    setCopied(true);
-    toast.success('Brief copié.');
-    setTimeout(() => setCopied(false), 2000);
+    try {
+      await navigator.clipboard.writeText(brief);
+      setCopied(true);
+      toast.success('Résumé copié.');
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      toast.error('Impossible de copier le résumé. Réessaie.');
+    }
   }
 
   return (
+    // The card itself is not interactive (no nested-interactive): mouse/touch drag
+    // starts anywhere on it, keyboard drag only from the dedicated handle.
     <div
       ref={setNodeRef}
       style={style}
       {...listeners}
-      {...attributes}
-      className={`group elev-1 cursor-grab rounded-2xl bg-card p-4 transition-shadow hover:elev-2 active:cursor-grabbing ${
-        isDragging ? 'elev-3 ring-1 ring-primary/30' : ''
-      }`}
+      className={`group elev-1 rounded-2xl bg-card p-4 transition-shadow hover:elev-2 ${
+        column === 'measured' ? '' : 'cursor-grab active:cursor-grabbing'
+      } ${isDragging ? 'elev-3 ring-1 ring-primary/30' : ''}`}
     >
       {/* Topic label + phase */}
-      <div className="flex items-center gap-2 mb-2">
-        <span className={`h-2 w-2 shrink-0 rounded-full bg-phase-${card.phase}`} aria-hidden="true" />
+      <div className="mb-2 flex items-center gap-2">
+        <PhaseBadge phase={card.phase} />
         <Link
           href={`/topics/${card.topicId}`}
-          onClick={(e) => e.stopPropagation()}
-          className="truncate text-[13px] text-muted-foreground transition-colors hover:text-primary"
+          {...stopDrag}
+          className="min-w-0 truncate text-[13px] text-muted-foreground transition-colors hover:text-primary"
         >
           {card.topicLabel}
         </Link>
+        {column && column !== 'measured' && !isDragging && (
+          <button
+            type="button"
+            ref={setActivatorNodeRef}
+            {...attributes}
+            aria-roledescription="poignée de déplacement"
+            aria-label={`Déplacer « ${card.angleTitle} »`}
+            className={`${buttonVariants({ variant: 'ghost', size: 'icon-sm' })} -my-1 ml-auto size-10 shrink-0 cursor-grab text-muted-foreground active:cursor-grabbing md:size-7`}
+          >
+            <GripVertical aria-hidden="true" />
+          </button>
+        )}
       </div>
 
       {/* Angle title */}
@@ -83,7 +130,7 @@ export function KanbanCardComponent({
 
       {/* Meta row */}
       <div className="flex flex-wrap items-center gap-1.5 text-[12px] text-muted-foreground">
-        <span className="max-w-[140px] truncate font-medium text-foreground/80">{card.channelName || card.nicheName}</span>
+        <span className="max-w-[140px] truncate font-medium text-foreground">{card.channelName || card.nicheName}</span>
         <span aria-hidden="true">·</span>
         <span className="whitespace-nowrap tabular-nums">{age === 0 ? 'Ajoutée aujourd’hui' : age === 1 ? 'Depuis hier' : `Depuis ${age} jours`}</span>
 
@@ -95,38 +142,69 @@ export function KanbanCardComponent({
         )}
       </div>
 
-      {/* Performance (only for measured cards) */}
-      {card.performanceVsMedian !== null && (
-        <div className={`flex items-center gap-1.5 mt-3 text-[12px] font-bold ${
-          card.performanceVsMedian >= 0 ? 'text-phase-2-ink' : 'text-destructive'
+      {/* Results: neutral view count while young, ratio to usual views once measured (30 d+) */}
+      {column === 'measured' && card.viewsVsUsual !== null ? (
+        <div className={`mt-3 flex items-center gap-1.5 text-[12px] font-semibold ${
+          card.viewsVsUsual >= 1 ? 'text-phase-2-ink' : 'text-muted-foreground'
         }`}>
-          {card.performanceVsMedian >= 0 ? (
-            <TrendingUp className="w-4 h-4" />
+          {card.viewsVsUsual >= 1 ? (
+            <TrendingUp className="h-4 w-4" aria-hidden="true" />
           ) : (
-            <TrendingDown className="w-4 h-4" />
+            <TrendingDown className="h-4 w-4" aria-hidden="true" />
           )}
           <span className="tabular-nums text-mono-metric">
-            {card.performanceVsMedian >= 0 ? '+' : ''}
-            {card.performanceVsMedian} % par rapport à ta moyenne
+            ×{ratioFormat.format(card.viewsVsUsual)} tes vues habituelles
           </span>
         </div>
-      )}
+      ) : card.views !== null && card.publishedDaysAgo !== null ? (
+        <p className="mt-3 text-[12px] tabular-nums text-muted-foreground">
+          {viewsFormat.format(card.views)} vues en {Math.max(1, card.publishedDaysAgo)} j
+        </p>
+      ) : null}
 
-      {/* Actions */}
-      <div className="flex items-center justify-between gap-2 mt-4 pt-3 border-t border-black/5 dark:border-white/5 opacity-0 group-hover:opacity-100 transition-opacity">
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            handleCopyBrief();
-          }}
-          onPointerDown={(e) => e.stopPropagation()}
-          className="haptic-btn h-7 px-3 bg-white dark:bg-white/5 border border-black/5 dark:border-white/10 shadow-sm rounded-full text-[12px] font-bold text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/10 transition-colors cursor-pointer flex items-center gap-1.5"
-        >
-          {copied ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
-          {copied ? 'Copié' : 'Copier le résumé'}
-        </button>
-      </div>
+      {/* Actions: always visible on touch screens, on hover/focus from md up */}
+      {!isDragging && (
+        <div className="mt-4 flex items-center justify-between gap-2 border-t border-border pt-3 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 md:has-[[data-popup-open]]:opacity-100">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleCopyBrief();
+            }}
+            {...stopDrag}
+            className={`${buttonVariants({ variant: 'ghost', size: 'sm' })} h-10 rounded-full text-muted-foreground md:h-7`}
+          >
+            {copied ? <Check className="h-3.5 w-3.5 text-success" aria-hidden="true" /> : <Copy className="h-3.5 w-3.5" aria-hidden="true" />}
+            {copied ? 'Copié' : 'Copier le résumé'}
+          </button>
+
+          {targets.length > 0 && (
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                {...stopDrag}
+                aria-label={`Passer « ${card.angleTitle} » à une autre colonne`}
+                className={`${buttonVariants({ variant: 'outline', size: 'sm' })} h-10 rounded-full md:h-7`}
+              >
+                <ArrowRightLeft className="h-3.5 w-3.5" aria-hidden="true" />
+                Passer à
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-auto min-w-44">
+                <DropdownMenuLabel>Passer à</DropdownMenuLabel>
+                {targets.map((t) => (
+                  <DropdownMenuItem
+                    key={t.id}
+                    className="min-h-10 md:min-h-8"
+                    onClick={() => onMove?.(card.angleId, t.id)}
+                  >
+                    <t.icon aria-hidden="true" />
+                    {t.label}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+        </div>
+      )}
     </div>
   );
 }

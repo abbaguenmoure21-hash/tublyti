@@ -26,7 +26,7 @@ Ce fichier fait autorité pour la structure des écrans et les parcours, avec `D
 | Espace | Remplace | Contenu |
 | --- | --- | --- |
 | **Sujets** (accueil) | Aujourd'hui, Matrice, Validation, Frustrations | Vue **Liste** (par défaut) ou **Carte**. Panneau sujet à droite. Bandeau « X nouveaux sujets à trier » → mode Tri. Les questions du public sont dans chaque sujet, et un filtre « avec questions du public » remplace la page Frustrations. |
-| **Mes vidéos** | Pipeline, Ma chaîne | Onglet **Tableau** (Idée → Script → Enregistrement et montage → Publiée) et onglet **Ma chaîne** (chiffres publics de la chaîne choisie, et avec YouTube Analytics connecté : durée de visionnage, abonnés, trafic, pays, appareils, âge et genre, revenus, RPM, CPM). |
+| **Mes vidéos** | Pipeline, Ma chaîne | Onglet **Tableau** (Idée → En production → Publiée → Mesurée ; une vidéo passe seule dans « Mesurée » 30 jours après sa publication) et onglet **Ma chaîne** (chiffres publics de la chaîne choisie, et avec YouTube Analytics connecté : durée de visionnage, abonnés, trafic, pays, appareils, âge et genre, revenus, RPM, CPM). |
 | **Veille** | Activité, Chaînes, Chaînes candidates | Onglets **À voir cette semaine** (vidéos qui surperforment, nouvelles vidéos, changements de moment), **Chaînes suivies**, **Chaînes à valider**. |
 | Aide (?) | — | La page Guide d'utilisation, et le parcours de bienvenue relançable. |
 | Réglages | Réglages, Profil, Santé des données | Santé des données devient un onglet des Réglages, visible pour l'administrateur uniquement. |

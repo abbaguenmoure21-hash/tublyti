@@ -12,7 +12,9 @@ function RetentionTip({ active, payload, lengthS }: { active?: boolean; payload?
   return (
     <div className="elev-3 rounded-xl bg-card px-3 py-2 text-[13px]">
       <p className="text-muted-foreground">{lengthS ? `À ${clock(p.at * lengthS)}` : `À ${pct(p.at * 100)} de la vidéo`}</p>
-      <p className="font-semibold tabular-nums">{pct(p.watch * 100)} des spectateurs encore là</p>
+      <p className="font-semibold tabular-nums">
+        {p.watch > 1 ? `${pct(p.watch * 100)} : passage revu par une partie des spectateurs` : `${pct(p.watch * 100)} des spectateurs encore là`}
+      </p>
     </div>
   );
 }
@@ -41,6 +43,9 @@ export function RetentionLineChart({ points, lengthS, dropAt }: RetentionLineCha
         <YAxis tickFormatter={(v) => `${Math.round(v * 100)} %`} tick={{ fontSize: 12, fill: 'var(--muted-foreground)' }} tickLine={false} axisLine={false} width={44} domain={[0, 'auto']} />
         <Tooltip content={<RetentionTip lengthS={lengthS} />} cursor={{ stroke: 'var(--muted-foreground)', strokeOpacity: 0.4 }} />
         {dropAt !== null && <ReferenceLine x={dropAt} stroke="var(--warning)" strokeDasharray="4 4" />}
+        {points.some((p) => p.watch > 1) && (
+          <ReferenceLine y={1} stroke="var(--muted-foreground)" strokeOpacity={0.5} label={{ value: '100 %', position: 'insideTopRight', fontSize: 12, fill: 'var(--muted-foreground)' }} />
+        )}
         <Line type="monotone" dataKey="watch" stroke="var(--chart-1)" strokeWidth={2} dot={false} activeDot={{ r: 4, strokeWidth: 2, stroke: 'var(--card)' }} />
       </LineChart>
     </ResponsiveContainer>

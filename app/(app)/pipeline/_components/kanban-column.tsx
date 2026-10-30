@@ -1,49 +1,70 @@
 'use client';
 
+import Link from 'next/link';
 import { useDroppable } from '@dnd-kit/core';
+import type { LucideIcon } from 'lucide-react';
 import type { PipelineCard, PipelineColumn } from '../page';
 import { KanbanCardComponent } from './kanban-card';
+
+const EMPTY_TEXT: Record<PipelineColumn, string> = {
+  idea: '',
+  in_production: 'Aucune vidéo en production',
+  published: 'Aucune vidéo publiée en ce moment',
+  measured: 'Les vidéos arrivent ici seules, 30 jours après leur publication',
+};
 
 export function KanbanColumn({
   id,
   label,
-  color,
+  icon: Icon,
   count,
   cards,
+  onMove,
 }: {
   id: PipelineColumn;
   label: string;
-  color: string;
+  icon: LucideIcon;
   count: number;
   cards: PipelineCard[];
+  onMove?: (cardId: string, target: PipelineColumn) => void;
 }) {
   const { isOver, setNodeRef } = useDroppable({ id });
 
   return (
-    <div
+    <section
       ref={setNodeRef}
-      className={`flex min-w-[260px] flex-1 flex-col rounded-[22px] transition-all overflow-hidden ${
-        isOver ? 'bg-primary/5 ring-1 ring-primary/20 shadow-[0_8px_30px_rgba(0,0,0,0.06)]' : 'well bg-muted/60'
+      aria-label={`${label} (${count})`}
+      className={`flex flex-col overflow-hidden rounded-2xl transition-all md:min-w-[260px] md:flex-1 ${
+        isOver ? 'bg-primary-soft ring-1 ring-primary/20 elev-2' : 'well bg-muted/60'
       }`}
     >
       {/* Column header */}
-      <div className="flex items-center gap-3 px-5 py-4 shrink-0">
-        <div className={`w-2.5 h-2.5 rounded-full ${color}`} />
-        <span className="text-[15px] font-bold tracking-tight text-foreground">{label}</span>
-        <span className="ml-auto text-[12px] font-bold text-muted-foreground bg-black/5 dark:bg-white/10 px-2.5 py-1 rounded-full shadow-sm tabular-nums">{count}</span>
+      <div className="flex shrink-0 items-center gap-3 px-5 py-4">
+        <Icon className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+        <h2 className="text-[15px] font-semibold tracking-tight text-foreground">{label}</h2>
+        <span className="ml-auto rounded-full bg-card px-2.5 py-1 text-[12px] font-semibold tabular-nums text-muted-foreground">{count}</span>
       </div>
 
       {/* Cards */}
-      <div className="flex-1 px-3 pt-2 pb-4 space-y-3 overflow-y-auto hide-scrollbar">
+      <div className="hide-scrollbar flex-1 space-y-3 overflow-y-auto px-3 pb-4 pt-2">
         {cards.length === 0 && (
-          <div className="flex items-center justify-center h-[120px] rounded-[20px] border border-dashed border-black/10 dark:border-white/10 text-[13px] font-semibold text-muted-foreground/60 mx-1">
-            Fais glisser une vidéo ici
+          <div className="mx-1 flex min-h-[96px] items-center justify-center rounded-2xl border border-dashed border-border px-4 text-center text-[13px] text-muted-foreground">
+            {id === 'idea' ? (
+              <span>
+                Aucune idée en attente.{' '}
+                <Link href="/sujets" className="font-medium text-primary hover:underline">
+                  Choisir un sujet
+                </Link>
+              </span>
+            ) : (
+              EMPTY_TEXT[id]
+            )}
           </div>
         )}
         {cards.map((card) => (
-          <KanbanCardComponent key={card.angleId} card={card} />
+          <KanbanCardComponent key={card.angleId} card={card} column={id} onMove={onMove} />
         ))}
       </div>
-    </div>
+    </section>
   );
 }

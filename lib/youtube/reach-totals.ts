@@ -17,12 +17,24 @@ export interface ReachTotal {
 const RPC = 'video_reach_totals';
 const PAGE = 1000;
 
-export async function getVideoReachTotals(db: SupabaseClient, userChannelId: string, videoIds: string[]): Promise<Map<string, ReachTotal>> {
+/**
+ * @param range optional day window (YYYY-MM-DD, inclusive). The RPC sums all history, so a window
+ * is read from the daily rows (paginated); `firstDay` then reports the first day actually covered.
+ */
+export async function getVideoReachTotals(
+  db: SupabaseClient,
+  userChannelId: string,
+  videoIds: string[],
+  range?: { from: string; to: string; onFirstDay?: (day: string | null) => void },
+): Promise<Map<string, ReachTotal>> {
   const map = new Map<string, ReachTotal>();
   const ids = [...new Set(videoIds.filter(Boolean))];
-  if (!ids.length) return map;
+  if (!ids.length) {
+    range?.onFirstDay?.(null);
+    return map;
+  }
 
-  if (!rpcKnownMissing(RPC)) {
+  if (!range && !rpcKnownMissing(RPC)) {
     const { data, error } = await db.rpc(RPC, { p_user_channel_id: userChannelId, p_video_ids: ids });
     if (!error) {
       for (const r of (data ?? []) as { video_id: string; impressions: number | string | null; clicks: number | string | null }[]) {
@@ -35,12 +47,15 @@ export async function getVideoReachTotals(db: SupabaseClient, userChannelId: str
     else console.error('[reach-totals] rpc failed, using paginated read:', error.message);
   }
 
+  let firstDay: string | null = null;
   for (let from = 0; ; from += PAGE) {
-    const { data, error } = await db
+    let q = db
       .from('video_reach_daily')
-      .select('video_id, impressions, ctr')
+      .select('video_id, day, impressions, ctr')
       .eq('user_channel_id', userChannelId)
-      .in('video_id', ids)
+      .in('video_id', ids);
+    if (range) q = q.gte('day', range.from).lte('day', range.to);
+    const { data, error } = await q
       .order('video_id', { ascending: true })
       .order('day', { ascending: true })
       .range(from, from + PAGE - 1);
@@ -48,8 +63,9 @@ export async function getVideoReachTotals(db: SupabaseClient, userChannelId: str
       console.error('[reach-totals] legacy read failed:', error.message);
       break;
     }
-    const rows = (data ?? []) as { video_id: string; impressions: number | null; ctr: number | null }[];
+    const rows = (data ?? []) as { video_id: string; day: string; impressions: number | null; ctr: number | null }[];
     for (const r of rows) {
+      if (!firstDay || r.day < firstDay) firstDay = r.day;
       const cur = map.get(r.video_id) ?? { impressions: 0, clicks: 0 };
       const imp = Number(r.impressions) || 0;
       cur.impressions += imp;
@@ -58,5 +74,6 @@ export async function getVideoReachTotals(db: SupabaseClient, userChannelId: str
     }
     if (rows.length < PAGE) break;
   }
+  range?.onFirstDay?.(firstDay);
   return map;
 }
