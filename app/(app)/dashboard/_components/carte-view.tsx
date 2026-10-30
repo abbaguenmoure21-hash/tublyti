@@ -173,7 +173,7 @@ function Chart({
               onBlur={() => setHover(null)}
               className="cursor-pointer outline-none"
             >
-              {(on || hovered) && <circle cx={cx} cy={cy} r={r + 5} fill="none" stroke="var(--foreground)" strokeOpacity={0.35} strokeWidth={1.5} />}
+              {(on || hovered) && <circle cx={cx} cy={cy} r={r + 5} fill="none" stroke="var(--ring)" strokeWidth={2} />}
               <circle
                 cx={cx}
                 cy={cy}

@@ -9,7 +9,7 @@ import { PhaseBadge } from '@/components/tublyti/phase-badge';
 type Mode = 'login' | 'forgot' | 'magic';
 
 const inputClass =
-  'h-11 w-full rounded-lg border border-input bg-card px-3.5 text-[15px] text-foreground outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-ring/30';
+  'h-11 w-full rounded-lg border border-input bg-card px-3.5 text-[15px] text-foreground outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-ring';
 
 export default function LoginPage() {
   const router = useRouter();

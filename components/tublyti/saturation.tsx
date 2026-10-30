@@ -156,7 +156,7 @@ export function LinkSaturationCheck() {
           onChange={(e) => setLink(e.target.value)}
           placeholder="https://www.youtube.com/watch?v=…"
           aria-label="Lien de la vidéo YouTube"
-          className="h-11 flex-1 rounded-[10px] border border-input bg-card px-3 text-[15px] outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+          className="h-11 flex-1 rounded-[10px] border border-input bg-card px-3 text-[15px] outline-none focus-visible:ring-2 focus-visible:ring-ring"
         />
         <button type="submit" disabled={pending || !link.trim()} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-primary px-4 text-[14px] font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50">
           {pending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Search className="h-4 w-4" aria-hidden="true" />}

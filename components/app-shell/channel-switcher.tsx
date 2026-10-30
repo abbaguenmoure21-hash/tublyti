@@ -183,7 +183,7 @@ export function ChannelSwitcher({ items, value, onChange, compact = false }: Cha
               <span className="text-[11px] tabular-nums text-muted-foreground">{items.length} chaîne{items.length > 1 ? 's' : ''}</span>
             </div>
             {showSearch && (
-              <label className="mb-1.5 flex h-8 items-center gap-2 rounded-[9px] bg-muted/70 px-2 text-[13px]">
+              <label className="mb-1.5 flex h-8 items-center gap-2 rounded-[9px] bg-muted/70 px-2 text-[13px] focus-within:ring-2 focus-within:ring-ring">
                 <Search className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
                 <input
                   ref={inputRef}

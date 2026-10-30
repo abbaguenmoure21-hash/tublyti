@@ -122,7 +122,7 @@ export function GuideView() {
             onKeyDown={(e) => e.key === 'Escape' && setQ('')}
             placeholder="Faisabilité, RPM, vérifier ma chaîne…"
             aria-label="Chercher dans l’aide"
-            className="well h-12 w-full rounded-xl bg-background pl-10 pr-10 text-[15px] outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-primary/40"
+            className="well h-12 w-full rounded-xl bg-background pl-10 pr-10 text-[15px] outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-ring"
           />
           {q && (
             <button type="button" onClick={() => setQ('')} aria-label="Effacer la recherche" className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted">

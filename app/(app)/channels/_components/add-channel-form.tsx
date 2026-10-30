@@ -46,13 +46,13 @@ export function AddChannelForm({ niches }: { niches: Niche[] }) {
           aria-label="Lien ou identifiant de la chaîne"
           value={url}
           onChange={(e) => setUrl(e.target.value)}
-          className="flex-1 h-[44px] rounded-full px-5 text-[14px] bg-white dark:bg-[#1C1C1E] border-black/10 dark:border-white/10 shadow-sm focus-visible:ring-primary/30"
+          className="flex-1 h-[44px] rounded-full px-5 text-[14px] bg-white dark:bg-[#1C1C1E] border-black/10 dark:border-white/10 shadow-sm focus-visible:ring-ring"
         />
         <select
           value={nicheId}
           onChange={(e) => setNicheId(e.target.value)}
           aria-label="Niche de la chaîne"
-          className="h-[44px] rounded-full border border-black/10 dark:border-white/10 bg-white dark:bg-[#1C1C1E] px-4 text-[14px] font-medium min-w-[160px] shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/30 transition-all cursor-pointer"
+          className="h-[44px] rounded-full border border-black/10 dark:border-white/10 bg-white dark:bg-[#1C1C1E] px-4 text-[14px] font-medium min-w-[160px] shadow-sm focus:outline-none focus:ring-2 focus:ring-ring transition-all cursor-pointer"
         >
           <option value="">Niche...</option>
           {niches.map((n) => (

@@ -393,7 +393,7 @@ export default async function TodayPage() {
 
       {/* Top bar — translucent glass */}
       <header className="sticky top-0 z-20 h-[64px] shrink-0 flex items-center gap-4 px-6 md:px-8 border-b border-black/5 dark:border-white/10 bg-white/60 dark:bg-[#08090C]/60 backdrop-blur-2xl shadow-sm">
-        <label className="flex items-center gap-3 w-full max-w-[420px] h-10 px-4 border border-black/5 dark:border-white/10 rounded-2xl bg-black/5 dark:bg-white/5 shadow-inner text-muted-foreground focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary/30 transition-all cursor-text">
+        <label className="flex items-center gap-3 w-full max-w-[420px] h-10 px-4 border border-black/5 dark:border-white/10 rounded-2xl bg-black/5 dark:bg-white/5 shadow-inner text-muted-foreground focus-within:ring-2 focus-within:ring-ring focus-within:border-primary/30 transition-all cursor-text">
           <Search className="w-[18px] h-[18px] shrink-0" />
           <input
             type="search"

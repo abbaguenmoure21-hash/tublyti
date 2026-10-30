@@ -50,7 +50,7 @@ export function KeywordCompare({ userChannelId }: { userChannelId: string }) {
                 placeholder={`Mot ${i + 1}`}
                 aria-label={`Mot ${i + 1}`}
                 maxLength={60}
-                className="h-10 w-40 rounded-[10px] border border-input bg-background px-3 text-[14px] outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+                className="h-10 w-40 rounded-[10px] border border-input bg-background px-3 text-[14px] outline-none focus-visible:ring-2 focus-visible:ring-ring"
               />
               {terms.length > 2 && (
                 <button type="button" onClick={() => setTerms((xs) => xs.filter((_, j) => j !== i))} aria-label="Retirer ce mot" className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted">

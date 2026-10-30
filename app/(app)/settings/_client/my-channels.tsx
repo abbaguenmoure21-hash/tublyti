@@ -9,7 +9,7 @@ import type { MyChannel } from '@/lib/my-channels';
 
 interface Niche { id: string; name: string; color: string }
 
-const field = 'h-11 w-full rounded-[10px] border border-input bg-card px-3 text-[15px] outline-none focus-visible:ring-2 focus-visible:ring-ring/40';
+const field = 'h-11 w-full rounded-[10px] border border-input bg-card px-3 text-[15px] outline-none focus-visible:ring-2 focus-visible:ring-ring';
 const nf = new Intl.NumberFormat('fr-FR', { notation: 'compact', maximumFractionDigits: 1 });
 
 function Avatar({ src, name, size = 40 }: { src: string | null; name: string; size?: number }) {

@@ -109,7 +109,7 @@ export function PreflightForm({ userChannelId, aiEnabled }: { userChannelId: str
                   onChange={(e) => setTitles((xs) => xs.map((x, j) => (j === i ? e.target.value : x)))}
                   placeholder={i === 0 ? 'Ex. : Why Nobody Talks About the Richest Village in Africa' : `Variante ${i + 1}`}
                   maxLength={150}
-                  className="h-11 w-full rounded-[10px] border border-input bg-background px-3 text-[15px] outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+                  className="h-11 w-full rounded-[10px] border border-input bg-background px-3 text-[15px] outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 />
                 <span className="w-9 shrink-0 text-right text-[12px] tabular-nums text-muted-foreground">{t.length}</span>
                 {titles.length > 1 && (
@@ -135,7 +135,7 @@ export function PreflightForm({ userChannelId, aiEnabled }: { userChannelId: str
               onChange={(e) => setScript(e.target.value)}
               rows={7}
               placeholder="Colle ton script, ou au moins les 30 premières secondes (l’accroche compte double)."
-              className="rounded-[10px] border border-input bg-background px-3 py-2.5 text-[14px] leading-relaxed outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+              className="rounded-[10px] border border-input bg-background px-3 py-2.5 text-[14px] leading-relaxed outline-none focus-visible:ring-2 focus-visible:ring-ring"
             />
           </label>
 
@@ -147,7 +147,7 @@ export function PreflightForm({ userChannelId, aiEnabled }: { userChannelId: str
               type="datetime-local"
               value={publishAt}
               onChange={(e) => setPublishAt(e.target.value)}
-              className="h-10 rounded-[10px] border border-input bg-background px-3 text-[14px] outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+              className="h-10 rounded-[10px] border border-input bg-background px-3 text-[14px] outline-none focus-visible:ring-2 focus-visible:ring-ring"
             />
           </label>
         </div>

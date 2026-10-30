@@ -267,7 +267,7 @@ export function TriageDeck({
                     value={mergeQuery}
                     onChange={(e) => setMergeQuery(e.target.value)}
                     placeholder="Chercher un sujet de la même niche"
-                    className="h-10 rounded-[10px] border border-input bg-card px-3 text-sm font-normal outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+                    className="h-10 rounded-[10px] border border-input bg-card px-3 text-sm font-normal outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   />
                 </label>
                 <ul className="max-h-60 overflow-y-auto rounded-[10px] border border-border">

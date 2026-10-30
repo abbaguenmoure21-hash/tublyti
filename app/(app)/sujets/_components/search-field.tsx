@@ -33,7 +33,7 @@ export function SearchField({ params }: { params: SujetsParams }) {
   }, []);
 
   return (
-    <label className="relative flex h-9 w-full items-center gap-2 rounded-[10px] bg-muted px-3 text-muted-foreground focus-within:ring-2 focus-within:ring-ring/40 sm:w-[300px]">
+    <label className="relative flex h-9 w-full items-center gap-2 rounded-[10px] bg-muted px-3 text-muted-foreground focus-within:ring-2 focus-within:ring-ring sm:w-[300px]">
       <Search className="h-4 w-4 shrink-0" aria-hidden="true" />
       <span className="sr-only">Chercher un sujet</span>
       <input
