@@ -1,6 +1,8 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { SupabaseClient } from '@supabase/supabase-js';
 import type { EmbeddingProvider } from '../providers/embeddings';
+import { reserveAiBudget, settleAiBudget } from '../ai/budget';
+import { HAIKU_45, costUsd } from '../ai/pricing';
 
 const CLUSTER_SIMILARITY_THRESHOLD = 0.80;
 const MIN_CLUSTER_SIZE = 3;
@@ -132,7 +134,7 @@ export async function runClustering(
 
       // Name the topic via Claude Haiku (2-6 English words) + generate 3 search queries
       const titles = clusterVideos.map((v) => v.title as string);
-      const named = await nameTopicWithHaiku(titles, nicheName);
+      const named = await nameTopicWithHaiku(db, titles, nicheName);
 
       // Skip if Haiku says it's off-niche
       if (!named) continue;
@@ -228,18 +230,42 @@ interface TopicNaming {
   queries: string[];
 }
 
-async function nameTopicWithHaiku(
+/** Fallback naming without AI: the shortest title of the cluster. */
+function shortestTitleNaming(videoTitles: string[]): TopicNaming {
+  const label = [...videoTitles].sort((a, b) => a.length - b.length)[0] ?? 'Unnamed topic';
+  return { label, queries: [label.toLowerCase()] };
+}
+
+/** Upper bound reserved before the call (≈ 600 tokens in, 200 out). */
+const NAMING_EST_USD = costUsd(HAIKU_45, 600, 200);
+
+type MessagesClient = Pick<Anthropic, 'messages'>;
+
+/**
+ * Names a cluster with Claude Haiku. The monthly AI budget is reserved atomically before the call
+ * (lib/ai/budget) and settled with the real cost; with the budget spent, no call is made and the
+ * shortest title is used.
+ */
+export async function nameTopicWithHaiku(
+  db: SupabaseClient,
   videoTitles: string[],
   nicheName: string,
+  deps: { anthropic?: MessagesClient } = {},
 ): Promise<TopicNaming | null> {
-  if (!process.env.ANTHROPIC_API_KEY) {
-    // Fallback: shortest title
-    const label = videoTitles.sort((a, b) => a.length - b.length)[0] ?? 'Unnamed topic';
-    return { label, queries: [label.toLowerCase()] };
+  if (!process.env.ANTHROPIC_API_KEY && !deps.anthropic) return shortestTitleNaming(videoTitles);
+
+  const reservation = await reserveAiBudget(db, NAMING_EST_USD).catch((e: Error) => {
+    console.error(`Haiku naming: budget check failed (${e.message}), naming skipped`);
+    return null;
+  });
+  if (!reservation?.ok) {
+    if (reservation) console.log('  Haiku naming skipped: monthly AI budget reached');
+    return shortestTitleNaming(videoTitles);
   }
 
+  let settled = false;
   try {
-    const anthropic = new Anthropic();
+    const anthropic = deps.anthropic ?? new Anthropic();
     const response = await anthropic.messages.create({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 200,
@@ -261,7 +287,19 @@ The label should capture the shared theme. The queries should be YouTube search 
       }],
     });
 
-    let text = response.content[0].type === 'text' ? response.content[0].text : '';
+    const cost = costUsd(HAIKU_45, response.usage.input_tokens, response.usage.output_tokens);
+    await settleAiBudget(db, reservation, cost);
+    settled = true;
+    await db.from('ai_spend').insert({
+      action: 'name_topic',
+      model: 'haiku-4.5',
+      tokens_in: response.usage.input_tokens,
+      tokens_out: response.usage.output_tokens,
+      cost_usd: cost,
+      meta: { niche: nicheName },
+    });
+
+    let text = response.content[0]?.type === 'text' ? response.content[0].text : '';
     text = text.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim();
     const parsed = JSON.parse(text);
 
@@ -276,9 +314,9 @@ The label should capture the shared theme. The queries should be YouTube search 
     };
   } catch (err) {
     console.error(`Haiku naming error: ${(err as Error).message}`);
-    // Fallback: shortest title
-    const label = videoTitles.sort((a, b) => a.length - b.length)[0] ?? 'Unnamed topic';
-    return { label, queries: [label.toLowerCase()] };
+    // Nothing billed (call failed): give the reservation back.
+    if (!settled) await settleAiBudget(db, reservation, 0).catch(() => undefined);
+    return shortestTitleNaming(videoTitles);
   }
 }
 
