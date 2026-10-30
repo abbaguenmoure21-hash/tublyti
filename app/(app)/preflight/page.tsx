@@ -97,17 +97,19 @@ export default async function PreflightPage({ searchParams }: { searchParams: Pr
         <ViewPicker view={view} />
       </header>
 
-      {view === 'evaluer' && <PreflightForm userChannelId={channelId} aiEnabled={geminiEnabled()} />}
+      {/* The three views stay mounted (hidden when inactive): switching view must never abort a video
+          upload or wipe what was typed. The URL only decides which one is visible. */}
+      <div hidden={view !== 'evaluer'} className="flex flex-col gap-8">
+        <PreflightForm userChannelId={channelId} aiEnabled={geminiEnabled()} />
+      </div>
 
-      {view === 'idee' && (
-        <>
-          <KeywordCompare userChannelId={channelId} />
-          <LinkSaturationCheck />
-        </>
-      )}
+      <div hidden={view !== 'idee'} className="flex flex-col gap-8">
+        <KeywordCompare userChannelId={channelId} />
+        <LinkSaturationCheck />
+      </div>
 
-      {view === 'resultats' &&
-        (after ? (
+      <div hidden={view !== 'resultats'} className="flex flex-col gap-8">
+        {after ? (
           <>
             <FollowUp rows={after.follow} />
             <History checks={after.checks} linkable={after.linkable} calibration={after.calibration} />
@@ -119,7 +121,8 @@ export default async function PreflightPage({ searchParams }: { searchParams: Pr
               Réessayer
             </Link>
           </div>
-        ))}
+        )}
+      </div>
     </div>
   );
 }

@@ -100,8 +100,24 @@ export function PreflightForm({ userChannelId, aiEnabled }: { userChannelId: str
       e.preventDefault();
       e.returnValue = '';
     };
+    // In-app links leaving /preflight (sidebar…) do not fire beforeunload: confirm them too.
+    // Links inside /preflight (view switch) are safe: the form stays mounted.
+    const onClick = (e: MouseEvent) => {
+      const a = (e.target as Element | null)?.closest?.('a[href]') as HTMLAnchorElement | null;
+      if (!a || a.target === '_blank' || e.defaultPrevented) return;
+      const url = new URL(a.href, window.location.href);
+      if (url.origin !== window.location.origin || url.pathname === window.location.pathname) return;
+      if (!window.confirm('Une vidéo est en cours d’envoi ou d’évaluation. Quitter cette page l’arrête. Quitter quand même ?')) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
     window.addEventListener('beforeunload', warn);
-    return () => window.removeEventListener('beforeunload', warn);
+    document.addEventListener('click', onClick, true);
+    return () => {
+      window.removeEventListener('beforeunload', warn);
+      document.removeEventListener('click', onClick, true);
+    };
   }, [pending, busyVideo]);
 
   async function onFile(f: File | undefined) {
@@ -614,7 +630,7 @@ function VideoUploader({ state, onChange: setState, aiEnabled }: { state: Upload
       } catch {
         /* réponse illisible */
       }
-      if (xhr.status >= 300 || !f.name) return onChange({ ...base, durationS, status: 'error', error: `Envoi refusé (${xhr.status}).` });
+      if (xhr.status >= 300 || !f.name) return onChange({ ...base, durationS, status: 'error', error: 'L’envoi a été refusé. Essaie une version allégée (720p).' });
       onChange({ ...base, durationS, progress: 1, status: 'processing' });
       // The AI provider prepares the video (often 10 s to 2 min).
       for (let i = 0; i < 90; i++) {
