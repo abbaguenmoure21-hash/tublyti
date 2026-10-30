@@ -1,5 +1,5 @@
 import { SupabaseClient } from '@supabase/supabase-js';
-import { isMissingColumn, markChecked, needsFullScan, saveFullScan, topicSignature } from './scan-state';
+import { decideScan, isMissingColumn, loadTopicScanState, markChecked, saveTopicScanState, type ScanPlan } from './scan-state';
 
 const SAME_NICHE_THRESHOLD = 0.66;
 const CROSS_NICHE_THRESHOLD = 0.75;
@@ -59,7 +59,7 @@ export async function runAttachAll(
   db: SupabaseClient,
   deadlineMs: number,
   opts: { incremental?: boolean } = {},
-): Promise<{ attached: number; orphans: number; scanned?: number; mode?: 'full' | 'incremental' }> {
+): Promise<{ attached: number; orphans: number; scanned?: number; mode?: ScanPlan['mode'] }> {
   // Load topics with embeddings
   const { data: topics } = await db
     .from('topics')
@@ -88,10 +88,13 @@ export async function runAttachAll(
   }
   const channelNiche = new Map(channels.map((c) => [c.id, c.niche_id]));
 
-  // Incremental mode (nightly): only videos never compared, unless the topic set changed (scan-state.ts).
-  const signature = topicSignature(topicList.map((t) => t.id));
-  let incremental = Boolean(opts.incremental) && !(await needsFullScan(db, 'attach_scan_state', signature));
+  // Incremental modes (nightly, scan-state.ts): 'incremental' = only never-compared videos;
+  // 'added' = every orphan against the new topics only (never-compared ones against all); 'full' otherwise.
+  const topicIds = topicList.map((t) => t.id);
+  const prevState = opts.incremental ? await loadTopicScanState(db, 'attach_scan_state') : null;
+  let plan: ScanPlan = opts.incremental ? decideScan(prevState, topicIds) : { mode: 'full' };
   let hasCheckedCol = Boolean(opts.incremental);
+  const addedTopics = plan.mode === 'added' ? topicList.filter((t) => (plan as { added: Set<string> }).added.has(t.id)) : [];
   let scanned = 0;
   let stoppedByTimeout = false;
 
@@ -106,7 +109,7 @@ export async function runAttachAll(
   const page = (onlyUnchecked: boolean) => {
     let q = db
       .from('videos')
-      .select('id, channel_id, title_embedding')
+      .select(hasCheckedCol ? 'id, channel_id, title_embedding, attach_checked_at' : 'id, channel_id, title_embedding')
       .is('topic_id', null)
       .not('title_embedding', 'is', null)
       .gte('published_at', cutoff)
@@ -117,16 +120,17 @@ export async function runAttachAll(
 
   while (true) {
     if (Date.now() >= deadlineMs) { stoppedByTimeout = true; break; }
-    let { data: videos, error: vErr } = await page(incremental && hasCheckedCol);
+    let { data: rawVideos, error: vErr } = await page(plan.mode === 'incremental' && hasCheckedCol);
     if (vErr && hasCheckedCol && isMissingColumn(vErr.message, 'attach_checked_at')) {
       console.warn('  [attach] videos.attach_checked_at absent (migration 00033) — full scan');
       hasCheckedCol = false;
-      incremental = false;
-      ({ data: videos, error: vErr } = await page(false));
+      plan = { mode: 'full' };
+      ({ data: rawVideos, error: vErr } = await page(false));
     }
     if (vErr) throw new Error(`attach: read orphan videos: ${vErr.message}`);
+    const videos = (rawVideos ?? []) as unknown as { id: string; channel_id: string; title_embedding: unknown; attach_checked_at?: string | null }[];
 
-    if (!videos?.length) break;
+    if (!videos.length) break;
     scanned += videos.length;
     const toAttach = new Map<string, string[]>();
 
@@ -143,7 +147,9 @@ export async function runAttachAll(
       let bestCrossSim = 0;
       let bestCrossTopicId: string | null = null;
 
-      for (const topic of topicList) {
+      // Already compared with the previous topics: only the new ones can change the answer.
+      const candidates = plan.mode === 'added' && video.attach_checked_at ? addedTopics : topicList;
+      for (const topic of candidates) {
         const sim = cosineSimilarity(videoEmb, topic.embedding);
         if (topic.nicheId === nicheId) {
           if (sim > bestSameSim) { bestSameSim = sim; bestSameTopicId = topic.id; }
@@ -201,10 +207,12 @@ export async function runAttachAll(
   }
 
   // A complete full scan resets the reference: next nights only compare new videos.
-  if (opts.incremental && hasCheckedCol && !incremental && !stoppedByTimeout) {
-    await saveFullScan(db, 'attach_scan_state', signature);
+  // A complete pass updates the reference set of topics (a full one also resets the 7-day clock).
+  if (opts.incremental && hasCheckedCol && plan.mode !== 'incremental' && !stoppedByTimeout) {
+    await saveTopicScanState(db, 'attach_scan_state', topicIds, plan.mode === 'full', prevState);
   }
-  console.log(`  [attach] ${incremental ? 'incremental' : 'full'} scan: ${scanned} orphan vectors read`);
+  const addedNote = plan.mode === 'added' ? ` against ${addedTopics.length} new topic(s)` : '';
+  console.log(`  [attach] ${plan.mode} scan: ${scanned} orphan vectors read${addedNote}`);
 
-  return { attached: totalAttached, orphans: totalOrphans, scanned, mode: incremental ? 'incremental' : 'full' };
+  return { attached: totalAttached, orphans: totalOrphans, scanned, mode: plan.mode };
 }

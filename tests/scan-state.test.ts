@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { needsFullScan, topicSignature } from '@/lib/topics/scan-state';
+import { decideScan, needsFullScan, topicSignature } from '@/lib/topics/scan-state';
 
 function settingsDb(value: unknown): SupabaseClient {
   const chain = {
@@ -23,6 +23,16 @@ describe('incremental orphan scan', () => {
     expect(await needsFullScan(settingsDb(undefined), 'k', sig)).toBe(true);
     expect(await needsFullScan(settingsDb({ signature: 'other', fullAt: new Date().toISOString() }), 'k', sig)).toBe(true);
     expect(await needsFullScan(settingsDb({ signature: sig, fullAt: new Date(Date.now() - 8 * 86_400_000).toISOString() }), 'k', sig)).toBe(true);
+  });
+
+  it('per-topic plan: added topics only → compare against them; removal or 7 days → full', () => {
+    const fullAt = new Date(Date.now() - 86_400_000).toISOString();
+    expect(decideScan(null, ['a'])).toEqual({ mode: 'full' });
+    expect(decideScan({ signature: 'old-format' } as never, ['a'])).toEqual({ mode: 'full' });
+    expect(decideScan({ ids: ['a', 'b'], fullAt }, ['b', 'a'])).toEqual({ mode: 'incremental' });
+    expect(decideScan({ ids: ['a', 'b'], fullAt }, ['a', 'b', 'c', 'd', 'e'])).toEqual({ mode: 'added', added: new Set(['c', 'd', 'e']) });
+    expect(decideScan({ ids: ['a', 'b'], fullAt }, ['a', 'c'])).toEqual({ mode: 'full' });
+    expect(decideScan({ ids: ['a'], fullAt: new Date(Date.now() - 8 * 86_400_000).toISOString() }, ['a'])).toEqual({ mode: 'full' });
   });
 
   it('incremental the next night when nothing changed', async () => {
