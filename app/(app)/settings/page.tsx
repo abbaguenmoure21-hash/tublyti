@@ -198,11 +198,13 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
                 </li>
               ))}
             </ol>
-            <CopyField label="Adresse du serveur" value={`${appUrl}/api/mcp`} />
-            <p className="text-[13px] text-muted-foreground">Le même jeton sert à l’extension Chrome TubLyTI : colle-le dans ses options. Un jeton ne donne accès qu’à tes chaînes et à tes thématiques. Tu peux le révoquer à tout moment.</p>
+            <CopyField label="Adresse pour Claude" value={`${appUrl}/api/mcp`} />
+            <CopyField label="Adresse pour l’extension Chrome TubLyTI (« URL de TubLyTI » dans ses options)" value={appUrl} />
+            <p className="text-[13px] text-muted-foreground">Le même jeton sert à l’extension Chrome TubLyTI : colle-le dans « Jeton API », dans ses options. Un jeton ne donne accès qu’à tes chaînes et à tes thématiques. Tu peux le révoquer à tout moment.</p>
             {tools ? (
               <ApiTokensTab
                 mcpUrl={`${appUrl}/api/mcp`}
+                appUrl={appUrl}
                 tokens={(tokensRes.data ?? []).map((t: Record<string, unknown>) => ({
                   id: t.id as string,
                   name: t.name as string,

@@ -54,7 +54,7 @@ const PERMISSIONS = [
   { value: 'readwrite' as const, label: 'Lecture et actions', help: 'Ils peuvent aussi créer des vidéos et ajouter des favoris pour toi.' },
 ];
 
-export function ApiTokensTab({ tokens, mcpUrl }: { tokens: TokenData[]; mcpUrl: string }) {
+export function ApiTokensTab({ tokens, mcpUrl, appUrl }: { tokens: TokenData[]; mcpUrl: string; appUrl: string }) {
   const [showCreate, setShowCreate] = useState(false);
   const [name, setName] = useState('');
   const [permission, setPermission] = useState<'read' | 'readwrite'>('read');
@@ -116,13 +116,23 @@ export function ApiTokensTab({ tokens, mcpUrl }: { tokens: TokenData[]; mcpUrl: 
             {newToken ? (
               <div className="space-y-3">
                 <p className="text-[13px] font-medium text-foreground">
-                  Jeton créé. Copie ces deux valeurs maintenant : le jeton ne sera plus affiché.
+                  Jeton créé. Copie-le maintenant : il ne sera plus affiché.
                 </p>
-                <CopyField label="Adresse du serveur" value={mcpUrl} />
                 <CopyField label="Jeton" value={newToken} />
-                <p className="text-[13px] text-muted-foreground">
-                  Colle-les dans Claude › Réglages › Connecteurs, ou dans les options de l’extension Chrome TubLyTI.
-                </p>
+                <div className="flex flex-col gap-2 rounded-lg border border-border px-3 py-3">
+                  <p className="text-[13px] font-medium">Pour Claude</p>
+                  <CopyField label="Adresse pour Claude" value={mcpUrl} />
+                  <p className="text-[12px] text-muted-foreground">
+                    Dans Claude › Réglages › Connecteurs › Ajouter un connecteur personnalisé : colle cette adresse et le jeton.
+                  </p>
+                </div>
+                <div className="flex flex-col gap-2 rounded-lg border border-border px-3 py-3">
+                  <p className="text-[13px] font-medium">Pour l’extension Chrome TubLyTI</p>
+                  <CopyField label="Adresse pour l’extension" value={appUrl} />
+                  <p className="text-[12px] text-muted-foreground">
+                    Dans les options de l’extension : colle cette adresse dans « URL de TubLyTI » et le jeton dans « Jeton API ».
+                  </p>
+                </div>
                 <button
                   type="button"
                   onClick={() => {
@@ -150,13 +160,29 @@ export function ApiTokensTab({ tokens, mcpUrl }: { tokens: TokenData[]; mcpUrl: 
                 </div>
                 <div>
                   <span id="token-permission" className="mb-1 block text-[12px] text-muted-foreground">Ce qu’il peut faire</span>
-                  <div role="radiogroup" aria-labelledby="token-permission" className="flex gap-1">
+                  <div
+                    role="radiogroup"
+                    aria-labelledby="token-permission"
+                    className="flex gap-1"
+                    onKeyDown={(e) => {
+                      // ARIA radio pattern: arrows move the selection.
+                      if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return;
+                      e.preventDefault();
+                      const i = PERMISSIONS.findIndex((p) => p.value === permission);
+                      const step = e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 1;
+                      const next = PERMISSIONS[(i + step + PERMISSIONS.length) % PERMISSIONS.length];
+                      setPermission(next.value);
+                      e.currentTarget.querySelector<HTMLButtonElement>(`[data-value="${next.value}"]`)?.focus();
+                    }}
+                  >
                     {PERMISSIONS.map((p) => (
                       <button
                         key={p.value}
                         type="button"
                         role="radio"
+                        data-value={p.value}
                         aria-checked={permission === p.value}
+                        tabIndex={permission === p.value ? 0 : -1}
                         onClick={() => setPermission(p.value)}
                         className={`h-9 cursor-pointer rounded-lg px-3 text-[12px] font-medium transition-colors ${
                           permission === p.value ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
