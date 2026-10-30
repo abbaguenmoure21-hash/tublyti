@@ -9,7 +9,6 @@ import { canSeeTopic } from '@/lib/auth/topic-access';
 import { PhaseBadge, PHASE_LABELS } from '@/components/tublyti/phase-badge';
 import { getMgiBand, type ConfidenceResult } from '@/lib/scoring/mgi';
 import { OutlierBadge } from '@/components/tublyti/outlier-badge';
-import { GRADE_COLORS } from '@/components/tublyti/feasibility-badge';
 import { AnalyzeVideoButton } from '@/components/tublyti/video-analysis';
 import { TopicSaturationCard, OutlierSaturationButton } from '@/components/tublyti/saturation';
 import { topicSaturation } from '@/lib/saturation';
