@@ -2,9 +2,17 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Check, ArrowLeft } from 'lucide-react';
 import { WaitlistForm } from '@/components/landing/waitlist-form';
+import { PhaseBadge } from '@/components/tublyti/phase-badge';
+
+// Illustrative, made-up topics (same style as the landing preview: English topics, French niche label).
+const PREVIEW = [
+  { title: 'The 50/30/20 budget, explained simply', niche: 'Finance personnelle', phase: 2, mgi: 87 },
+  { title: 'Running AI agents locally on a laptop', niche: 'IA et automatisation', phase: 1, mgi: 74 },
+  { title: 'Why the brain craves certainty', niche: 'Psychologie', phase: 0, mgi: 61 },
+];
 
 export const metadata: Metadata = {
-  title: 'Rejoindre la liste d’attente · TubLyTI',
+  title: 'Rejoindre la liste d’attente',
   description: 'Inscris-toi pour recevoir ton accès à TubLyTI pendant la bêta.',
 };
 
@@ -97,18 +105,21 @@ export default async function ListeAttentePage({
                 <span className="text-[13px] font-semibold">Tes meilleurs sujets cette semaine</span>
                 <span className="text-xs text-muted-foreground">Exemple</span>
               </div>
-              {[
-                { label: 'Budget 50/30/20 expliqué simplement', ch: 'Money Compass', moment: 'C’est le moment', tone: 'bg-phase-2-soft text-phase-2-ink', pot: 87 },
-                { label: 'Agents IA locaux sur un ordinateur portable', ch: 'Signal AI', moment: 'Ça monte', tone: 'bg-phase-1-soft text-phase-1-ink', pot: 74 },
-                { label: 'Pourquoi le cerveau cherche la certitude', ch: 'Longevity Lab', moment: 'À surveiller', tone: 'bg-muted text-muted-foreground', pot: 61 },
-              ].map((r) => (
-                <div key={r.label} className="flex items-center gap-3 rounded-xl bg-background px-3.5 py-3">
+              {PREVIEW.map((r) => (
+                <div key={r.title} className="flex items-center gap-3 rounded-xl bg-background px-3.5 py-3">
                   <span className="flex min-w-0 flex-1 flex-col">
-                    <span className="truncate text-sm font-semibold">{r.label}</span>
-                    <span className="text-xs text-muted-foreground">{r.ch}</span>
+                    <span className="truncate text-sm font-semibold">{r.title}</span>
+                    <span className="text-xs text-muted-foreground">{r.niche}</span>
                   </span>
-                  <span className={`shrink-0 rounded-md px-2 py-0.5 text-[11px] font-semibold ${r.tone}`}>{r.moment}</span>
-                  <span className="w-8 shrink-0 text-right text-sm font-semibold tabular-nums">{r.pot}</span>
+                  <span className="shrink-0">
+                    <PhaseBadge phase={r.phase} />
+                  </span>
+                  <span className="flex shrink-0 items-center gap-2">
+                    <span className="block h-1.5 w-12 overflow-hidden rounded-full bg-muted">
+                      <span className="block h-1.5 rounded-full bg-primary" style={{ width: `${r.mgi}%` }} />
+                    </span>
+                    <span className="w-6 text-right text-sm font-semibold tabular-nums">{r.mgi}</span>
+                  </span>
                 </div>
               ))}
               <p className="px-1 text-xs leading-relaxed text-muted-foreground">

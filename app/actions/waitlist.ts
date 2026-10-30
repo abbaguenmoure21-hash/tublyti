@@ -15,7 +15,7 @@ export async function joinWaitlist(
   formData: FormData,
 ): Promise<WaitlistState> {
   // Champ piège invisible : un robot le remplit, un humain non.
-  if (String(formData.get('company') ?? '').length > 0) {
+  if (String(formData.get('website_hp') ?? '').length > 0) {
     return { status: 'success', message: 'Merci, tu es sur la liste.' };
   }
 

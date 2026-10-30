@@ -43,7 +43,7 @@ const PROBLEMS = [
 
 const STEPS = [
   { title: 'Choisis ta niche', text: 'Finance, psychologie, IA, business, histoire ou santé. Ajoute ta chaîne si tu veux comparer tes résultats à ceux des autres.' },
-  { title: 'Consulte ta liste chaque lundi', text: 'La page « Sujets » classe les sujets du moment, du plus prometteur au moins prometteur.' },
+  { title: 'Consulte ta liste chaque semaine', text: 'Mise à jour chaque nuit, résumé par e-mail le dimanche : la page « Sujets » classe les sujets du moment, du plus prometteur au moins prometteur.' },
   { title: 'Prépare ta vidéo', text: 'Ouvre un sujet : tu y trouves les questions des spectateurs, les vidéos qui marchent déjà, et des idées d’angle et de titre.' },
   { title: 'Mesure le résultat', text: 'Une fois ta vidéo publiée, TubLyTI compare ses vues, une semaine puis un mois plus tard, à la moyenne de ta niche.' },
 ];
@@ -71,7 +71,7 @@ const TIERS = [
 ];
 
 const FAQ = [
-  { q: 'Combien de temps faut-il y consacrer ?', a: 'Environ dix minutes le lundi pour choisir tes sujets, puis quelques minutes par vidéo pour lire la fiche du sujet avant d’écrire.' },
+  { q: 'Combien de temps faut-il y consacrer ?', a: 'La liste est mise à jour chaque nuit et le résumé arrive le dimanche : dix minutes le lundi suffisent pour choisir tes sujets, puis quelques minutes par vidéo pour lire la fiche du sujet avant d’écrire.' },
   { q: 'Je débute sur YouTube. Est-ce utile pour moi ?', a: 'Oui. Tu pars de sujets qui ont déjà un public au lieu de deviner. Commence par ceux marqués « C’est le moment ».' },
   { q: 'Quelles niches sont disponibles ?', a: 'Finance personnelle, psychologie et développement personnel, IA et automatisation, business et études de cas, histoire et géopolitique, santé et longévité. D’autres niches arriveront pendant la bêta.' },
   { q: 'Dois-je connecter ma chaîne YouTube ?', a: 'Non, c’est facultatif. Cela sert uniquement à comparer tes vidéos à celles de ta niche.' },
@@ -144,30 +144,39 @@ export default async function LandingPage() {
                 <WaitlistForm source="hero" />
               </div>
               <span className="text-sm text-muted-foreground">Accès gratuit pendant la bêta. Aucune carte bancaire demandée.</span>
+              {/* The section menu is hidden below md: give the same shortcuts here. */}
+              <nav aria-label="Sections" className="flex flex-wrap gap-x-5 gap-y-2 text-[15px] font-medium text-primary md:hidden">
+                <a href="#fonctionnement" className="hover:text-primary-ink">Comment l’utiliser</a>
+                <a href="#tarifs" className="hover:text-primary-ink">Tarifs</a>
+                <a href="#faq" className="hover:text-primary-ink">FAQ</a>
+              </nav>
             </div>
 
             {/* Aperçu produit (exemples illustratifs) */}
-            <div className="overflow-hidden rounded-[14px] border border-border bg-card shadow-[0_24px_60px_rgba(20,24,34,0.12),0_2px_6px_rgba(20,24,34,0.06)]" aria-label="Aperçu de l’écran Aujourd’hui">
+            <div className="elev-3 overflow-hidden rounded-2xl border border-border bg-card" aria-label="Aperçu de l’écran Sujets (exemple)">
               <div className="flex h-10 items-center gap-2 border-b border-border bg-background px-4">
                 <span className="h-2.5 w-2.5 rounded-full bg-border" />
                 <span className="h-2.5 w-2.5 rounded-full bg-border" />
                 <span className="h-2.5 w-2.5 rounded-full bg-border" />
-                <span className="ml-3 text-xs text-muted-foreground">Aujourd’hui · aperçu</span>
+                <span className="ml-3 text-xs text-muted-foreground">Sujets · exemple</span>
               </div>
               <div className="flex flex-col gap-1 px-4 pb-2 pt-5">
                 <span className="text-xl font-semibold tracking-[-0.01em]">Tes meilleurs sujets cette semaine</span>
                 <span className="text-sm text-muted-foreground">Classés du plus prometteur au moins prometteur</span>
               </div>
-              <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-3.5 px-4 py-2 text-xs text-muted-foreground">
+              <div className="hidden grid-cols-[minmax(0,1fr)_auto_auto] gap-3.5 px-4 py-2 text-xs text-muted-foreground sm:grid">
                 <span>Sujet</span><span>Moment</span><span>Potentiel</span>
               </div>
               {PREVIEW.map((row) => (
-                <div key={row.title} className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3.5 border-t border-muted px-4 py-3">
-                  <span className="flex min-w-0 flex-col gap-0.5">
-                    <span className="truncate text-sm font-semibold">{row.title}</span>
+                // Below `sm` the title takes the full first line, badge and score go on the second line.
+                <div key={row.title} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3.5 gap-y-2 border-t border-muted px-4 py-3 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
+                  <span className="col-span-2 flex min-w-0 flex-col gap-0.5 sm:col-span-1">
+                    <span className="text-sm font-semibold sm:truncate">{row.title}</span>
                     <span className="text-xs text-muted-foreground">{row.niche}</span>
                   </span>
-                  <PhaseBadge phase={row.phase} />
+                  <span className="justify-self-start">
+                    <PhaseBadge phase={row.phase} />
+                  </span>
                   <span className="flex items-center gap-2">
                     <span className="block h-1.5 w-12 overflow-hidden rounded-full bg-muted">
                       <span className="block h-1.5 rounded-full bg-primary" style={{ width: `${row.mgi}%` }} />
@@ -176,7 +185,7 @@ export default async function LandingPage() {
                   </span>
                 </div>
               ))}
-              <div className="m-4 mt-3 rounded-[10px] border border-border bg-background px-3.5 py-3 text-[13px] leading-relaxed">
+              <div className="m-4 mt-3 rounded-lg border border-border bg-background px-3.5 py-3 text-[13px] leading-relaxed">
                 <span className="font-semibold">Question posée par les spectateurs : </span>
                 « No one explains how the tax brackets actually stack up for a normal salary. »
               </div>
@@ -194,7 +203,7 @@ export default async function LandingPage() {
             />
             <div className="grid gap-4 md:grid-cols-3">
               {PROBLEMS.map((p) => (
-                <div key={p.title} className="flex flex-col gap-2.5 rounded-[10px] border border-border bg-card p-6 shadow-sm">
+                <div key={p.title} className="flex flex-col gap-2.5 rounded-xl border border-border bg-card p-6 elev-1">
                   <h3 className="text-lg font-semibold">{p.title}</h3>
                   <p className="text-[15px] leading-relaxed text-muted-foreground">{p.text}</p>
                 </div>
@@ -213,7 +222,7 @@ export default async function LandingPage() {
             <ol className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               {STEPS.map((s, i) => (
                 <li key={s.title} className="flex flex-col gap-3 rounded-xl border border-border bg-card p-6">
-                  <span className="flex h-9 w-9 items-center justify-center rounded-[10px] bg-primary-soft font-semibold text-primary-ink">{i + 1}</span>
+                  <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary-soft font-semibold text-primary-ink">{i + 1}</span>
                   <h3 className="text-[1.0625rem] font-semibold">{s.title}</h3>
                   <p className="text-[15px] leading-relaxed text-muted-foreground">{s.text}</p>
                 </li>
@@ -234,7 +243,7 @@ export default async function LandingPage() {
             </div>
             <ul className="flex flex-col gap-3">
               {PHASES.map((p) => (
-                <li key={p.phase} className="flex items-center gap-4 rounded-[10px] border border-border bg-card px-[18px] py-4 shadow-sm">
+                <li key={p.phase} className="flex items-center gap-4 rounded-xl border border-border bg-card px-[18px] py-4 elev-1">
                   <span className="shrink-0"><PhaseBadge phase={p.phase} /></span>
                   <span className="text-[15px] leading-normal">{p.text}</span>
                 </li>
@@ -252,8 +261,8 @@ export default async function LandingPage() {
             </div>
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {FEATURES.map((f) => (
-                <div key={f.title} className="flex flex-col gap-3 rounded-[10px] border border-border bg-card p-6 shadow-sm">
-                  <span className="flex h-10 w-10 items-center justify-center rounded-[10px] bg-primary-soft text-primary-ink">
+                <div key={f.title} className="flex flex-col gap-3 rounded-xl border border-border bg-card p-6 elev-1">
+                  <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary-soft text-primary-ink">
                     <f.icon className="h-5 w-5" aria-hidden="true" />
                   </span>
                   <h3 className="text-[1.0625rem] font-semibold">{f.title}</h3>
@@ -330,12 +339,13 @@ export default async function LandingPage() {
         </section>
 
         {/* Appel final */}
-        <section className="bg-[#141822] px-6 py-24">
+        {/* Dark surface in both themes: the `dark` class scopes the dark tokens to this section. */}
+        <section className="dark bg-popover px-6 py-24 text-foreground">
           <div className="mx-auto flex max-w-[760px] flex-col items-center gap-7 text-center">
-            <h2 className="text-balance text-[clamp(1.75rem,3.2vw,2.75rem)] font-semibold leading-[1.12] tracking-[-0.025em] text-white">
+            <h2 className="text-balance text-[clamp(1.75rem,3.2vw,2.75rem)] font-semibold leading-[1.12] tracking-[-0.025em]">
               Ton prochain sujet est déjà dans les commentaires.
             </h2>
-            <p className="text-lg text-[#c9ccd6]">Inscris-toi à la liste d’attente pour recevoir ton accès pendant la bêta.</p>
+            <p className="text-lg text-muted-foreground">Inscris-toi à la liste d’attente pour recevoir ton accès pendant la bêta.</p>
             <WaitlistForm source="footer" tone="dark" />
           </div>
         </section>
