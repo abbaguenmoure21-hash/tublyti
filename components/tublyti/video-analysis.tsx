@@ -60,6 +60,33 @@ function AnalysisDrawer({ videoId, title, channelId, onClose }: { videoId: strin
   const [running, start] = useTransition();
   const [step, setStep] = useState(0);
   const closeRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  // Give focus back to the opener on close, and keep Tab inside the panel.
+  useEffect(() => {
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const onTab = (e: KeyboardEvent) => {
+      if (e.key !== 'Tab' || !dialogRef.current) return;
+      const items = Array.from(
+        dialogRef.current.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'),
+      ).filter((el) => el.offsetParent !== null);
+      if (!items.length) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener('keydown', onTab);
+    return () => {
+      document.removeEventListener('keydown', onTab);
+      opener?.focus();
+    };
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -102,7 +129,7 @@ function AnalysisDrawer({ videoId, title, channelId, onClose }: { videoId: strin
   const shownTitle = row?.title ?? title ?? 'Vidéo';
 
   return createPortal(
-    <div className="fixed inset-0 z-[80] flex justify-end" role="dialog" aria-modal="true" aria-label={`Analyse de ${shownTitle}`}>
+    <div ref={dialogRef} className="fixed inset-0 z-[80] flex justify-end" role="dialog" aria-modal="true" aria-label={`Analyse de ${shownTitle}`}>
       <button type="button" aria-label="Fermer" onClick={onClose} className="absolute inset-0 bg-black/20 backdrop-blur-[2px] animate-in fade-in-0" />
       <div className="elev-3 relative flex h-full w-full max-w-[720px] flex-col overflow-hidden bg-background animate-in slide-in-from-right-8 duration-200 sm:m-2 sm:h-[calc(100%-16px)] sm:rounded-[22px]">
         {/* En-tête */}
@@ -122,7 +149,7 @@ function AnalysisDrawer({ videoId, title, channelId, onClose }: { videoId: strin
               </a>
             </span>
           </div>
-          <button ref={closeRef} type="button" onClick={onClose} aria-label="Fermer" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground">
+          <button ref={closeRef} type="button" onClick={onClose} aria-label="Fermer" className="relative flex h-8 w-8 shrink-0 after:absolute after:-inset-1.5 md:after:hidden items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground">
             <X className="h-4 w-4" aria-hidden="true" />
           </button>
         </header>

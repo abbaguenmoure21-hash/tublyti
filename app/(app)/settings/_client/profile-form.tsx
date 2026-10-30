@@ -31,7 +31,7 @@ export function ProfileForm({ displayName, email }: { displayName: string; email
           value={name}
           maxLength={60}
           onChange={(e) => setName(e.target.value)}
-          className="h-10 rounded-[10px] border border-input bg-card px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+          className="h-10 rounded-[10px] border border-input bg-card px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
         />
       </label>
       <p className="text-sm text-muted-foreground">Adresse de connexion : {email}</p>

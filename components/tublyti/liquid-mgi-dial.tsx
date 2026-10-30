@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { motion, useSpring, useMotionValue } from 'framer-motion';
+import { motion, useSpring, useMotionValue, useReducedMotion } from 'framer-motion';
 
 function getGaugeColor(value: number): string {
   if (value >= 80) return '#30D158'; // Emerald — excellent
@@ -55,6 +55,8 @@ export function LiquidMgiDial({
     mass: 1,
   });
   const [displayValue, setDisplayValue] = useState(0);
+  // useSpring ignores MotionConfig: show the real value at once when motion is reduced.
+  const reduce = useReducedMotion();
 
   useEffect(() => {
     motionValue.set(clampedValue);
@@ -68,7 +70,7 @@ export function LiquidMgiDial({
   }, [springValue]);
 
   return (
-    <div className={`relative inline-flex flex-col items-center gap-2 ${className}`}>
+    <div className={`relative inline-flex flex-col items-center gap-2 ${className}`} role="img" aria-label={`Potentiel ${Math.round(clampedValue)} sur 100, ${label}`}>
       <div className="relative" style={{ width: size, height: size }}>
         <svg
           width={size}
@@ -115,7 +117,7 @@ export function LiquidMgiDial({
             className="text-mono-metric text-display-giant leading-none"
             style={{ fontSize: size * 0.28, color }}
           >
-            {displayValue}
+            {reduce ? Math.round(clampedValue) : displayValue}
           </span>
           <span
             className="text-muted-foreground text-[10px] font-medium uppercase tracking-wider mt-0.5"

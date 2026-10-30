@@ -33,7 +33,7 @@ export function SearchField({ params }: { params: SujetsParams }) {
   }, []);
 
   return (
-    <label className="relative flex h-9 w-full items-center gap-2 rounded-[10px] bg-muted px-3 text-muted-foreground focus-within:ring-2 focus-within:ring-ring/40 sm:w-[300px]">
+    <label className="relative flex h-9 w-full items-center gap-2 rounded-[10px] bg-muted px-3 text-muted-foreground focus-within:ring-2 focus-within:ring-ring sm:w-[300px]">
       <Search className="h-4 w-4 shrink-0" aria-hidden="true" />
       <span className="sr-only">Chercher un sujet</span>
       <input
@@ -52,7 +52,7 @@ export function SearchField({ params }: { params: SujetsParams }) {
         className="h-full min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground [&::-webkit-search-cancel-button]:hidden"
       />
       {value ? (
-        <button type="button" onClick={() => setValue('')} aria-label="Effacer la recherche" className="rounded-full p-0.5 hover:text-foreground">
+        <button type="button" onClick={() => setValue('')} aria-label="Effacer la recherche" className="relative rounded-full p-0.5 hover:text-foreground after:absolute after:-inset-3 md:after:hidden">
           <X className="h-3.5 w-3.5" aria-hidden="true" />
         </button>
       ) : (

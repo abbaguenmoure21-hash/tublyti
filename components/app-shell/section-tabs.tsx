@@ -60,7 +60,7 @@ function Tabs({ searchParams }: { searchParams: Pick<URLSearchParams, 'get'> | n
               key={t.href}
               href={SHARED_VIEW[pathname] && searchParams ? withSharedView(t.href, searchParams) : t.href}
               aria-current={on ? 'page' : undefined}
-              className={`flex h-8 shrink-0 items-center rounded-[9px] px-3.5 text-[13px] transition-colors duration-150 ${
+              className={`flex h-11 md:h-8 shrink-0 items-center rounded-[9px] px-3.5 text-[13px] transition-colors duration-150 ${
                 on ? 'elev-1 bg-card font-semibold text-foreground' : 'font-medium text-muted-foreground hover:text-foreground'
               }`}
             >

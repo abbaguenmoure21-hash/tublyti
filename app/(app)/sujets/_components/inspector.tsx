@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { motion, useDragControls, useReducedMotion } from 'framer-motion';
@@ -47,12 +47,39 @@ export function Inspector({ position, prevHref, nextHref, closeHref, children }:
     };
   }, [mobile]);
 
+  const ref = useRef<HTMLElement>(null);
+
+  // Mobile only: the sheet covers the screen, so move focus into it and make
+  // everything behind it inert. Desktop stays non-modal.
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || !window.matchMedia('(max-width: 767px)').matches) return;
+    const touched: HTMLElement[] = [];
+    let node: HTMLElement | null = el;
+    while (node && node.parentElement && node !== document.body) {
+      for (const sib of Array.from(node.parentElement.children)) {
+        // Never silence toasts or live regions: they must stay announced and clickable.
+        // (sonner renders <section aria-live> in place, next to the app shell)
+        const live = sib.matches('[aria-live], [data-sonner-toaster]') || sib.firstElementChild?.matches('[data-sonner-toaster]');
+        if (sib !== node && sib instanceof HTMLElement && !sib.inert && !live) {
+          sib.inert = true;
+          touched.push(sib);
+        }
+      }
+      node = node.parentElement;
+    }
+    el.focus();
+    return () => touched.forEach((s) => (s.inert = false));
+  }, []);
+
   const navBtn =
-    'flex h-10 w-10 items-center justify-center rounded-lg border border-border bg-card text-foreground transition-colors hover:bg-muted aria-disabled:pointer-events-none aria-disabled:opacity-40 md:h-8 md:w-8';
+    'flex h-11 w-11 items-center justify-center rounded-lg border border-border bg-card text-foreground transition-colors hover:bg-muted aria-disabled:pointer-events-none aria-disabled:opacity-40 md:h-8 md:w-8';
   const canDrag = mobile && !reduce;
 
   return (
     <motion.aside
+      ref={ref}
+      tabIndex={-1}
       aria-label="Aperçu du sujet"
       // Entrance is CSS (per breakpoint, so the very first mobile open already comes from the bottom,
       // without a server/client mismatch); framer only handles the drag-to-close gesture.
@@ -65,7 +92,7 @@ export function Inspector({ position, prevHref, nextHref, closeHref, children }:
       onDragEnd={(_, info) => {
         if (info.offset.y > 120 || info.velocity.y > 600) router.replace(closeHref, { scroll: false });
       }}
-      className="fixed inset-0 z-50 flex flex-col bg-card animate-in fade-in slide-in-from-bottom-12 duration-200 motion-reduce:animate-none md:slide-in-from-bottom-0 md:slide-in-from-right-6 md:elev-3 md:sticky md:inset-auto md:top-2 md:z-auto md:my-2 md:mr-2 md:h-[calc(100vh-16px)] md:w-[440px] md:shrink-0 md:overflow-hidden md:rounded-[22px]"
+      className="fixed inset-0 z-50 flex flex-col bg-card animate-in fade-in slide-in-from-bottom-12 duration-200 motion-reduce:animate-none md:slide-in-from-bottom-0 md:slide-in-from-right-6 md:elev-3 md:sticky md:inset-auto md:top-2 md:z-auto md:my-2 md:mr-2 md:h-[calc(100vh-16px)] md:w-[440px] md:shrink-0 md:overflow-hidden md:rounded-[22px] outline-none"
     >
       <div
         onPointerDown={(e) => canDrag && dragControls.start(e)}
@@ -88,7 +115,7 @@ export function Inspector({ position, prevHref, nextHref, closeHref, children }:
             href={closeHref}
             scroll={false}
             aria-label="Fermer le panneau (Échap)"
-            className="flex h-10 w-10 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground md:h-8 md:w-8"
+            className="flex h-11 w-11 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground md:h-8 md:w-8"
           >
             <X className="h-4 w-4" aria-hidden="true" />
           </Link>

@@ -419,7 +419,7 @@ export default async function FrustrationsPage({
                       </div>
                     )}
                     <div className="absolute top-3 left-3">
-                      <OutlierBadge score={v.score} ageDays={v.ageDays} method={v.method} baseline={v.baseline} />
+                      <OutlierBadge score={v.score} ageDays={v.ageDays} method={v.method} baseline={v.baseline} insideLink />
                     </div>
                   </div>
                   

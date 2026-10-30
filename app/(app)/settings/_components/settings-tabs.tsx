@@ -99,7 +99,20 @@ export function SettingsTabs({
   return (
     <div className="space-y-6">
       {/* Tab nav */}
-      <div className="flex gap-1 p-1 bg-muted/40 rounded-lg w-fit">
+      <div
+        role="tablist"
+        aria-label="Rubriques des réglages"
+        onKeyDown={(e) => {
+          const keys = ['ArrowLeft', 'ArrowRight', 'Home', 'End'];
+          if (!keys.includes(e.key)) return;
+          e.preventDefault();
+          const idx = TABS.findIndex((t) => t.id === activeTab);
+          const next =
+            e.key === 'Home' ? 0 : e.key === 'End' ? TABS.length - 1 : (idx + (e.key === 'ArrowLeft' ? -1 : 1) + TABS.length) % TABS.length;
+          setActiveTab(TABS[next].id);
+          document.getElementById(`settings-tab-${TABS[next].id}`)?.focus();
+        }}
+        className="flex gap-1 p-1 bg-muted/40 rounded-lg w-fit max-w-full overflow-x-auto">
         {TABS.map((tab) => {
           const Icon = tab.icon;
           const active = activeTab === tab.id;
@@ -107,14 +120,19 @@ export function SettingsTabs({
             <button
               key={tab.id}
               type="button"
+              role="tab"
+              id={`settings-tab-${tab.id}`}
+              aria-selected={active}
+              tabIndex={active ? 0 : -1}
+              aria-controls="settings-panel"
               onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-1.5 h-8 px-3 rounded-md text-[13px] font-medium transition-colors cursor-pointer ${
+              className={`flex shrink-0 items-center gap-1.5 h-11 md:h-8 px-3 rounded-md text-[13px] font-medium transition-colors cursor-pointer ${
                 active
                   ? 'bg-card text-foreground shadow-[0_1px_2px_rgba(20,24,34,0.08)]'
                   : 'text-muted-foreground hover:text-foreground'
               }`}
             >
-              <Icon className="w-3.5 h-3.5" />
+              <Icon className="w-3.5 h-3.5" aria-hidden="true" />
               {tab.label}
             </button>
           );
@@ -122,6 +140,7 @@ export function SettingsTabs({
       </div>
 
       {/* Tab content */}
+      <div role="tabpanel" id="settings-panel" aria-labelledby={`settings-tab-${activeTab}`}>
       {activeTab === 'scoring' && (
         <ScoringTab
           scoring={scoring}
@@ -131,6 +150,7 @@ export function SettingsTabs({
       )}
       {activeTab === 'niches' && <NichesTab niches={niches} />}
       {activeTab === 'ai' && <AiSpendTab />}
+      </div>
 
     </div>
   );

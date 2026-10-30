@@ -181,20 +181,22 @@ export function PreflightForm({ userChannelId, aiEnabled }: { userChannelId: str
             {titles.map((t, i) => (
               <div key={i} className="flex items-center gap-2">
                 <input
+                  id={i === 0 ? 'pf-title-0' : undefined}
+                  aria-label={i === 0 ? undefined : `Variante ${i + 1}`}
                   value={t}
                   onChange={(e) => setTitles((xs) => xs.map((x, j) => (j === i ? e.target.value : x)))}
                   placeholder={i === 0 ? 'Ex. : Why Nobody Talks About the Richest Village in Africa' : `Variante ${i + 1}`}
                   maxLength={150}
                   aria-label={titles.length > 1 ? `Titre ${i + 1}` : 'Titre'}
                   aria-describedby={`pf-title-count-${i}`}
-                  className="h-11 w-full rounded-[10px] border border-input bg-background px-3 text-[15px] outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+                  className="h-11 w-full rounded-[10px] border border-input bg-background px-3 text-[15px] outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 />
                 <span id={`pf-title-count-${i}`} className="w-9 shrink-0 text-right text-[12px] tabular-nums text-muted-foreground">
                   {t.length}
                   <span className="sr-only"> caractères sur 70 conseillés</span>
                 </span>
                 {titles.length > 1 && (
-                  <button type="button" onClick={() => setTitles((xs) => xs.filter((_, j) => j !== i))} aria-label="Retirer cette variante" className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted">
+                  <button type="button" onClick={() => setTitles((xs) => xs.filter((_, j) => j !== i))} aria-label="Retirer cette variante" className="relative flex h-8 w-8 after:absolute after:-inset-1.5 md:after:hidden items-center justify-center rounded-md text-muted-foreground hover:bg-muted">
                     <X className="h-4 w-4" aria-hidden="true" />
                   </button>
                 )}
@@ -217,7 +219,7 @@ export function PreflightForm({ userChannelId, aiEnabled }: { userChannelId: str
               rows={7}
               placeholder="Colle ton script, ou au moins les 30 premières secondes (l’accroche compte double)."
               aria-describedby="pf-script-hint"
-              className="rounded-[10px] border border-input bg-background px-3 py-2.5 text-[14px] leading-relaxed outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+              className="rounded-[10px] border border-input bg-background px-3 py-2.5 text-[14px] leading-relaxed outline-none focus-visible:ring-2 focus-visible:ring-ring"
             />
             {words > 0 && words < SCRIPT_MIN_WORDS && (
               <span id="pf-script-hint" className="text-[12px] text-muted-foreground">
@@ -234,7 +236,7 @@ export function PreflightForm({ userChannelId, aiEnabled }: { userChannelId: str
               type="datetime-local"
               value={publishAt}
               onChange={(e) => setPublishAt(e.target.value)}
-              className="h-10 rounded-[10px] border border-input bg-background px-3 text-[14px] outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+              className="h-10 rounded-[10px] border border-input bg-background px-3 text-[14px] outline-none focus-visible:ring-2 focus-visible:ring-ring"
             />
           </label>
         </div>

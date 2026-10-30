@@ -14,6 +14,7 @@ export function AppToaster() {
     <Toaster
       theme={resolvedTheme === 'dark' ? 'dark' : 'light'}
       position="bottom-right"
+      offset={24}
       mobileOffset={{ bottom: 'calc(64px + 24px + env(safe-area-inset-bottom))' }}
       toastOptions={{ className: 'rounded-xl elev-3' }}
       style={

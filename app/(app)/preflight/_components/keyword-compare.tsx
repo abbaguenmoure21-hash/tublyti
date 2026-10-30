@@ -50,7 +50,7 @@ export function KeywordCompare({ userChannelId }: { userChannelId: string }) {
                 placeholder={`Mot ${i + 1}`}
                 aria-label={`Mot ${i + 1}`}
                 maxLength={60}
-                className="h-10 w-40 rounded-[10px] border border-input bg-background px-3 text-[14px] outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+                className="h-10 w-40 rounded-[10px] border border-input bg-background px-3 text-[14px] outline-none focus-visible:ring-2 focus-visible:ring-ring"
               />
               {terms.length > 2 && (
                 <button type="button" onClick={() => setTerms((xs) => xs.filter((_, j) => j !== i))} aria-label="Retirer ce mot" className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted">
@@ -67,13 +67,23 @@ export function KeywordCompare({ userChannelId }: { userChannelId: string }) {
           )}
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <div className="well inline-flex rounded-[10px] bg-muted/60 p-0.5 text-[13px]" role="radiogroup" aria-label="Où chercher">
+          <div className="well inline-flex rounded-[10px] bg-muted/60 p-0.5 text-[13px]" role="radiogroup" aria-label="Où chercher"
+            onKeyDown={(e) => {
+              if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return;
+              e.preventDefault();
+              const next = scope === 'niche' ? 'all' : 'niche';
+              setScope(next);
+              e.currentTarget.querySelector<HTMLButtonElement>(`[data-scope="${next}"]`)?.focus();
+            }}
+          >
             {(['niche', 'all'] as const).map((k) => (
               <button
                 key={k}
                 type="button"
                 role="radio"
                 aria-checked={scope === k}
+                tabIndex={scope === k ? 0 : -1}
+                data-scope={k}
                 onClick={() => setScope(k)}
                 className={`rounded-[8px] px-3 py-1.5 ${scope === k ? 'elev-1 bg-card font-medium' : 'text-muted-foreground'}`}
               >
@@ -90,7 +100,7 @@ export function KeywordCompare({ userChannelId }: { userChannelId: string }) {
 
         {res && (
           <div className="flex flex-col gap-3 border-t border-border pt-3">
-            <p className="text-[14px] font-medium leading-relaxed">{res.verdict}</p>
+            <p role="status" className="text-[14px] font-medium leading-relaxed">{res.verdict}</p>
             <ul className="flex flex-col gap-3">
               {res.stats.map((s) => (
                 <li key={s.term} className="flex flex-col gap-1.5">

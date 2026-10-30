@@ -87,7 +87,7 @@ export function CandidateActions({
         value={selectedNiche}
         onChange={(e) => setSelectedNiche(e.target.value)}
         aria-label={`Niche pour ${candidateTitle}`}
-        className="well h-8 max-w-[140px] cursor-pointer truncate rounded-[10px] bg-muted px-2 text-[13px] text-foreground"
+        className="well h-11 md:h-8 max-w-[140px] cursor-pointer truncate rounded-[10px] bg-muted px-2 text-[13px] text-foreground"
         disabled={isPending}
       >
         {niches.map((n) => (

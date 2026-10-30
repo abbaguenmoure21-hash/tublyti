@@ -27,6 +27,7 @@ import type { FeasibilityGrade } from '@/lib/scoring/feasibility';
 
 /** Most-liked unanswered-question comments shown (the list is capped: display « 20+ »). */
 const FRUSTRATION_LIMIT = 20;
+import { summarizeSeries } from '@/lib/charts/summary';
 
 // L'analyse vidéo (Gemini) peut prendre jusqu'à 2-3 minutes.
 export const maxDuration = 300;
@@ -650,7 +651,10 @@ function SignalSection({ signals }: { signals: Record<string, { date: string; va
         </div>
       </div>
 
-      <svg width="100%" viewBox={`0 0 ${W} ${H + 20}`} role="img" aria-label="Signaux sur 90 jours">
+      <p id="signals-summary" className="sr-only">
+        {summarizeSeries(Object.fromEntries(activeSources.map((s) => [s, signals[s]])), SIGNAL_LABELS)}
+      </p>
+      <svg width="100%" viewBox={`0 0 ${W} ${H + 20}`} role="img" aria-label="Signaux sur 90 jours" aria-describedby="signals-summary">
         <g stroke="var(--border)" strokeDasharray="3 4">
           {[T, 80, 140].map((y) => (
             <line key={y} x1={L} y1={y} x2={R} y2={y} />
@@ -658,13 +662,13 @@ function SignalSection({ signals }: { signals: Record<string, { date: string; va
         </g>
         <line x1={L} y1={B} x2={R} y2={B} stroke="var(--muted-foreground)" strokeOpacity={0.15} />
 
-        <g fontSize={11} className="fill-muted-foreground/60 font-medium">
+        <g fontSize={12} className="fill-muted-foreground font-medium">
           <text x={28} y={T + 4} textAnchor="end">100</text>
           <text x={28} y={84} textAnchor="end">66</text>
           <text x={28} y={144} textAnchor="end">33</text>
         </g>
 
-        <g fontSize={11} className="fill-muted-foreground/60 font-medium">
+        <g fontSize={12} className="fill-muted-foreground font-medium">
           {dateLabels.map((d, i) => (
             <text
               key={d}

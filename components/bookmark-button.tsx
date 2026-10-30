@@ -32,7 +32,7 @@ export function BookmarkButton({
   }
 
   const iconSize = size === 'sm' ? 'w-3.5 h-3.5' : 'w-4 h-4';
-  const btnSize = size === 'sm' ? 'w-7 h-7' : 'w-9 h-9';
+  const btnSize = size === 'sm' ? 'relative w-7 h-7 after:absolute after:-inset-2 md:after:hidden' : 'relative w-9 h-9 after:absolute after:-inset-1 md:after:hidden';
 
   return (
     <button

@@ -10,6 +10,7 @@ import { MobileScope } from '@/components/app-shell/mobile-scope';
 import { SectionTabs } from '@/components/app-shell/section-tabs';
 import { MobileTabBar } from '@/components/mobile-tab-bar';
 import { KeyboardProvider } from '@/components/keyboard-provider';
+import { MotionProvider } from '@/components/motion-provider';
 import { createServiceClient } from '@/lib/supabase/server';
 import { getSessionUser, isDbReady } from '@/lib/auth/session';
 import { resolveScope } from '@/lib/scope';
@@ -54,6 +55,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   return (
     <NuqsAdapter>
+      <MotionProvider>
       <TooltipProvider delay={300}>
         <a
           href="#contenu-principal"
@@ -89,6 +91,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         <KeyboardProvider isAdmin={user.role === 'admin'} />
         <AppToaster />
       </TooltipProvider>
+      </MotionProvider>
     </NuqsAdapter>
   );
 }

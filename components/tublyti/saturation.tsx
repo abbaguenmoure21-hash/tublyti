@@ -90,7 +90,7 @@ export function OutlierSaturationButton({ videoId }: { videoId: string }) {
         {res ? LABEL[res.level] : 'Copiée ?'}
       </button>
       {open && (
-        <div className="elev-3 absolute right-0 top-full z-30 mt-1.5 w-[320px] rounded-xl border border-border bg-popover p-3 text-[13px] text-popover-foreground">
+        <div className="elev-3 absolute right-0 top-full z-30 mt-1.5 w-[min(320px,calc(100vw-32px))] rounded-xl border border-border bg-popover p-3 text-[13px] text-popover-foreground">
           {pending && !res ? (
             <span className="flex items-center gap-2 text-muted-foreground"><Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> Recherche des copies dans la niche…</span>
           ) : err ? (
@@ -161,7 +161,7 @@ export function LinkSaturationCheck() {
           onChange={(e) => setLink(e.target.value)}
           placeholder="https://www.youtube.com/watch?v=…"
           aria-label="Lien de la vidéo YouTube"
-          className="h-11 flex-1 rounded-[10px] border border-input bg-background px-3 text-[15px] outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+          className="h-11 flex-1 rounded-[10px] border border-input bg-background px-3 text-[15px] outline-none focus-visible:ring-2 focus-visible:ring-ring"
         />
         <button type="submit" disabled={pending || !link.trim()} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-primary px-4 text-[14px] font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50">
           {pending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Search className="h-4 w-4" aria-hidden="true" />}

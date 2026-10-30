@@ -1,6 +1,6 @@
 'use client';
 
-import { motion, useSpring, useMotionValue } from 'framer-motion';
+import { motion, useSpring, useMotionValue, useReducedMotion } from 'framer-motion';
 import { useEffect, useState } from 'react';
 
 interface QuotaDialProps {
@@ -51,6 +51,8 @@ export function QuotaDial({
   const mv = useMotionValue(0);
   const spring = useSpring(mv, { stiffness: 100, damping: 30 });
   const [display, setDisplay] = useState(0);
+  // useSpring ignores MotionConfig: show the real value at once when motion is reduced.
+  const reduce = useReducedMotion();
 
   useEffect(() => { mv.set(current); }, [current, mv]);
   useEffect(() => {
@@ -60,7 +62,7 @@ export function QuotaDial({
 
   if (mini) {
     return (
-      <div className={`flex items-center gap-2 ${className}`} title={`${label}: ${current} / ${max}`}>
+      <div className={`flex items-center gap-2 ${className}`} title={`${label}: ${current} / ${max}`} role="img" aria-label={`${label} : ${current.toLocaleString('fr-FR')} sur ${max.toLocaleString('fr-FR')}`}>
         <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="-rotate-90">
           <circle
             cx={size / 2}
@@ -96,7 +98,7 @@ export function QuotaDial({
 
   // Full-size gauge
   return (
-    <div className={`relative inline-flex flex-col items-center gap-3 ${className}`}>
+    <div className={`relative inline-flex flex-col items-center gap-3 ${className}`} role="img" aria-label={`${label} : ${current.toLocaleString('fr-FR')} sur ${max.toLocaleString('fr-FR')}`}>
       <div className="relative" style={{ width: size, height: size }}>
         <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="-rotate-90">
           <circle
@@ -145,7 +147,7 @@ export function QuotaDial({
             className="text-mono-metric font-bold leading-none"
             style={{ fontSize: size * 0.18, color }}
           >
-            {display.toLocaleString('fr-FR')}
+            {(reduce ? current : display).toLocaleString('fr-FR')}
           </span>
           <span className="text-muted-foreground text-[10px] mt-1">/ {max.toLocaleString('fr-FR')}</span>
         </div>

@@ -70,12 +70,13 @@ export function ScoringTab({
           </button>
         </div>
 
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div>
-            <label className="text-[12px] text-muted-foreground block mb-1">
+            <label htmlFor="scoring-1" className="text-[12px] text-muted-foreground block mb-1">
               Croissance Trends pour Phase 2 (%)
             </label>
             <input
+              id="scoring-1"
               type="number"
               value={thresholds.phase2TrendsGrowth}
               onChange={(e) => setThresholds((t) => ({ ...t, phase2TrendsGrowth: Number(e.target.value) }))}
@@ -83,10 +84,11 @@ export function ScoringTab({
             />
           </div>
           <div>
-            <label className="text-[12px] text-muted-foreground block mb-1">
+            <label htmlFor="scoring-2" className="text-[12px] text-muted-foreground block mb-1">
               Max supply pour Phase 2
             </label>
             <input
+              id="scoring-2"
               type="number"
               value={thresholds.phase2MaxSupply}
               onChange={(e) => setThresholds((t) => ({ ...t, phase2MaxSupply: Number(e.target.value) }))}
@@ -94,10 +96,11 @@ export function ScoringTab({
             />
           </div>
           <div>
-            <label className="text-[12px] text-muted-foreground block mb-1">
+            <label htmlFor="scoring-3" className="text-[12px] text-muted-foreground block mb-1">
               Vidéos qualifiées en 72h pour Phase 3
             </label>
             <input
+              id="scoring-3"
               type="number"
               value={thresholds.phase3QualifiedIn72h}
               onChange={(e) => setThresholds((t) => ({ ...t, phase3QualifiedIn72h: Number(e.target.value) }))}
