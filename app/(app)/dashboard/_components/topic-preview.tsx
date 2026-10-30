@@ -50,9 +50,9 @@ export function TopicPreview({
         <button
           type="button"
           aria-label="Ajouter aux favoris"
-          className="w-8 h-8 border border-[--glass-border] rounded-lg bg-[--bg-surface-2] text-muted-foreground flex items-center justify-center hover:bg-[--bg-surface-3] transition-colors cursor-pointer"
+          className="relative w-8 h-8 border border-[--glass-border] rounded-lg bg-[--bg-surface-2] text-muted-foreground flex items-center justify-center hover:bg-[--bg-surface-3] transition-colors cursor-pointer after:absolute after:-inset-1.5 md:after:hidden"
         >
-          <Star className="w-4 h-4" />
+          <Star className="w-4 h-4" aria-hidden="true" />
         </button>
       </div>
 

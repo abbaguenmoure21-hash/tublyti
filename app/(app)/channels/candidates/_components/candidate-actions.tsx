@@ -43,7 +43,7 @@ export function CandidateActions({
         value={selectedNiche}
         onChange={(e) => setSelectedNiche(e.target.value)}
         aria-label="Niche de la chaîne"
-        className="h-[32px] rounded-full border border-black/10 dark:border-white/10 bg-white/50 dark:bg-[#1C1C1E] px-3 text-[12px] font-bold max-w-[120px] shadow-sm focus:outline-none focus:ring-2 focus:ring-ring transition-all cursor-pointer truncate"
+        className="h-11 md:h-[32px] rounded-full border border-black/10 dark:border-white/10 bg-white/50 dark:bg-[#1C1C1E] px-3 text-[12px] font-bold max-w-[120px] shadow-sm focus:outline-none focus:ring-2 focus:ring-ring transition-all cursor-pointer truncate"
         disabled={isPending}
       >
         {niches.map((n) => (
@@ -60,7 +60,7 @@ export function CandidateActions({
           });
         }}
         disabled={isPending || !selectedNiche}
-        className="haptic-btn h-[32px] px-3 rounded-full bg-success/10 text-success border border-success/20 text-[12px] font-bold hover:bg-success/20 transition-all shadow-sm disabled:opacity-50 cursor-pointer"
+        className="haptic-btn h-11 md:h-[32px] px-3 rounded-full bg-success/10 text-success border border-success/20 text-[12px] font-bold hover:bg-success/20 transition-all shadow-sm disabled:opacity-50 cursor-pointer"
       >
         Suivre
       </button>
@@ -72,7 +72,7 @@ export function CandidateActions({
           });
         }}
         disabled={isPending}
-        className="haptic-btn h-[32px] px-3 rounded-full border border-black/10 dark:border-white/10 bg-white dark:bg-white/10 text-foreground text-[12px] font-bold hover:bg-black/5 dark:hover:bg-white/20 transition-all shadow-sm disabled:opacity-50 cursor-pointer"
+        className="haptic-btn h-11 md:h-[32px] px-3 rounded-full border border-black/10 dark:border-white/10 bg-white dark:bg-white/10 text-foreground text-[12px] font-bold hover:bg-black/5 dark:hover:bg-white/20 transition-all shadow-sm disabled:opacity-50 cursor-pointer"
       >
         Ignorer
       </button>
