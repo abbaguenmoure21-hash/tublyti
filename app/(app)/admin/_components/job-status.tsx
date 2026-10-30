@@ -6,6 +6,7 @@ import {
   formatNightDate,
   formatWhen,
   isRunOverdue,
+  INTERRUPTED_REASON,
   YT_DAILY_CAP,
   type JobRow,
   type NightRun,
@@ -18,6 +19,14 @@ export function JobStatusBadge({ job }: { job: JobRow }) {
       <Badge className="bg-muted text-muted-foreground" title="Plus de temps pour cette étape cette nuit. Elle reprend la nuit suivante.">
         <Clock aria-hidden="true" />
         Sautée
+      </Badge>
+    );
+  }
+  if (state === 'interrupted') {
+    return (
+      <Badge variant="destructive" title={INTERRUPTED_REASON}>
+        <AlertTriangle aria-hidden="true" />
+        Interrompue
       </Badge>
     );
   }
@@ -62,8 +71,8 @@ export function NightSummary({ run, deadlineMin, quotaLimit }: NightSummaryProps
       <section aria-label="Dernière collecte" className="flex items-start gap-3 rounded-xl border border-destructive/40 bg-destructive/5 px-4 py-4">
         <AlertTriangle className="mt-0.5 size-5 shrink-0 text-destructive" aria-hidden="true" />
         <div className="flex flex-col gap-0.5">
-          <p className="text-sm font-semibold text-destructive">Aucune collecte enregistrée</p>
-          <p className="text-sm text-muted-foreground">La collecte de nuit n’a encore laissé aucune trace. Vérifie qu’elle est bien programmée.</p>
+          <p className="text-sm font-semibold text-destructive">Aucune collecte de nuit enregistrée</p>
+          <p className="text-sm text-muted-foreground">Aucune collecte de nuit récente dans l’historique (les relances manuelles ne comptent pas). Vérifie qu’elle est bien programmée.</p>
         </div>
       </section>
     );
@@ -72,7 +81,12 @@ export function NightSummary({ run, deadlineMin, quotaLimit }: NightSummaryProps
   const tone = run.errors > 0 ? 'error' : run.running > 0 ? 'running' : run.skipped > 0 ? 'skipped' : 'ok';
   const headline =
     tone === 'error'
-      ? `${run.errors} étape${run.errors > 1 ? 's' : ''} en erreur`
+      ? [
+          run.errors - run.interrupted > 0 ? `${run.errors - run.interrupted} étape${run.errors - run.interrupted > 1 ? 's' : ''} en erreur` : null,
+          run.interrupted > 0 ? `${run.interrupted} étape${run.interrupted > 1 ? 's' : ''} interrompue${run.interrupted > 1 ? 's' : ''}` : null,
+        ]
+          .filter(Boolean)
+          .join(' · ')
       : tone === 'running'
         ? 'Collecte en cours'
         : tone === 'skipped'
@@ -120,7 +134,8 @@ export function NightSummary({ run, deadlineMin, quotaLimit }: NightSummaryProps
             <dd className="text-sm font-medium tabular-nums">
               {run.ok} terminée{run.ok > 1 ? 's' : ''}
               {run.skipped > 0 && <span className="text-muted-foreground"> · {run.skipped} sautée{run.skipped > 1 ? 's' : ''}</span>}
-              {run.errors > 0 && <span className="text-destructive"> · {run.errors} erreur{run.errors > 1 ? 's' : ''}</span>}
+              {run.errors - run.interrupted > 0 && <span className="text-destructive"> · {run.errors - run.interrupted} erreur{run.errors - run.interrupted > 1 ? 's' : ''}</span>}
+              {run.interrupted > 0 && <span className="text-destructive"> · {run.interrupted} interrompue{run.interrupted > 1 ? 's' : ''}</span>}
             </dd>
           </div>
           <div className="flex flex-col gap-0.5">

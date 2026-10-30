@@ -34,6 +34,23 @@ describe('admin job status', () => {
     expect(runs[2].totalMs).toBe(11 * 60_000);
   });
 
+  it('marks a step that never finished as interrupted and counts it as a failure', () => {
+    const now = new Date('2026-10-27T05:00:00Z').getTime();
+    const started = { id: 'x', kind: 'collect', started_at: '2026-10-27T02:00:00Z', finished_at: null, error: null, quota_used: 0 };
+    expect(jobState(started, now)).toBe('interrupted');
+    // Still within the nightly budget: genuinely running.
+    expect(jobState(started, new Date('2026-10-27T02:05:00Z').getTime())).toBe('running');
+    const runs = groupRuns([job('1', 'user-channels', '2026-10-27T01:59:00Z', 30), started], now);
+    expect(runs[0].errors).toBe(1);
+    expect(runs[0].interrupted).toBe(1);
+    expect(runs[0].running).toBe(0);
+  });
+
+  it('ignores manual relaunches when looking for the last night', () => {
+    const runs = groupRuns([job('m', 'collect', '2026-10-27T14:00:00Z', 60)]);
+    expect(lastNightlyRun(runs)).toBeNull();
+  });
+
   it('formats durations in French', () => {
     expect(formatDuration(45_000)).toBe('45 s');
     expect(formatDuration(252_000)).toBe('4 min 12 s');

@@ -15,7 +15,17 @@ export interface JobRow {
   status?: string | null;
 }
 
-export type JobState = 'ok' | 'skipped' | 'error' | 'running';
+export type JobState = 'ok' | 'skipped' | 'error' | 'interrupted' | 'running';
+
+export const INTERRUPTED_REASON = 'La collecte s’est arrêtée avant la fin';
+
+/**
+ * A step still "running" after the whole nightly budget + 10 min was killed
+ * (GitHub Actions timeout, runner crash, process.exit): it will never finish.
+ */
+export function interruptAfterMs(): number {
+  return (nightlyDeadlineMin() + 10) * 60_000;
+}
 
 /** A step skipped by the nightly deadline is recorded with `error = 'skipped: …'` (scripts/nightly.ts). */
 export function isSkipped(job: Pick<JobRow, 'error' | 'status'>): boolean {
@@ -23,10 +33,11 @@ export function isSkipped(job: Pick<JobRow, 'error' | 'status'>): boolean {
   return Boolean(job.error?.toLowerCase().startsWith('skipped'));
 }
 
-export function jobState(job: JobRow): JobState {
+export function jobState(job: JobRow, now = Date.now()): JobState {
   if (isSkipped(job)) return 'skipped';
   if (job.error || job.status === 'error' || job.status === 'failed') return 'error';
   if (job.finished_at) return 'ok';
+  if (now - new Date(job.started_at).getTime() > interruptAfterMs()) return 'interrupted';
   return 'running';
 }
 
@@ -76,6 +87,8 @@ export interface NightRun {
   ok: number;
   skipped: number;
   errors: number;
+  /** Steps that never finished (counted in `errors` too). */
+  interrupted: number;
   running: number;
 }
 
@@ -83,7 +96,7 @@ export interface NightRun {
  * Groups jobs (any order) into runs: consecutive jobs less than 2 h apart are one run.
  * Returns most recent run first, jobs inside a run in execution order.
  */
-export function groupRuns(jobs: JobRow[]): NightRun[] {
+export function groupRuns(jobs: JobRow[], now = Date.now()): NightRun[] {
   const sorted = [...jobs].sort((a, b) => a.started_at.localeCompare(b.started_at));
   const groups: JobRow[][] = [];
   let lastTs = -Infinity;
@@ -93,31 +106,37 @@ export function groupRuns(jobs: JobRow[]): NightRun[] {
     groups[groups.length - 1].push(j);
     lastTs = Math.max(lastTs, new Date(j.finished_at ?? j.started_at).getTime(), ts);
   }
-  return groups.reverse().map(summarize);
+  return groups.reverse().map((g) => summarize(g, now));
 }
 
-function summarize(jobs: JobRow[]): NightRun {
+function summarize(jobs: JobRow[], now: number): NightRun {
   const start = jobs[0].started_at;
   let endTs = new Date(start).getTime();
-  const run: NightRun = { start, end: start, jobs, totalMs: 0, quota: 0, items: 0, ok: 0, skipped: 0, errors: 0, running: 0 };
+  const run: NightRun = { start, end: start, jobs, totalMs: 0, quota: 0, items: 0, ok: 0, skipped: 0, errors: 0, interrupted: 0, running: 0 };
   for (const j of jobs) {
     endTs = Math.max(endTs, new Date(j.finished_at ?? j.started_at).getTime());
     run.quota += j.quota_used ?? 0;
     run.items += j.items_processed ?? 0;
-    const s = jobState(j);
+    const s = jobState(j, now);
     if (s === 'ok') run.ok++;
     else if (s === 'skipped') run.skipped++;
     else if (s === 'error') run.errors++;
-    else run.running++;
+    else if (s === 'interrupted') {
+      run.errors++;
+      run.interrupted++;
+    } else run.running++;
   }
   run.end = new Date(endTs).toISOString();
   run.totalMs = endTs - new Date(start).getTime();
   return run;
 }
 
-/** Most recent run that looks like the nightly (it starts with `user-channels`); manual relaunches are ignored. */
+/**
+ * Most recent run that is the nightly (it contains `user-channels`). Manual relaunches are
+ * ignored on purpose: a daytime relaunch must not hide a missing night from the 26 h alert.
+ */
 export function lastNightlyRun(runs: NightRun[]): NightRun | null {
-  return runs.find((r) => r.jobs.some((j) => j.kind === 'user-channels')) ?? runs[0] ?? null;
+  return runs.find((r) => r.jobs.some((j) => j.kind === 'user-channels')) ?? null;
 }
 
 export function nightlyDeadlineMin(): number {
@@ -138,6 +157,11 @@ export function relaunchCost(jobs: JobRow[], now = Date.now()) {
 }
 
 /** True when no job started in the last 26 h (the nightly runs every 24 h). */
+/** True for an error or a step that never finished. */
+export function isFailure(state: JobState): boolean {
+  return state === 'error' || state === 'interrupted';
+}
+
 export function isRunOverdue(lastStart: string | null | undefined, now = Date.now()): boolean {
   if (!lastStart) return true;
   return now - new Date(lastStart).getTime() > 26 * 3_600_000;
