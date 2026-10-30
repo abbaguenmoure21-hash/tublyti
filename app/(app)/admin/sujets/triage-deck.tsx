@@ -35,11 +35,15 @@ export function TriageDeck({
   mergeTargets,
   view,
   counts,
+  niches = [],
+  niche = '',
 }: {
   cards: TriageCard[];
   mergeTargets: { id: string; label: string; nicheId: string }[];
   view: 'decider' | 'attente';
   counts: { decide: number; waiting: number; ready: number };
+  niches?: { id: string; name: string }[];
+  niche?: string;
 }) {
   const router = useRouter();
   const reduce = useReducedMotion();
@@ -112,9 +116,12 @@ export function TriageDeck({
         if (e.key === 'Escape') setMerging(false);
         return;
       }
-      if (e.key === 'g') decide('keep');
-      else if (e.key === 'r') decide('reject');
-      else if (e.key === 'f') setMerging(true);
+      if (pending) return;
+      // Caps Lock / Shift: « G » works like « g ».
+      const key = e.key.toLowerCase();
+      if (key === 'g') decide('keep');
+      else if (key === 'r') decide('reject');
+      else if (key === 'f') setMerging(true);
     }
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
@@ -130,9 +137,32 @@ export function TriageDeck({
   return (
     <div className="mx-auto flex w-full max-w-[680px] flex-col gap-5 px-4 py-6 md:py-10">
       <div className="flex items-center gap-3">
-        <Link href="/admin" className="inline-flex items-center gap-1.5 text-sm font-medium text-primary">
-          <ArrowLeft className="h-4 w-4" aria-hidden="true" /> Console
-        </Link>
+        {niches.length > 1 ? (
+          <>
+            <label htmlFor="triage-niche" className="sr-only">Niche</label>
+            <select
+              id="triage-niche"
+              value={niche}
+              onChange={(e) => {
+                const sp = new URLSearchParams();
+                if (view === 'attente') sp.set('vue', 'attente');
+                if (e.target.value) sp.set('niche', e.target.value);
+                const qs = sp.toString();
+                router.push(qs ? `/admin/sujets?${qs}` : '/admin/sujets');
+              }}
+              className="well h-9 cursor-pointer rounded-[10px] bg-muted px-3 text-sm text-foreground"
+            >
+              <option value="">Toutes les niches</option>
+              {niches.map((n) => (
+                <option key={n.id} value={n.id}>{n.name}</option>
+              ))}
+            </select>
+          </>
+        ) : (
+          <Link href="/admin" className="inline-flex items-center gap-1.5 text-sm font-medium text-primary">
+            <ArrowLeft className="h-4 w-4" aria-hidden="true" /> Console
+          </Link>
+        )}
         <div className="flex-1" />
         <span className="text-[13px] tabular-nums text-muted-foreground" aria-live="polite">
           {cards.length === 0 ? '' : done ? 'Tout est trié' : `${remaining} restant${remaining > 1 ? 's' : ''} · sujet ${index + 1} sur ${cards.length}`}
@@ -141,8 +171,8 @@ export function TriageDeck({
 
       <nav aria-label="Sujets proposés" className="well grid grid-cols-2 gap-1 rounded-[12px] bg-muted/60 p-1">
         {[
-          { key: 'decider', href: '/admin/sujets', label: 'À décider', n: decideLeft, hint: 'sujets sensibles, jamais publiés sans toi' },
-          { key: 'attente', href: '/admin/sujets?vue=attente', label: 'En attente du robot', n: waitingLeft, hint: 'publiés seuls dès 5 vidéos de 3 chaînes' },
+          { key: 'decider', href: niche ? `/admin/sujets?niche=${niche}` : '/admin/sujets', label: 'À décider', n: decideLeft, hint: 'sujets sensibles, jamais publiés sans toi' },
+          { key: 'attente', href: `/admin/sujets?vue=attente${niche ? `&niche=${niche}` : ''}`, label: 'En attente du robot', n: waitingLeft, hint: 'publiés seuls dès 5 vidéos de 3 chaînes' },
         ].map((t) => {
           const active = view === t.key;
           return (
@@ -290,10 +320,10 @@ export function TriageDeck({
                 <button type="button" disabled={pending} onClick={() => decide('keep')} className="flex h-[52px] items-center justify-center gap-2 rounded-xl bg-primary text-[15px] font-medium text-primary-foreground transition-transform active:scale-[0.98] disabled:opacity-60">
                   <Check className="h-4 w-4" aria-hidden="true" /> Garder <kbd className="rounded bg-white/20 px-1.5 font-mono text-[11px]">G</kbd>
                 </button>
-                <button type="button" disabled={pending} onClick={() => setMerging(true)} className="flex h-[52px] items-center justify-center gap-2 rounded-xl border border-border bg-card text-[15px] font-medium transition-transform hover:bg-muted active:scale-[0.98]">
+                <button type="button" disabled={pending} onClick={() => setMerging(true)} className="flex h-[52px] items-center justify-center gap-2 rounded-xl border border-border bg-card text-[15px] font-medium transition-transform hover:bg-muted active:scale-[0.98] disabled:opacity-60">
                   <GitMerge className="h-4 w-4" aria-hidden="true" /> Fusionner <kbd className="rounded border border-border px-1.5 font-mono text-[11px]">F</kbd>
                 </button>
-                <button type="button" disabled={pending} onClick={() => decide('reject')} className="flex h-[52px] items-center justify-center gap-2 rounded-xl border border-border bg-card text-[15px] font-medium transition-transform hover:bg-muted active:scale-[0.98]">
+                <button type="button" disabled={pending} onClick={() => decide('reject')} className="flex h-[52px] items-center justify-center gap-2 rounded-xl border border-border bg-card text-[15px] font-medium transition-transform hover:bg-muted active:scale-[0.98] disabled:opacity-60">
                   <X className="h-4 w-4" aria-hidden="true" /> Rejeter <kbd className="rounded border border-border px-1.5 font-mono text-[11px]">R</kbd>
                 </button>
               </div>

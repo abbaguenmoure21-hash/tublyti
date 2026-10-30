@@ -17,7 +17,8 @@ export default async function AdminSujetsPage({ searchParams }: { searchParams: 
   const view: 'decider' | 'attente' = vue === 'attente' ? 'attente' : 'decider';
   const db = createServiceClient();
 
-  const { data: nicheRows } = await db.from('niches').select('id, name, category').order('name');
+  const { data: nicheRows, error: nichesError } = await db.from('niches').select('id, name, category').order('name');
+  if (nichesError) throw new Error(nichesError.message);
   const niches = (nicheRows ?? []) as { id: string; name: string; category: string | null }[];
   const nicheById = new Map(niches.map((n) => [n.id, n]));
 
@@ -35,6 +36,9 @@ export default async function AdminSujetsPage({ searchParams }: { searchParams: 
     return q.order('label').order('id').range(from, to);
   };
   const [proposedRes, activeRes] = await Promise.all([proposedQ, readAllPages<{ id: string; label: string; niche_id: string }>(activePage, 20_000)]);
+  // A failed read must not show « Aucun sujet à valider »: admin/error.tsx takes over.
+  const readError = proposedRes.error ?? activeRes.error;
+  if (readError) throw new Error(readError.message);
 
   type Row = {
     id: string;
@@ -86,7 +90,8 @@ export default async function AdminSujetsPage({ searchParams }: { searchParams: 
     return (
       <div className="mx-auto flex max-w-xl flex-col items-center gap-4 px-6 py-24 text-center">
         <CheckCircle2 className="h-10 w-10 text-phase-2" aria-hidden="true" />
-        <h1 className="text-2xl font-semibold tracking-[-0.01em]">Aucun sujet à valider</h1>
+        <h1 className="text-2xl font-semibold tracking-[-0.01em]">{niche ? `Aucun sujet à valider en ${nicheById.get(niche)?.name ?? 'cette niche'}` : 'Aucun sujet à valider'}</h1>
+        {niche && <Link href="/admin/sujets" className="text-sm font-medium text-primary">Voir toutes les niches</Link>}
         <p className="text-[15px] text-muted-foreground">Les prochains sujets proposés arriveront après la collecte de cette nuit.</p>
         <Link href="/admin" className="mt-2 inline-flex h-10 items-center rounded-[10px] bg-primary px-4 text-sm font-medium text-primary-foreground">
           Revenir à la console
@@ -95,5 +100,5 @@ export default async function AdminSujetsPage({ searchParams }: { searchParams: 
     );
   }
 
-  return <TriageDeck key={view} cards={cards} mergeTargets={mergeTargets} view={view} counts={counts} />;
+  return <TriageDeck key={`${view}-${niche ?? ''}`} cards={cards} mergeTargets={mergeTargets} view={view} counts={counts} niches={niches} niche={niche ?? ''} />;
 }

@@ -13,6 +13,8 @@ export default async function UtilisateursPage() {
     db.from('user_channels').select('user_id, title'),
     db.from('angles').select('user_id').not('user_id', 'is', null),
   ]);
+  const readError = usersRes.error ?? profilesRes.error ?? channelsRes.error ?? videosRes.error;
+  if (readError) throw new Error(readError.message);
 
   const profiles = new Map(
     ((profilesRes.data ?? []) as { user_id: string; role: string; display_name: string | null }[]).map((p) => [p.user_id, p]),
@@ -58,16 +60,19 @@ export default async function UtilisateursPage() {
             </tr>
           </thead>
           <tbody>
+            {users.length === 0 && (
+              <tr><td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">Aucun compte pour l’instant.</td></tr>
+            )}
             {users.map((u) => (
               <tr key={u.id} className="border-t border-muted align-top">
                 <td className="px-4 py-3">
                   <span className="block font-medium">{u.name ?? u.email.split('@')[0]}</span>
                   <span className="block text-xs text-muted-foreground">{u.email}</span>
                 </td>
-                <td className="px-4 py-3 text-muted-foreground">{u.channels.length ? u.channels.join(', ') : <span className="text-warning">Aucune chaîne</span>}</td>
+                <td className="px-4 py-3 text-muted-foreground">{u.channels.length ? u.channels.join(', ') : <span className="text-phase-1-ink">Aucune chaîne</span>}</td>
                 <td className="px-4 py-3 tabular-nums">{u.videos}</td>
                 <td className="px-4 py-3 tabular-nums text-muted-foreground">{u.lastSignIn ? new Date(u.lastSignIn).toLocaleDateString('fr-FR') : 'Jamais'}</td>
-                <td className="px-4 py-3"><RoleSelect userId={u.id} role={u.role} self={u.id === me.id} /></td>
+                <td className="px-4 py-3"><RoleSelect userId={u.id} role={u.role} self={u.id === me.id} email={u.email} /></td>
               </tr>
             ))}
           </tbody>
