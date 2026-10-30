@@ -1,3 +1,4 @@
+import { cache } from 'react';
 import { cookies } from 'next/headers';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
@@ -121,6 +122,26 @@ async function legacyScopeNiches(db: SupabaseClient): Promise<ScopeNiche[]> {
 }
 
 /**
+ * Per-request memo of the user's channels/niches (React `cache`): the app layout and the page both
+ * call resolveScope during the same render, this keeps it to one round of `user_channels` /
+ * `user_niches` reads. Keyed by userId only (the db client is not a stable cache key); the first
+ * caller's client is used. Outside a React server render (route handlers), `cache` does not memoize.
+ * The scope cookie itself is still read fresh on every call (getScope).
+ */
+const scopeChannelsMemo = cache((_userId: string): { promise: Promise<ScopeNiche[]> | null } => ({ promise: null }));
+
+function scopeChannelsOnce(db: SupabaseClient, userId: string): Promise<ScopeNiche[]> {
+  const box = scopeChannelsMemo(userId);
+  if (!box.promise) {
+    box.promise = listScopeNiches(db, userId, { includePending: true }).catch((err: unknown) => {
+      box.promise = null; // do not memoize a failure
+      throw err;
+    });
+  }
+  return box.promise;
+}
+
+/**
  * Chaîne affichée + niches à inclure dans les requêtes.
  * « Toutes mes chaînes » = les niches des chaînes du client et celles qu'il suit. Jamais le reste du catalogue.
  */
@@ -145,7 +166,7 @@ export async function resolveScope(
   /** Tout ce que montre le sélecteur « Afficher », chaînes à vérifier comprises. */
   allChannels: ScopeNiche[];
 }> {
-  const [stored, allChannels] = await Promise.all([getScope(), listScopeNiches(db, userId, { includePending: true })]);
+  const [stored, allChannels] = await Promise.all([getScope(), scopeChannelsOnce(db, userId)]);
   const niches = allChannels.filter((n) => n.verified);
   // L'ancien cookie contenait un identifiant de niche : on l'accepte encore.
   const chosen = stored ? allChannels.find((n) => n.key === stored) ?? niches.find((n) => n.id === stored) ?? null : null;

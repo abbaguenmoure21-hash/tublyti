@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { Star } from 'lucide-react';
-import { PhaseBadge } from '@/components/tublyti';
+import { PhaseBadge } from '@/components/tublyti/phase-badge';
 
 interface TopicPreviewData {
   id: string;

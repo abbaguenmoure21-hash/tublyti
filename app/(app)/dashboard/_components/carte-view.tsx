@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
-import { PhaseBadge, SensitiveBadge } from '@/components/tublyti';
+import { PhaseBadge } from '@/components/tublyti/phase-badge';
+import { SensitiveBadge } from '@/components/tublyti/sensitive-badge';
 import { FeasibilityBadge } from '@/components/tublyti/feasibility-badge';
 import type { FeasibilityGrade } from '@/lib/scoring/feasibility';
 

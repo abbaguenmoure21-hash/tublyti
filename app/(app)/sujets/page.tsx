@@ -49,15 +49,18 @@ export default async function SujetsPage({ searchParams }: { searchParams: Promi
   const momentKey = params.moment ?? DEFAULT_MOMENTS.join(',');
   const reliableOnly = params.fiable === '1';
 
-  const { rows, scoredAt } = await listTopics(db, { userId: user.id, nicheIds, moments, reliableOnly, query: params.q ?? '' });
+  // The list, the user's subscriber counts and the open topic are independent: fetch them in parallel
+  // (J/K used to wait for listTopics, then getUserSubsByNiche, then getTopicDetail, one after another).
+  const [{ rows, scoredAt }, userSubsByNiche, detail] = await Promise.all([
+    listTopics(db, { userId: user.id, nicheIds, moments, reliableOnly, query: params.q ?? '' }),
+    getUserSubsByNiche(db, user.id),
+    params.sujet ? getTopicDetail(db, params.sujet, user.id) : Promise.resolve(null),
+  ]);
   // Deux chaînes peuvent partager une niche : leurs noms sont réunis.
   const labels = labelsByNiche(niches);
   const nicheById = new Map(niches.map((n) => [n.id, { ...n, label: labels.get(n.id) ?? n.label }]));
 
-  const userSubsByNiche = await getUserSubsByNiche(db, user.id);
-
   const selectedIndex = params.sujet ? rows.findIndex((r) => r.id === params.sujet) : -1;
-  const detail = params.sujet ? await getTopicDetail(db, params.sujet, user.id) : null;
 
   // Per-user feasibility for the selected topic.
   const detailFeasibility = (() => {

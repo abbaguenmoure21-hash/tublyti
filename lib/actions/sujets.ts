@@ -13,6 +13,8 @@ const NOT_ADMIN = { error: "Cette action est réservée à l'administration." } 
 function refreshClient() {
   revalidatePath('/sujets');
   revalidatePath('/pipeline');
+  // TopicActions is also rendered on the topic page: revalidate it here instead of a client router.refresh().
+  revalidatePath('/topics/[id]', 'page');
 }
 
 // ─────────────────────────── Actions client ───────────────────────────

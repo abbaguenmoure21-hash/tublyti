@@ -1,11 +1,17 @@
 'use client';
 
 import { Fragment, useState, useTransition } from 'react';
-import { Line, LineChart, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import dynamic from 'next/dynamic';
 import { ChevronDown } from 'lucide-react';
 import { loadRetention } from '@/lib/actions/analytics';
 import type { RetentionState } from '@/lib/youtube/analytics';
 import { AnalyzeVideoButton } from '@/components/tublyti/video-analysis';
+
+// recharts loads only when a video's retention is opened; the h-48 parent reserves the height.
+const RetentionLineChart = dynamic(() => import('./retention-line-chart').then((m) => m.RetentionLineChart), {
+  ssr: false,
+  loading: () => <div className="h-full w-full" />,
+});
 
 const nf = new Intl.NumberFormat('fr-FR');
 const usd = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 });
@@ -29,17 +35,6 @@ export interface TopVideoRow {
   /** Impressions et taux de clic de la miniature (null tant que YouTube n'a pas livré de rapport). */
   impressions?: number | null;
   ctr?: number | null;
-}
-
-function RetentionTip({ active, payload, lengthS }: { active?: boolean; payload?: { payload: { at: number; watch: number } }[]; lengthS: number | null }) {
-  if (!active || !payload?.length) return null;
-  const p = payload[0].payload;
-  return (
-    <div className="elev-3 rounded-xl bg-card px-3 py-2 text-[13px]">
-      <p className="text-muted-foreground">{lengthS ? `À ${clock(p.at * lengthS)}` : `À ${pct(p.at * 100)} de la vidéo`}</p>
-      <p className="font-semibold tabular-nums">{pct(p.watch * 100)} des spectateurs encore là</p>
-    </div>
-  );
 }
 
 /** Lecture de la courbe : décrochage du début, moitié, fin, et comparaison aux vidéos de même durée. */
@@ -85,24 +80,7 @@ function RetentionPanel({ state, lengthS }: { state: RetentionState; lengthS: nu
         ))}
       </dl>
       <div className="h-48 w-full" role="img" aria-label="Part des spectateurs encore présents au fil de la vidéo">
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={pts} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-            <CartesianGrid vertical={false} stroke="var(--border)" strokeOpacity={0.6} />
-            <XAxis
-              dataKey="at"
-              type="number"
-              domain={[0, 1]}
-              tickFormatter={(v) => (lengthS ? clock(v * lengthS) : `${Math.round(v * 100)} %`)}
-              tick={{ fontSize: 12, fill: 'var(--muted-foreground)' }}
-              tickLine={false}
-              axisLine={false}
-            />
-            <YAxis tickFormatter={(v) => `${Math.round(v * 100)} %`} tick={{ fontSize: 12, fill: 'var(--muted-foreground)' }} tickLine={false} axisLine={false} width={44} domain={[0, 'auto']} />
-            <Tooltip content={<RetentionTip lengthS={lengthS} />} cursor={{ stroke: 'var(--muted-foreground)', strokeOpacity: 0.4 }} />
-            {drop.size > 0.03 && <ReferenceLine x={drop.at} stroke="var(--warning)" strokeDasharray="4 4" />}
-            <Line type="monotone" dataKey="watch" stroke="var(--chart-1)" strokeWidth={2} dot={false} activeDot={{ r: 4, strokeWidth: 2, stroke: 'var(--card)' }} />
-          </LineChart>
-        </ResponsiveContainer>
+        <RetentionLineChart points={pts} lengthS={lengthS} dropAt={drop.size > 0.03 ? drop.at : null} />
       </div>
       <p className="text-[13px] leading-relaxed text-muted-foreground">
         {relText}

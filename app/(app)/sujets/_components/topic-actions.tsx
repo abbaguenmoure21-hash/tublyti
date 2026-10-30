@@ -36,10 +36,10 @@ export function TopicActions({ topicId, topicLabel, inProduction, angles, afterI
       const created = res as { videoId: string };
       toast.success('Vidéo ajoutée à Mes vidéos', {
         description: topicLabel,
-        action: { label: 'Annuler', onClick: () => void undoCreateVideo(created.videoId).then(() => router.refresh()) },
+        // The server actions revalidate /sujets, /pipeline and /topics/[id]: no extra router.refresh().
+        action: { label: 'Annuler', onClick: () => void undoCreateVideo(created.videoId) },
         cancel: { label: 'Ouvrir', onClick: () => router.push('/pipeline') },
       });
-      router.refresh();
     });
   }
 
@@ -53,7 +53,7 @@ export function TopicActions({ topicId, topicLabel, inProduction, angles, afterI
       }
       toast('Sujet ignoré', {
         description: topicLabel,
-        action: { label: 'Annuler', onClick: () => void unignoreTopic(topicId).then(() => router.refresh()) },
+        action: { label: 'Annuler', onClick: () => void unignoreTopic(topicId) },
       });
       router.replace(afterIgnoreHref, { scroll: false });
     });
