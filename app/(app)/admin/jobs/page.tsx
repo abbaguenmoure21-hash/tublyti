@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Settings, XCircle } from 'lucide-react';
+import { Settings } from 'lucide-react';
 import { createServiceClient } from '@/lib/supabase/server';
 import { requireAdmin } from '@/lib/auth/session';
 import { getQuotaSoftLimit } from '@/lib/youtube/quota';
@@ -14,6 +14,7 @@ import {
   formatWhen,
   formatNightDate,
   SKIPPED_REASON,
+  INTERRUPTED_REASON,
   relaunchCost,
   type JobRow,
   type JobState,
@@ -25,7 +26,7 @@ export const metadata = { title: 'Collecte' };
 
 const FILTERS: { value: 'tout' | 'erreur' | 'sautee'; label: string; states: JobState[] | null }[] = [
   { value: 'tout', label: 'Toutes', states: null },
-  { value: 'erreur', label: 'Erreurs', states: ['error'] },
+  { value: 'erreur', label: 'Erreurs', states: ['error', 'interrupted'] },
   { value: 'sautee', label: 'Sautées', states: ['skipped'] },
 ];
 
@@ -48,6 +49,7 @@ function JobLine({ job, longest }: { job: JobRow; longest: boolean }) {
         <span>{(job.items_processed ?? 0).toLocaleString('fr-FR')} éléments traités</span>
       </div>
       {state === 'skipped' && <p className="text-xs text-muted-foreground">{SKIPPED_REASON}</p>}
+      {state === 'interrupted' && <p className="text-xs text-destructive">{INTERRUPTED_REASON}</p>}
       {state === 'error' && (
         <details className="text-xs">
           <summary className="cursor-pointer text-destructive">Voir l’erreur</summary>
@@ -71,10 +73,13 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
     .select('id, kind, started_at, finished_at, quota_used, items_processed, error')
     .order('started_at', { ascending: false })
     .limit(200);
+  // Same error screen (with « Réessayer ») as the rest of the console: admin/error.tsx.
+  if (error) throw new Error(error.message);
 
   const jobs = (data ?? []) as JobRow[];
-  const runs = groupRuns(jobs).slice(0, 7);
-  const lastRun = lastNightlyRun(runs);
+  const allRuns = groupRuns(jobs);
+  const runs = allRuns.slice(0, 7);
+  const lastRun = lastNightlyRun(allRuns);
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-6 md:px-8 md:py-8">
@@ -85,20 +90,11 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
         </p>
       </header>
 
-      {!error && <NightSummary run={lastRun} deadlineMin={nightlyDeadlineMin()} quotaLimit={getQuotaSoftLimit()} />}
+      <NightSummary run={lastRun} deadlineMin={nightlyDeadlineMin()} quotaLimit={getQuotaSoftLimit()} />
 
       <CronButtons cost={relaunchCost(jobs)} />
 
-      {error && (
-        <div role="alert" className="flex items-center gap-3 rounded-xl border border-destructive/40 bg-destructive/5 px-4 py-3">
-          <XCircle className="size-5 shrink-0 text-destructive" aria-hidden="true" />
-          <p className="text-sm text-destructive">
-            Impossible de charger l’historique de la collecte. Recharge la page dans un instant.
-          </p>
-        </div>
-      )}
-
-      {!error && jobs.length === 0 && (
+      {jobs.length === 0 && (
         <div className="flex flex-col items-center justify-center rounded-xl border border-border bg-card py-16 text-center">
           <Settings className="mb-3 size-10 text-muted-foreground/50" aria-hidden="true" />
           <p className="text-sm font-medium text-muted-foreground">Aucune étape enregistrée pour le moment.</p>
@@ -106,7 +102,7 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
         </div>
       )}
 
-      {!error && jobs.length > 0 && (
+      {jobs.length > 0 && (
         <section aria-labelledby="historique" className="flex flex-col gap-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 id="historique" className="text-lg font-semibold">Historique des 7 dernières nuits</h2>

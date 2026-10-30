@@ -5,7 +5,7 @@ import { requireAdmin } from '@/lib/auth/session';
 import { jobLabel } from '@/lib/jobs/labels';
 import { isSensitiveTopic } from '@/lib/topics/sensitive';
 import { getQuotaSoftLimit } from '@/lib/youtube/quota';
-import { groupRuns, lastNightlyRun, nightlyDeadlineMin, jobState, SKIPPED_REASON, type JobRow } from '@/lib/admin/job-status';
+import { groupRuns, lastNightlyRun, nightlyDeadlineMin, jobState, isFailure, SKIPPED_REASON, INTERRUPTED_REASON, type JobRow } from '@/lib/admin/job-status';
 import { NightSummary, JobStatusBadge } from './_components/job-status';
 
 export const metadata = { title: 'Console d’admin' };
@@ -70,11 +70,15 @@ export default async function AdminPage() {
     { label: 'Validé automatiquement', value: (autoTopics.count ?? 0) + (autoChannels.count ?? 0), hint: `7 derniers jours : ${autoTopics.count ?? 0} sujets publiés, ${autoChannels.count ?? 0} chaînes ajoutées` },
   ];
   const allJobs = (jobs.data ?? []) as JobRow[];
-  const lastRun = lastNightlyRun(groupRuns(allJobs));
-  // Errors first so a failure is never pushed out of view, then the most recent steps.
+  const runs = groupRuns(allJobs);
+  const lastRun = lastNightlyRun(runs);
+  // Only the last night and any manual relaunch after it: old, already-fixed errors
+  // must not contradict the banner. Failures first, then the latest steps.
+  const since = lastRun?.start ?? runs[0]?.start ?? '';
+  const latestJobs = allJobs.filter((j) => j.started_at >= since);
   const jobRows = [
-    ...allJobs.filter((j) => jobState(j) === 'error'),
-    ...allJobs.filter((j) => jobState(j) !== 'error'),
+    ...latestJobs.filter((j) => isFailure(jobState(j))),
+    ...latestJobs.filter((j) => !isFailure(jobState(j))),
   ].slice(0, 8);
 
   return (
@@ -131,6 +135,7 @@ export default async function AdminPage() {
                   <span className="font-medium">{jobLabel(j.kind)}</span>
                   <span className="text-muted-foreground"> · {ago(j.started_at)}</span>
                   {state === 'skipped' && <span className="mt-0.5 block truncate text-xs text-muted-foreground">{SKIPPED_REASON}</span>}
+                  {state === 'interrupted' && <span className="mt-0.5 block text-xs text-destructive">{INTERRUPTED_REASON}</span>}
                   {state === 'error' && <span className="mt-0.5 block break-words text-xs text-destructive">{j.error}</span>}
                 </span>
                 <JobStatusBadge job={j} />
