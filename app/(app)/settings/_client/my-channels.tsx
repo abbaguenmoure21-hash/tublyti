@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { toast } from 'sonner';
 import { Plus, Trash2, Copy, Check, ShieldCheck, Search, Link2 } from 'lucide-react';
 import { previewMyChannel, addMyChannel, verifyMyChannel, removeMyChannel, addGoogleChannel, dismissGoogleChannels, type ChannelPreview } from '@/lib/actions/compte';
@@ -311,7 +312,7 @@ export function MyChannels({
       {channels.some((c) => c.status === 'verified') && (
         <p className="border-b border-muted px-4 py-3 text-[13px] text-muted-foreground">
           Les statistiques privées de YouTube (YouTube Analytics) se connectent et se retirent dans{' '}
-          <a href="/my-channel" className="font-medium text-primary hover:underline">Mes vidéos › Ma chaîne</a>.
+          <Link href="/my-channel" className="font-medium text-primary hover:underline">Mes vidéos › Ma chaîne</Link>.
         </p>
       )}
 
@@ -416,7 +417,7 @@ export function MyChannels({
                   ))}
                 </select>
                 <span className="text-xs font-normal text-muted-foreground">
-                  Ta thématique n’est pas dans la liste ? Choisis la plus proche, tu pourras la changer.
+                  Ta thématique n’est pas dans la liste ? Choisis la plus proche. Pour en changer ensuite, il faudra retirer la chaîne puis l’ajouter de nouveau (et refaire la vérification).
                   {CONTACT_EMAIL && (
                     <>
                       {' '}Ou{' '}

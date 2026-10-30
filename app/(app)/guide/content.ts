@@ -113,7 +113,7 @@ export const FAQ: { id: string; group: (typeof FAQ_GROUPS)[number]['id']; q: str
     id: 'thematique-absente',
     group: 'demarrer',
     q: 'Ma thématique n’est pas dans la liste',
-    a: 'Choisis la plus proche : tu pourras la changer plus tard. Si aucune ne convient, écris-nous (lien en bas de cette page) et nous l’ajoutons. Quand plusieurs chaînes semblables ne trouvent pas leur thématique, TubLyTI en crée aussi une automatiquement.',
+    a: 'Choisis la plus proche. Pour en changer ensuite, il faudra retirer la chaîne dans Réglages puis l’ajouter de nouveau, et refaire la vérification. Quand plusieurs chaînes semblables ne trouvent pas leur thématique, TubLyTI en crée une automatiquement.',
   },
   {
     id: 'sans-chaine',
@@ -125,7 +125,7 @@ export const FAQ: { id: string; group: (typeof FAQ_GROUPS)[number]['id']; q: str
     id: 'claude',
     group: 'demarrer',
     q: 'Comment connecter Claude ou l’extension Chrome ?',
-    a: 'Dans Réglages › Connexion à Claude, crée un jeton et copie-le tout de suite (il ne s’affiche qu’une fois), avec l’adresse du serveur affichée juste au-dessus. Dans Claude : Réglages › Connecteurs › Ajouter un connecteur personnalisé, puis colle l’adresse et le jeton. Pour l’extension Chrome TubLyTI : ouvre ses options et colle le même jeton. Tu peux révoquer un jeton à tout moment.',
+    a: 'Dans Réglages › Connexion à Claude, crée un jeton et copie-le tout de suite (il ne s’affiche qu’une fois). Pour Claude : Réglages › Connecteurs › Ajouter un connecteur personnalisé, puis colle « l’adresse pour Claude » (elle finit par /api/mcp) et le jeton. Pour l’extension Chrome TubLyTI : dans ses options, colle « l’adresse pour l’extension » (l’adresse de l’app, sans rien après) dans « URL de TubLyTI », et le même jeton dans « Jeton API ». Tu peux révoquer un jeton à tout moment.',
   },
   {
     id: 'analytics',
