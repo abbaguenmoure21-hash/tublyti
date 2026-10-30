@@ -1,5 +1,6 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
+import { DEFAULT_NEXT, safeNext } from '@/lib/safe-next';
 
 export async function middleware(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
@@ -36,17 +37,15 @@ export async function middleware(request: NextRequest) {
     url.pathname = '/login';
     // Remember the requested page so the login can bring the user back to it.
     url.search = '';
-    url.searchParams.set('next', path + request.nextUrl.search);
+    url.searchParams.set('next', safeNext(path + request.nextUrl.search, request.nextUrl.origin));
     return NextResponse.redirect(url);
   }
 
   // Logged-in users skip the login page and the landing page.
   // /login/reset stays reachable: a signed-in user may still want to change their password.
   if (user && (path === '/login' || path === '/')) {
-    const url = request.nextUrl.clone();
-    url.pathname = '/sujets';
-    url.search = '';
-    return NextResponse.redirect(url);
+    const target = path === '/login' ? safeNext(request.nextUrl.searchParams.get('next'), request.nextUrl.origin) : DEFAULT_NEXT;
+    return NextResponse.redirect(new URL(target, request.nextUrl.origin));
   }
 
   return supabaseResponse;

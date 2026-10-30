@@ -5,17 +5,12 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { PhaseBadge } from '@/components/tublyti/phase-badge';
+import { safeNext } from '@/lib/safe-next';
 
 type Mode = 'login' | 'forgot' | 'magic';
 
 const inputClass =
   'h-11 w-full rounded-lg border border-input bg-card px-3.5 text-[15px] text-foreground outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-ring/30';
-
-// Only accept an internal path (no open redirect through "//host" or "/\host").
-function safeNext(value: string | null): string {
-  if (!value || !value.startsWith('/') || value.startsWith('//') || value.startsWith('/\\')) return '/sujets';
-  return value;
-}
 
 type AuthErrorLike = { status?: number; code?: string; name?: string } | null;
 
@@ -47,10 +42,11 @@ export default function LoginPage() {
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const next = safeNext(searchParams.get('next'));
+  const rawNext = searchParams.get('next');
   const linkError = searchParams.get('erreur') === 'lien';
+  const initialMode: Mode = linkError ? 'magic' : searchParams.get('mode') === 'oubli' ? 'forgot' : 'login';
 
-  const [mode, setMode] = useState<Mode>(linkError ? 'magic' : 'login');
+  const [mode, setMode] = useState<Mode>(initialMode);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -95,6 +91,7 @@ function LoginForm() {
 
     try {
       const supabase = createClient();
+      const next = safeNext(rawNext, window.location.origin);
 
       if (mode === 'login') {
         const { error: authError } = await supabase.auth.signInWithPassword({ email, password });
