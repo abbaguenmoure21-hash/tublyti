@@ -8,6 +8,7 @@ import { getPublicStats } from '@/lib/youtube/public-stats';
 import { runPreflight, type PreflightResult } from '@/lib/preflight/engine';
 import { fileState, startUpload } from '@/lib/preflight/video-file';
 import { geminiEnabled } from '@/lib/ai/gemini';
+import { accountNicheIds, keywordNicheFilter } from '@/lib/auth/account-scope';
 import { compareKeywords, type KeywordComparison } from '@/lib/keywords';
 
 const DAILY_LIMIT = Number(process.env.PREFLIGHT_DAILY ?? 30);
@@ -130,7 +131,9 @@ export async function compareKeywordsAction(userChannelId: string, terms: string
   const { db, ch } = await ownChannel(user.id, userChannelId);
   if (!ch) return { ok: false, message: 'Choisis une de tes chaînes vérifiées.' };
   try {
-    return { ok: true, data: await compareKeywords(db, clean, scope === 'all' ? null : [ch.niche_id]) };
+    // scope 'all' = whole catalogue for the team only; a client stays within its own themes (as in MCP).
+    const accountIds = scope === 'all' && user.role !== 'admin' ? ((await accountNicheIds(db, user)) ?? []) : [];
+    return { ok: true, data: await compareKeywords(db, clean, keywordNicheFilter(user.role, scope, ch.niche_id, accountIds)) };
   } catch (e) {
     console.error('[preflight] keyword comparison failed', e);
     return { ok: false, message: 'La comparaison n’a pas pu être faite. Réessaie dans un instant.' };

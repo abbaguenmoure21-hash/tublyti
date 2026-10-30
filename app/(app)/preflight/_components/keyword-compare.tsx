@@ -9,7 +9,8 @@ const nf = new Intl.NumberFormat('fr-FR', { notation: 'compact', maximumFraction
 const times = (m: number) => `×${m.toLocaleString('fr-FR', { maximumFractionDigits: 1 })}`;
 
 /** « Quel mot attire le plus ? » : compare 2 à 4 mots-clés sur les vidéos du catalogue. */
-export function KeywordCompare({ userChannelId }: { userChannelId: string }) {
+/** wholeCatalogue: the team compares over every niche; a client over all of its own themes. */
+export function KeywordCompare({ userChannelId, wholeCatalogue = false }: { userChannelId: string; wholeCatalogue?: boolean }) {
   const [terms, setTerms] = useState<string[]>(['', '']);
   const [scope, setScope] = useState<'niche' | 'all'>('niche');
   const [res, setRes] = useState<KeywordComparison | null>(null);
@@ -87,7 +88,7 @@ export function KeywordCompare({ userChannelId }: { userChannelId: string }) {
                 onClick={() => setScope(k)}
                 className={`rounded-[8px] px-3 py-1.5 ${scope === k ? 'elev-1 bg-card font-medium' : 'text-muted-foreground'}`}
               >
-                {k === 'niche' ? 'Ma niche' : 'Toutes les niches'}
+                {k === 'niche' ? 'Ma niche' : wholeCatalogue ? 'Toutes les niches' : 'Toutes mes thématiques'}
               </button>
             ))}
           </div>

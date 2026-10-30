@@ -104,7 +104,7 @@ export default async function PreflightPage({ searchParams }: { searchParams: Pr
       </div>
 
       <div hidden={view !== 'idee'} className="flex flex-col gap-8">
-        <KeywordCompare userChannelId={channelId} />
+        <KeywordCompare userChannelId={channelId} wholeCatalogue={user.role === 'admin'} />
         <LinkSaturationCheck />
       </div>
 
