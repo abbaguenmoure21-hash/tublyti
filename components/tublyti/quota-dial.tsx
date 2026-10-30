@@ -1,6 +1,6 @@
 'use client';
 
-import { motion, useSpring, useMotionValue } from 'framer-motion';
+import { motion, useSpring, useMotionValue, useReducedMotion } from 'framer-motion';
 import { useEffect, useState } from 'react';
 
 interface QuotaDialProps {
@@ -51,6 +51,8 @@ export function QuotaDial({
   const mv = useMotionValue(0);
   const spring = useSpring(mv, { stiffness: 100, damping: 30 });
   const [display, setDisplay] = useState(0);
+  // useSpring ignores MotionConfig: show the real value at once when motion is reduced.
+  const reduce = useReducedMotion();
 
   useEffect(() => { mv.set(current); }, [current, mv]);
   useEffect(() => {
@@ -145,7 +147,7 @@ export function QuotaDial({
             className="text-mono-metric font-bold leading-none"
             style={{ fontSize: size * 0.18, color }}
           >
-            {display.toLocaleString('fr-FR')}
+            {(reduce ? current : display).toLocaleString('fr-FR')}
           </span>
           <span className="text-muted-foreground text-[10px] mt-1">/ {max.toLocaleString('fr-FR')}</span>
         </div>
