@@ -129,7 +129,7 @@ function AnalysisDrawer({ videoId, title, channelId, onClose }: { videoId: strin
 
         <div className="flex-1 overflow-y-auto px-5 py-5">
           {!loaded ? (
-            <p className="flex items-center gap-2 text-sm text-muted-foreground">
+            <p role="status" aria-live="polite" className="flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> Chargement…
             </p>
           ) : running ? (

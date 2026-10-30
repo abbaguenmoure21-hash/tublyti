@@ -271,7 +271,7 @@ export async function runPreflight(db: SupabaseClient, input: PreflightInput): P
       baselineViews,
       calibration: { factor: calibration.factor, n: calibration.n },
       basis: model
-        ? `Modèle entraîné sur ${nf(model.n)} vidéos suivies par TubLyTI, plus la ressemblance du titre avec les gagnants de ta niche.`
+        ? `Calcul fait sur ${nf(model.n)} vidéos suivies par TubLyTI, plus la ressemblance du titre avec les gagnants de ta niche.`
         : best.multiple === null
           ? 'Pas encore assez de vidéos comparables dans la niche : estimation sur la moyenne de la niche.'
           : 'Basé sur les vidéos de la niche aux titres les plus proches. Le calcul complet s’activera quand assez de vidéos auront été suivies.',
