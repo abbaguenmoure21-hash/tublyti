@@ -30,7 +30,10 @@ export function Inspector({ position, prevHref, nextHref, closeHref, children }:
     let node: HTMLElement | null = el;
     while (node && node.parentElement && node !== document.body) {
       for (const sib of Array.from(node.parentElement.children)) {
-        if (sib !== node && sib instanceof HTMLElement && !sib.inert) {
+        // Never silence toasts or live regions: they must stay announced and clickable.
+        // (sonner renders <section aria-live> in place, next to the app shell)
+        const live = sib.matches('[aria-live], [data-sonner-toaster]') || sib.firstElementChild?.matches('[data-sonner-toaster]');
+        if (sib !== node && sib instanceof HTMLElement && !sib.inert && !live) {
           sib.inert = true;
           touched.push(sib);
         }
