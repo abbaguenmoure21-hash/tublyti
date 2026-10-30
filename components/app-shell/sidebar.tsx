@@ -79,7 +79,7 @@ export function Sidebar({ niches, scope, badges, dataFresh, userLabel, isAdmin =
     <aside
       aria-label="Barre latérale"
       data-collapsed={c || undefined}
-      className={`elev-2 sticky top-2 my-2 ml-2 hidden h-[calc(100vh-16px)] shrink-0 flex-col gap-1 overflow-y-auto overflow-x-hidden rounded-[22px] bg-card/75 py-4 backdrop-blur-2xl backdrop-saturate-150 transition-[width,padding] duration-200 ease-out md:flex ${
+      className={`elev-2 sticky top-2 my-2 ml-2 hidden h-[calc(100vh-16px)] shrink-0 flex-col gap-1 overflow-y-auto overflow-x-hidden rounded-panel bg-card/75 py-4 backdrop-blur-2xl backdrop-saturate-150 transition-[width,padding] duration-200 ease-standard motion-reduce:transition-none md:flex ${
         c ? 'w-[68px] items-center px-2' : 'w-[248px] px-3'
       }`}
     >
@@ -141,7 +141,7 @@ export function Sidebar({ niches, scope, badges, dataFresh, userLabel, isAdmin =
               aria-current={active ? 'page' : undefined}
               aria-label={c ? s.label : undefined}
               title={c ? s.label : undefined}
-              className={`relative flex h-10 items-center gap-2.5 rounded-[10px] text-sm font-medium transition-all ${c ? 'w-10 justify-center' : 'px-2.5'} ${
+              className={`relative flex h-10 items-center gap-2.5 rounded-[10px] text-sm font-medium transition-colors ${c ? 'w-10 justify-center' : 'px-2.5'} ${
                 active ? 'elev-1 bg-primary-soft text-primary-ink' : 'text-muted-foreground hover:bg-muted hover:text-foreground'
               }`}
             >

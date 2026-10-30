@@ -74,7 +74,7 @@ export default async function ChannelsPage() {
 
       {/* Channel list */}
       {fetchError && channels.length === 0 ? (
-        <div className="bento-card !py-16 text-center flex flex-col items-center justify-center">
+        <div className="bg-card rounded-xl p-6 !py-16 text-center flex flex-col items-center justify-center">
           <p className="text-[14px] font-semibold text-destructive">
             Impossible de charger les chaînes
           </p>

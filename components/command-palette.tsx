@@ -150,7 +150,7 @@ export function CommandPalette({ isAdmin = false }: { isAdmin?: boolean }) {
       />
 
       {/* Panel */}
-      <div className="fixed top-[20%] left-1/2 -translate-x-1/2 w-[min(560px,calc(100vw-32px))] bg-popover border border-border rounded-xl shadow-[0_8px_24px_rgba(20,24,34,0.10)] overflow-hidden">
+      <div className="fixed top-[20%] left-1/2 -translate-x-1/2 w-[min(560px,calc(100vw-32px))] bg-popover border border-border rounded-xl elev-3 overflow-hidden">
         {/* Search input */}
         <div className="flex items-center gap-2.5 px-4 border-b border-border">
           <Search className="w-4 h-4 text-muted-foreground shrink-0" />

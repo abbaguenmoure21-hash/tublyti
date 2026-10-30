@@ -45,20 +45,20 @@ export interface BriefData {
 
 function buildBrief(angle: Angle, data: BriefData): string {
   const lines: string[] = [
-    `# Brief \u2014 ${angle.title}`,
+    `# Brief — ${angle.title}`,
     '',
     `**Date :** ${data.date}`,
     `**Sujet :** ${data.topicLabel}`,
-    `**Niche :** ${data.nicheName} (RPM \u00d7${data.rpmCoefficient})`,
+    `**Niche :** ${data.nicheName} (RPM ×${data.rpmCoefficient})`,
     `**Phase :** ${data.phaseLabel}`,
     '',
     `## Scores MGI`,
     '',
     data.mgi !== null ? `- **MGI global :** ${Math.round(data.mgi)}` : '',
     data.demand !== null ? `- **Demande (D) :** ${Math.round(data.demand)}` : '',
-    data.supply !== null ? `- **Offre qualifi\u00e9e (O_q) :** ${Number(data.supply).toFixed(1)}` : '',
+    data.supply !== null ? `- **Offre qualifiée (O_q) :** ${Number(data.supply).toFixed(1)}` : '',
     data.frustrationScore !== null ? `- **Frustration (F) :** ${(Number(data.frustrationScore) * 100).toFixed(0)} %` : '',
-    data.monetization !== null ? `- **Mon\u00e9tisation (P) :** \u00d7${Number(data.monetization).toFixed(1)}` : '',
+    data.monetization !== null ? `- **Monétisation (P) :** ×${Number(data.monetization).toFixed(1)}` : '',
     '',
     `## Angle choisi`,
     '',
@@ -71,18 +71,18 @@ function buildBrief(angle: Angle, data: BriefData): string {
   ].filter(Boolean);
 
   for (const f of data.frustrations.slice(0, 10)) {
-    const angleNote = f.requestedAngle ? ` \u2192 ${f.requestedAngle}` : '';
+    const angleNote = f.requestedAngle ? ` → ${f.requestedAngle}` : '';
     const link = f.videoId
       ? ` ([commentaire](https://www.youtube.com/watch?v=${f.videoId}&lc=${f.commentId}))`
       : '';
     lines.push(`- [${f.likeCount} likes] ${f.text.slice(0, 200)}${angleNote}${link}`);
   }
 
-  lines.push('', `## Vid\u00e9os concurrentes (top ${Math.min(data.competitors.length, 5)})`, '');
+  lines.push('', `## Vidéos concurrentes (top ${Math.min(data.competitors.length, 5)})`, '');
   for (const c of data.competitors.slice(0, 5)) {
     const views = c.views >= 1000 ? `${(c.views / 1000).toFixed(1)}k` : String(c.views);
     lines.push(
-      `- ${c.title} (${c.channelTitle}) \u2014 ${views} vues ([lien](https://www.youtube.com/watch?v=${c.videoId}))`,
+      `- ${c.title} (${c.channelTitle}) — ${views} vues ([lien](https://www.youtube.com/watch?v=${c.videoId}))`,
     );
   }
 
@@ -138,7 +138,7 @@ export function AngleSection({
         toast.error(result.error);
         return;
       }
-      toast.success(`Angles g\u00e9n\u00e9r\u00e9s. Co\u00fbt : $${result.costUSD?.toFixed(4) ?? '?'}`);
+      toast.success(`Angles générés. Coût : $${result.costUSD?.toFixed(4) ?? '?'}`);
     });
   }
 
@@ -146,7 +146,7 @@ export function AngleSection({
     const brief = buildBrief(angle, briefData);
     await navigator.clipboard.writeText(brief);
     setCopiedId(angle.id);
-    toast.success('Brief copi\u00e9 dans le presse-papiers.');
+    toast.success('Brief copié dans le presse-papiers.');
     setTimeout(() => setCopiedId(null), 2000);
   }
 
@@ -157,7 +157,7 @@ export function AngleSection({
       .replace(/[^a-z0-9]+/g, '-')
       .slice(0, 40);
     downloadMd(`brief-${slug}.md`, brief);
-    toast.success('Brief t\u00e9l\u00e9charg\u00e9.');
+    toast.success('Brief téléchargé.');
   }
 
   const overBudget = budget ? budget.remainingUSD < estimatedCost : false;
@@ -168,7 +168,7 @@ export function AngleSection({
     return (
       <div
         key={a.id}
-        className={`px-5 py-4 border-b border-[--glass-border] flex flex-col gap-2 last:border-0 hover:bg-[--bg-surface-1]/30 transition-colors ${
+        className={`px-5 py-4 border-b border-border flex flex-col gap-2 last:border-0 hover:bg-muted transition-colors ${
           isSelected ? 'bg-primary/5' : ''
         }`}
       >
@@ -187,7 +187,7 @@ export function AngleSection({
             className={`haptic-btn h-[28px] px-3 rounded-md text-[12px] font-semibold transition-colors cursor-pointer shadow-sm ${
               isSelected
                 ? 'bg-primary text-primary-foreground border border-primary/20'
-                : 'bg-[--bg-surface-2] border border-[--glass-border] text-foreground hover:bg-[--bg-surface-1]'
+                : 'bg-muted border border-border text-foreground hover:bg-muted/50'
             }`}
           >
             {isSelected ? 'Retenu' : 'Choisir'}
@@ -196,7 +196,7 @@ export function AngleSection({
             type="button"
             data-action="copy-brief"
             onClick={() => handleCopyBrief(a)}
-            className="haptic-btn h-[28px] px-3 bg-[--bg-surface-2] border border-[--glass-border] rounded-md text-[12px] font-semibold text-muted-foreground hover:text-foreground transition-colors cursor-pointer flex items-center gap-1.5 shadow-sm"
+            className="haptic-btn h-[28px] px-3 bg-muted border border-border rounded-md text-[12px] font-semibold text-muted-foreground hover:text-foreground transition-colors cursor-pointer flex items-center gap-1.5 shadow-sm"
           >
             {copiedId === a.id ? (
               <>
@@ -213,7 +213,7 @@ export function AngleSection({
           <button
             type="button"
             onClick={() => handleDownloadBrief(a)}
-            className="haptic-btn h-[28px] px-3 bg-[--bg-surface-2] border border-[--glass-border] rounded-md text-[12px] font-semibold text-muted-foreground hover:text-foreground transition-colors cursor-pointer flex items-center gap-1.5 shadow-sm"
+            className="haptic-btn h-[28px] px-3 bg-muted border border-border rounded-md text-[12px] font-semibold text-muted-foreground hover:text-foreground transition-colors cursor-pointer flex items-center gap-1.5 shadow-sm"
           >
             <Download className="w-3.5 h-3.5" />
             .md
@@ -221,7 +221,7 @@ export function AngleSection({
           <button
             type="button"
             onClick={() => setSelectedAngleId(a.id)}
-            className="haptic-btn h-[28px] px-3 ml-auto bg-[--bg-surface-2] border border-[--glass-border] rounded-md text-[12px] font-semibold text-primary hover:bg-primary/5 transition-colors cursor-pointer flex items-center gap-1.5 shadow-sm"
+            className="haptic-btn h-[28px] px-3 ml-auto bg-muted border border-border rounded-md text-[12px] font-semibold text-primary hover:bg-primary/5 transition-colors cursor-pointer flex items-center gap-1.5 shadow-sm"
           >
             Détails
           </button>
@@ -236,18 +236,18 @@ export function AngleSection({
       {showConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div className="bg-card border border-border rounded-[10px] shadow-lg w-[380px] p-5 flex flex-col gap-4">
-            <h3 className="text-[15px] font-semibold">Confirmer la g\u00e9n\u00e9ration</h3>
+            <h3 className="text-[15px] font-semibold">Confirmer la génération</h3>
 
             {loadingBudget ? (
-              <div className="text-[13px] text-muted-foreground">Chargement du budget\u2026</div>
+              <div className="text-[13px] text-muted-foreground">Chargement du budget…</div>
             ) : budget ? (
               <div className="flex flex-col gap-3">
                 <div className="flex justify-between text-[13px]">
-                  <span className="text-muted-foreground">Co\u00fbt estim\u00e9</span>
+                  <span className="text-muted-foreground">Coût estimé</span>
                   <span className="font-medium tabular-nums">${estimatedCost.toFixed(4)}</span>
                 </div>
                 <div className="flex justify-between text-[13px]">
-                  <span className="text-muted-foreground">D\u00e9pens\u00e9 ce mois</span>
+                  <span className="text-muted-foreground">Dépensé ce mois</span>
                   <span className="tabular-nums">${budget.spentThisMonthUSD.toFixed(4)}</span>
                 </div>
                 <div className="flex justify-between text-[13px]">
@@ -273,7 +273,7 @@ export function AngleSection({
                 {overBudget && (
                   <div className="flex items-center gap-2 text-[12px] text-[var(--destructive)]">
                     <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                    Budget insuffisant pour cette g\u00e9n\u00e9ration.
+                    Budget insuffisant pour cette génération.
                   </div>
                 )}
               </div>
@@ -293,7 +293,7 @@ export function AngleSection({
                 disabled={loadingBudget || overBudget}
                 className="h-8 px-3 rounded-md bg-primary text-primary-foreground text-[13px] font-medium hover:opacity-90 transition-opacity disabled:opacity-50 cursor-pointer"
               >
-                G\u00e9n\u00e9rer 5 angles
+                Générer 5 angles
               </button>
             </div>
           </div>
@@ -321,7 +321,7 @@ export function AngleSection({
             
             <div className="flex flex-col gap-2.5">
               <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Accroche (Hook)</span>
-              <p className="text-[14px] text-foreground/90 leading-relaxed bg-[--bg-surface-1] p-3.5 rounded-md border border-[--glass-border] shadow-sm">
+              <p className="text-[14px] text-foreground/90 leading-relaxed bg-muted/50 p-3.5 rounded-md border border-border shadow-sm">
                 {selectedAngle.hook}
               </p>
             </div>
@@ -329,17 +329,17 @@ export function AngleSection({
             {selectedAngle.rationale && (
               <div className="flex flex-col gap-2.5">
                 <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Justification & Stratégie</span>
-                <p className="text-[13.5px] text-muted-foreground/90 leading-relaxed whitespace-pre-wrap bg-[--bg-surface-1]/50 p-3.5 rounded-md border border-[--glass-border]">
+                <p className="text-[13.5px] text-muted-foreground/90 leading-relaxed whitespace-pre-wrap bg-muted/50 p-3.5 rounded-md border border-border">
                   {selectedAngle.rationale}
                 </p>
               </div>
             )}
             
-            <div className="flex gap-2 justify-end mt-2 pt-5 border-t border-[--glass-border]">
+            <div className="flex gap-2 justify-end mt-2 pt-5 border-t border-border">
               <button
                 type="button"
                 onClick={() => setSelectedAngleId(null)}
-                className="haptic-btn h-9 px-4 rounded-md text-[13px] font-semibold text-foreground bg-[--bg-surface-2] border border-[--glass-border] hover:bg-muted transition-colors cursor-pointer shadow-sm"
+                className="haptic-btn h-9 px-4 rounded-md text-[13px] font-semibold text-foreground bg-muted border border-border hover:bg-muted transition-colors cursor-pointer shadow-sm"
               >
                 Fermer
               </button>
@@ -352,7 +352,7 @@ export function AngleSection({
       {showAllAngles && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4">
           <div className="bg-card border border-border rounded-[10px] shadow-lg w-full max-w-2xl flex flex-col max-h-[90vh] overflow-hidden relative animate-in fade-in zoom-in-95 duration-200">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-[--glass-border] bg-[--bg-surface-1]/50 sticky top-0 z-10">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-muted/50 sticky top-0 z-10">
               <h2 className="text-headline">Tous les angles proposés ({angles.length})</h2>
               <button 
                 type="button" 
@@ -369,15 +369,15 @@ export function AngleSection({
         </div>
       )}
 
-      <section className="bento-card !p-0 flex flex-col">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-[--glass-border] bg-[--bg-surface-1]/50">
+      <section className="bg-card rounded-xl p-6 !p-0 flex flex-col">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-muted/50">
           <h2 className="text-headline">Angles proposés</h2>
           {canGenerate && (
           <button
             type="button"
             onClick={handleGenerateClick}
             disabled={isPending}
-            className="haptic-btn h-[28px] px-3 bg-[--bg-surface-2] border border-[--glass-border] rounded-md text-foreground text-[12px] font-semibold hover:bg-[--bg-surface-1] transition-colors disabled:opacity-50 cursor-pointer shadow-sm"
+            className="haptic-btn h-[28px] px-3 bg-muted border border-border rounded-md text-foreground text-[12px] font-semibold hover:bg-muted/50 transition-colors disabled:opacity-50 cursor-pointer shadow-sm"
           >
             {isPending ? 'Génération…' : angles.length > 0 ? 'Régénérer' : `Générer 5 angles (~$${estimatedCost.toFixed(3)})`}
           </button>
@@ -394,7 +394,7 @@ export function AngleSection({
               {angleCards.slice(0, 3)}
             </div>
             {angles.length > 3 && (
-              <div className="p-3 bg-[--bg-surface-1]/30 flex justify-center border-t border-[--glass-border]">
+              <div className="p-3 bg-muted/30 flex justify-center border-t border-border">
                 <button
                   type="button"
                   onClick={() => setShowAllAngles(true)}

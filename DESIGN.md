@@ -16,7 +16,7 @@ Contrastes vérifiés : texte ≥ 4,5:1 (AA), éléments graphiques ≥ 3:1.
 
 | Token | OKLCH | Hex | Usage |
 | --- | --- | --- | --- |
-| `--background` | `oklch(0.985 0.003 260)` | #f9fafc | Fond de l'application |
+| `--background` | `oklch(0.972 0.004 260)` | #f4f6f8 | Fond de l’application (gris « groupé » Apple : les cartes blanches ressortent) |
 | `--card` / `--popover` | `oklch(1 0 0)` | #ffffff | Cartes, panneaux, menus |
 | `--foreground` | `oklch(0.21 0.02 265)` | #141822 | Texte principal (17,7:1) |
 | `--muted-foreground` | `oklch(0.50 0.018 265)` | #5e636e | Texte secondaire (6,0:1) |
@@ -26,8 +26,8 @@ Contrastes vérifiés : texte ≥ 4,5:1 (AA), éléments graphiques ≥ 3:1.
 | `--primary-soft` | `oklch(0.95 0.035 277)` | #eaedff | Fond d'élément actif, sélection |
 | `--primary-ink` | `oklch(0.45 0.19 277)` | #423ebb | Texte sur `--primary-soft` (6,9:1) |
 | `--destructive` | `oklch(0.55 0.21 25)` | #d01c29 | Erreurs, suppression |
-| `--success` | `oklch(0.56 0.13 155)` | #1a8a51 | Confirmation |
-| `--warning` | `oklch(0.68 0.15 65)` | #d6810c | Avertissement (icônes/graphiques uniquement, jamais en texte sur blanc) |
+| `--success` | `oklch(0.51 0.13 155)` | #007b43 | Confirmation (≥ 4,5:1 en texte) ; badge : `--success-soft` + `--success-ink` |
+| `--warning` | `oklch(0.54 0.14 58)` | #a85500 | Avertissement (≥ 4,5:1, mais préférer `--warning-soft` + `--warning-ink` pour un texte) |
 | `--ring` | = `--primary` | | Anneau de focus clavier, 2 px, décalé de 2 px |
 
 ### Couleurs de phase (sémantiques, réservées aux phases)
@@ -43,11 +43,11 @@ Chaque phase a une couleur pleine (points du graphique, pastilles) et un couple 
 
 ### Échelle MGI (séquentielle, une seule teinte)
 
-Pour les heatmaps, barres de score et mini-jauges : `#e2e6ff → #b7c0f8 → #8c97e9 → #646cd8 → #443cc6` (du plus faible au plus fort). Jamais de dégradé arc-en-ciel.
+Pour les heatmaps, barres de score et mini-jauges : `#e2e6ff → #b7c0f8 → #8c97e9 → #646cd8 → #443cc6` (du plus faible au plus fort), exposée en tokens `--mgi-1 … --mgi-5` (classes `bg-mgi-3`, helper `components/tublyti/mgi-scale.ts`) avec une version sombre inversée. Jauges uniquement : un libellé de bande s’écrit en `text-primary-ink` sur `bg-primary-soft`. Jamais de dégradé arc-en-ciel.
 
 ### Thème sombre (secondaire, via bouton)
 
-Mêmes rôles, luminosités inversées : `--background oklch(0.16 0.012 265)`, `--card oklch(0.20 0.014 265)`, `--foreground oklch(0.96 0.005 265)`, `--muted-foreground oklch(0.72 0.015 265)`, `--border oklch(0.30 0.015 265)`, `--primary oklch(0.68 0.17 277)`. Les couleurs de phase gagnent +0,08 de luminosité ; les fonds de badge deviennent la couleur pleine à 18 % d'opacité.
+Mêmes rôles, luminosités inversées : `--background oklch(0.16 0.012 265)`, `--card oklch(0.20 0.014 265)`, `--foreground oklch(0.96 0.005 265)`, `--muted-foreground oklch(0.72 0.015 265)`, `--border oklch(0.30 0.015 265)`, `--primary oklch(0.68 0.17 277)`. Les couleurs de phase gagnent +0,08 de luminosité ; les fonds de badge deviennent la couleur pleine à 18 % d'opacité. Toutes les surfaces (`--card`, `--popover`, `--muted`) sont **opaques**. Sur un bouton plein `--primary`, le texte est foncé (`--primary-foreground` = `oklch(0.16 0.012 265)`, 6,5:1) car le blanc n'atteint que 3:1. Les phases restent distinctes de `--success`, `--warning`, `--destructive` et des `--chart-*`. Valeurs complètes : bloc `.dark` de `app/globals.css`.
 
 ## Typographie
 
@@ -58,9 +58,9 @@ Mêmes rôles, luminosités inversées : `--background oklch(0.16 0.012 265)`, `
 ## Espacements, formes, profondeur
 
 - Grille de **4 px** : 4, 8, 12, 16, 24, 32, 48. Marge de page 24 px (16 px mobile). Écart entre cartes 16 px.
-- Rayons : `--radius: 0.625rem` (10 px) pour cartes/champs ; 6 px pour badges et boutons compacts ; plein (999 px) pour pastilles.
+- Rayons : `--radius: 0.75rem` (12 px, base de `rounded-lg`) ; cartes `rounded-xl` (17 px), panneaux `rounded-panel` (22 px), barre mobile `rounded-bar` (24 px) ; 6 px pour badges et boutons compacts ; plein (999 px) pour pastilles.
 - Une seule ombre : `0 1px 2px oklch(0.21 0.02 265 / 0.06), 0 1px 1px oklch(0.21 0.02 265 / 0.04)` sur les cartes. Popovers et menus : `0 8px 24px oklch(0.21 0.02 265 / 0.10)`. Pas de lueurs (supprimer `sidebar-glow`), pas de dégradés de fond.
-- Barre latérale **claire** : fond `--card`, bordure droite `--border`, élément actif = fond `--primary-soft` + texte `--primary-ink`. Largeur 240 px, repliée 64 px, état mémorisé.
+- Barre latérale **flottante** : matériau `bg-card/75` + flou, `elev-2`, `rounded-panel`, élément actif = fond `--primary-soft` + texte `--primary-ink`. Largeur 248 px, repliée 68 px, état mémorisé.
 
 ## Mouvement
 
@@ -95,7 +95,7 @@ Mêmes rôles, luminosités inversées : `--background oklch(0.16 0.012 265)`, `
 
 ```css
 :root {
-  --background: oklch(0.985 0.003 260);
+  --background: oklch(0.972 0.004 260);
   --foreground: oklch(0.21 0.02 265);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.21 0.02 265);
@@ -112,12 +112,16 @@ Mêmes rôles, luminosités inversées : `--background oklch(0.16 0.012 265)`, `
   --accent: oklch(0.95 0.035 277);
   --accent-foreground: oklch(0.45 0.19 277);
   --destructive: oklch(0.55 0.21 25);
-  --success: oklch(0.56 0.13 155);
-  --warning: oklch(0.68 0.15 65);
+  --success: oklch(0.51 0.13 155);
+  --success-soft: oklch(0.95 0.045 155);
+  --success-ink: oklch(0.44 0.11 155);
+  --warning: oklch(0.54 0.14 58);
+  --warning-soft: oklch(0.96 0.05 80);
+  --warning-ink: oklch(0.48 0.12 60);
   --border: oklch(0.915 0.006 265);
   --input: oklch(0.915 0.006 265);
   --ring: oklch(0.52 0.21 277);
-  --radius: 0.625rem;
+  --radius: 0.75rem;
 
   --phase-0: oklch(0.56 0.16 300);  --phase-0-soft: oklch(0.95 0.035 300);  --phase-0-ink: oklch(0.45 0.16 300);
   --phase-1: oklch(0.66 0.15 65);   --phase-1-soft: oklch(0.96 0.05 80);    --phase-1-ink: oklch(0.48 0.12 60);

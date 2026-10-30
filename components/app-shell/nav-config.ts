@@ -7,6 +7,8 @@ export interface NavSpace {
   href: string;
   label: string;
   icon: LucideIcon;
+  /** Libellé court pour la barre d'onglets mobile (un cinquième de 351 px). */
+  shortLabel?: string;
   /** Préfixes d'adresse qui appartiennent à cet espace (pour l'état actif). */
   match: string[];
 }
@@ -14,7 +16,7 @@ export interface NavSpace {
 /** Les 3 espaces client de l'app (ERGONOMIE.md). */
 export const SPACES: NavSpace[] = [
   { key: 'sujets', href: '/sujets', label: 'Sujets', icon: Sparkles, match: ['/sujets', '/today', '/dashboard', '/topics', '/frustrations', '/bienvenue'] },
-  { key: 'preflight', href: '/preflight', label: 'Avant de publier', icon: Rocket, match: ['/preflight'] },
+  { key: 'preflight', href: '/preflight', label: 'Avant de publier', shortLabel: 'Vérifier', icon: Rocket, match: ['/preflight'] },
   { key: 'videos', href: '/pipeline', label: 'Mes vidéos', icon: Clapperboard, match: ['/pipeline', '/my-channel', '/videos'] },
   { key: 'veille', href: '/activity', label: 'Veille', icon: Radar, match: ['/activity', '/veille'] },
 ];

@@ -1,5 +1,6 @@
 'use client';
 
+import { smoothScrollIntoView } from '@/lib/ui/smooth-scroll';
 import { useRef, useState, useTransition } from 'react';
 import { AlertTriangle, Check, Film, ImagePlus, Loader2, Plus, Sparkles, TrendingDown, TrendingUp, Trophy, X } from 'lucide-react';
 import { Line, LineChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
@@ -85,7 +86,7 @@ export function PreflightForm({ userChannelId, aiEnabled }: { userChannelId: str
       if (video?.status === 'ready') setVideo(null); // le fichier est effacé chez Gemini après l'analyse
       if (!res.ok) return setError(res.message);
       setResult(res.result);
-      setTimeout(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+      setTimeout(() => smoothScrollIntoView(resultRef.current), 50);
     });
   }
 

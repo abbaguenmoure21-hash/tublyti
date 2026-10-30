@@ -7,6 +7,7 @@ import { resolveScope } from '@/lib/scope';
 import { PhaseBadge, PHASE_LABELS } from '@/components/tublyti';
 import { getMgiBand, type ConfidenceResult } from '@/lib/scoring/mgi';
 import { OutlierBadge } from '@/components/tublyti/outlier-badge';
+import { GRADE_COLORS } from '@/components/tublyti/feasibility-badge';
 import { AnalyzeVideoButton } from '@/components/tublyti/video-analysis';
 import { TopicSaturationCard, OutlierSaturationButton } from '@/components/tublyti/saturation';
 import { topicSaturation } from '@/lib/saturation';
@@ -404,14 +405,8 @@ export default async function TopicPage({
 
         {/* Feasibility card */}
         {showFeasibility && (
-          <div className="bento-card !px-[18px] !py-3.5 flex items-center gap-3">
-            <span className={`inline-flex items-center justify-center h-8 w-8 rounded-[8px] text-[16px] font-bold ${
-              userFeasibility.grade === 'A' ? 'bg-[#30D158]/15 text-[#30D158]'
-              : userFeasibility.grade === 'B' ? 'bg-[#0A84FF]/15 text-[#0A84FF]'
-              : userFeasibility.grade === 'C' ? 'bg-[--bg-surface-2] text-muted-foreground'
-              : userFeasibility.grade === 'D' ? 'bg-[#FF9F0A]/15 text-[#FF9F0A]'
-              : 'bg-[#FF453A]/15 text-[#FF453A]'
-            }`}>
+          <div className="bg-card rounded-xl p-6 !px-[18px] !py-3.5 flex items-center gap-3">
+            <span className={`inline-flex items-center justify-center h-8 w-8 rounded-[8px] text-[16px] font-bold ${GRADE_COLORS[userFeasibility.grade]}`}>
               {userFeasibility.grade}
             </span>
             <div className="flex flex-col gap-0.5">
@@ -423,7 +418,7 @@ export default async function TopicPage({
           </div>
         )}
         {showNoChannelHint && (
-          <div className="bento-card !px-[18px] !py-3.5 flex items-center gap-3">
+          <div className="bg-card rounded-xl p-6 !px-[18px] !py-3.5 flex items-center gap-3">
             <span className="inline-flex items-center justify-center h-8 w-8 rounded-[8px] text-[16px] bg-muted text-muted-foreground">?</span>
             <div className="flex flex-col gap-0.5">
               <span className="text-[13px] font-semibold">Faisabilité</span>
@@ -443,10 +438,10 @@ export default async function TopicPage({
             <SignalSection signals={signals} />
 
             {/* Frustrations */}
-            <section className="bento-card !p-0 flex flex-col">
-              <div className="flex items-center justify-between px-5 py-4 border-b border-[--glass-border] bg-[--bg-surface-1]/50">
+            <section className="bg-card rounded-xl p-6 !p-0 flex flex-col">
+              <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-muted/50">
                 <h2 className="text-headline">Ce que réclame le public</h2>
-                <span className="text-[13px] font-medium text-muted-foreground bg-[--bg-surface-2] px-2 py-0.5 rounded border border-[--glass-border]">
+                <span className="text-[13px] font-medium text-muted-foreground bg-muted px-2 py-0.5 rounded border border-border">
                   {totalFrustrated} commentaire{totalFrustrated !== 1 ? 's' : ''}
                 </span>
               </div>
@@ -456,7 +451,7 @@ export default async function TopicPage({
                 </div>
               ) : (
                 frustrationList.slice(0, 8).map((f) => (
-                  <div key={f.commentId} className="px-5 py-4 border-b border-[--glass-border] flex flex-col gap-2.5 last:border-0 hover:bg-[--bg-surface-1]/30 transition-colors">
+                  <div key={f.commentId} className="px-5 py-4 border-b border-border flex flex-col gap-2.5 last:border-0 hover:bg-muted transition-colors">
                     <p className="line-clamp-4 text-[15px] leading-relaxed text-foreground">« {f.text} »</p>
                     <div className="flex items-center gap-2.5 text-[12px] text-muted-foreground">
                       <span className="inline-flex h-6 shrink-0 items-center rounded-md bg-muted px-2 font-medium text-muted-foreground">
@@ -513,8 +508,8 @@ export default async function TopicPage({
             />
 
             {/* Competitors */}
-            <section className="bento-card !p-0 flex flex-col">
-              <div className="px-5 py-4 border-b border-[--glass-border] bg-[--bg-surface-1]/50">
+            <section className="bg-card rounded-xl p-6 !p-0 flex flex-col">
+              <div className="px-5 py-4 border-b border-border bg-muted/50">
                 <h2 className="text-headline">Vidéos déjà publiées sur ce sujet</h2>
               </div>
               {competitors.length === 0 ? (
@@ -525,7 +520,7 @@ export default async function TopicPage({
                 competitors.map((c) => {
                   const tagInfo = COMPETITOR_TAGS[c.tag] ?? { label: c.tag, color: 'text-muted-foreground' };
                   return (
-                    <div key={c.id} className="px-5 py-3.5 border-b border-[--glass-border] flex gap-3.5 items-center last:border-0 hover:bg-[--bg-surface-1]/30 transition-colors">
+                    <div key={c.id} className="px-5 py-3.5 border-b border-border flex gap-3.5 items-center last:border-0 hover:bg-muted transition-colors">
                       <a href={`https://youtube.com/watch?v=${c.id}`} target="_blank" rel="noopener noreferrer" className="shrink-0 relative group">
                         <img 
                           src={`https://i.ytimg.com/vi/${c.id}/mqdefault.jpg`} 
@@ -592,10 +587,12 @@ function ScoreCard({ label, value, unit, sub }: { label: string; value: string; 
   );
 }
 
+// Palette catégorielle des sources (DESIGN.md), distincte des couleurs de phase.
 const SIGNAL_COLORS: Record<string, string> = {
-  trends: '#0A84FF',
-  yt_views: '#30D158',
-  hn: '#FF9F0A',
+  trends: 'var(--chart-1)',
+  yt_views: 'var(--chart-2)',
+  hn: 'var(--chart-3)',
+  se: 'var(--chart-4)',
 };
 
 const SIGNAL_LABELS: Record<string, string> = {
@@ -636,7 +633,7 @@ function SignalSection({ signals }: { signals: Record<string, { date: string; va
   ])].filter(Boolean);
 
   return (
-    <section className="bento-card px-5 py-4 flex flex-col gap-3">
+    <section className="bg-card rounded-xl p-6 px-5 py-4 flex flex-col gap-3">
       <div className="flex items-center justify-between">
         <h2 className="text-headline">Signaux sur 90 jours</h2>
         <div className="flex gap-4 text-[12px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -650,7 +647,7 @@ function SignalSection({ signals }: { signals: Record<string, { date: string; va
       </div>
 
       <svg width="100%" viewBox={`0 0 ${W} ${H + 20}`} role="img" aria-label="Signaux sur 90 jours">
-        <g stroke="var(--glass-border)" strokeDasharray="3 4">
+        <g stroke="var(--border)" strokeDasharray="3 4">
           {[T, 80, 140].map((y) => (
             <line key={y} x1={L} y1={y} x2={R} y2={y} />
           ))}

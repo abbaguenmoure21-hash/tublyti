@@ -1,12 +1,13 @@
 import type { FeasibilityGrade } from '@/lib/scoring/feasibility';
 
-const GRADE_COLORS: Record<FeasibilityGrade, string> = {
-  A: 'bg-success/15 text-success',
-  B: 'bg-phase-2/15 text-phase-2-ink',
+/** Couleurs des notes de faisabilité. Jamais de couleur de phase (réservées aux phases). Texte ≥ 4,5:1. */
+export const GRADE_COLORS: Record<FeasibilityGrade, string> = {
+  A: 'bg-success-soft text-success-ink',
+  B: 'bg-primary-soft text-primary-ink',
   C: 'bg-muted text-muted-foreground',
-  D: 'bg-warning/15 text-warning',
-  E: 'bg-destructive/15 text-destructive',
-  F: 'bg-destructive/15 text-destructive',
+  D: 'bg-warning-soft text-warning-ink',
+  E: 'bg-destructive/10 text-destructive',
+  F: 'bg-destructive/10 text-destructive',
 };
 
 const GRADE_MEANING: Record<FeasibilityGrade, string> = {

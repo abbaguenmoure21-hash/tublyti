@@ -1,6 +1,7 @@
 'use client';
 
 import { getMgiBand, type ConfidenceResult } from '@/lib/scoring/mgi';
+import { mgiColor } from './mgi-scale';
 import { useMounted } from '@/hooks/use-mounted';
 
 const STALE_AFTER_MS = 36 * 3_600_000;
@@ -25,10 +26,10 @@ function formatFreshness(scoredAt: string | null | undefined): string | null {
   if (!scoredAt) return null;
   const diff = Date.now() - new Date(scoredAt).getTime();
   const hours = Math.floor(diff / 3_600_000);
-  if (hours < 1) return 'mis \u00e0 jour \u00e0 l\u2019instant';
-  if (hours < 24) return `mis \u00e0 jour il y a ${hours} h`;
+  if (hours < 1) return 'mis à jour à l’instant';
+  if (hours < 24) return `mis à jour il y a ${hours} h`;
   const days = Math.floor(hours / 24);
-  return `mis \u00e0 jour il y a ${days} j`;
+  return `mis à jour il y a ${days} j`;
 }
 
 export function MgiScore({
@@ -46,7 +47,7 @@ export function MgiScore({
   const mounted = useMounted();
   if (value === null || value === undefined) {
     return (
-      <span className="text-sm text-muted-foreground tabular-nums">\u2014</span>
+      <span className="text-sm text-muted-foreground tabular-nums">—</span>
     );
   }
 
@@ -66,7 +67,7 @@ export function MgiScore({
             className="h-full rounded-full transition-all duration-200"
             style={{
               width: `${Math.min(Math.max(rounded, 0), 100)}%`,
-              backgroundColor: band.color,
+              backgroundColor: mgiColor(band.color),
             }}
           />
         </div>
@@ -86,17 +87,11 @@ export function MgiScore({
             className="h-full rounded-full transition-all duration-200"
             style={{
               width: `${Math.min(Math.max(rounded, 0), 100)}%`,
-              backgroundColor: band.color,
+              backgroundColor: mgiColor(band.color),
             }}
           />
         </div>
-        <span
-          className="text-[11px] font-medium px-1.5 py-0.5 rounded"
-          style={{
-            backgroundColor: band.color + '33',
-            color: band.color === '#e2e6ff' || band.color === '#b7c0f8' ? '#424882' : band.color,
-          }}
-        >
+        <span className="text-[11px] font-medium px-1.5 py-0.5 rounded bg-primary-soft text-primary-ink">
           {band.label}
         </span>
       </div>
@@ -112,9 +107,9 @@ export function MgiScore({
               </span>
             </span>
           )}
-          {confidence && freshness && <span className="text-border">\u00b7</span>}
+          {confidence && freshness && <span className="text-border">·</span>}
           {freshness && (
-            <span className={isStale ? 'text-[var(--warning)]' : ''}>
+            <span className={isStale ? 'text-warning-ink' : ''}>
               {freshness}
             </span>
           )}
