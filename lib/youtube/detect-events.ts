@@ -59,8 +59,17 @@ export async function detectChanges(
         meta: { views_at_change: snap.views },
       });
 
-      // Update stored title
-      await db.from('videos').update({ title: snap.title }).eq('id', snap.videoId);
+      // Update stored title; the old title's vector is stale: re-embed and re-compare next pass.
+      const { error: titleErr } = await db
+        .from('videos')
+        .update({ title: snap.title, title_embedding: null, attach_checked_at: null })
+        .eq('id', snap.videoId);
+      if (titleErr && /attach_checked_at/.test(titleErr.message)) {
+        // Migration 00033 not applied yet.
+        await db.from('videos').update({ title: snap.title, title_embedding: null }).eq('id', snap.videoId);
+      } else if (titleErr) {
+        console.error(`title update ${snap.videoId}: ${titleErr.message}`);
+      }
     }
 
     // Thumbnail change : YouTube garde la même adresse quand la miniature change, la vraie détection
