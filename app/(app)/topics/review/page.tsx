@@ -123,7 +123,7 @@ export default async function TopicsReviewPage() {
               {proposed.length}
             </Badge>
           </div>
-          <p className="text-[16px] font-medium text-muted-foreground/80">
+          <p className="text-[16px] font-medium text-muted-foreground">
             Validez, rejetez ou fusionnez les sujets détectés automatiquement.
           </p>
         </div>

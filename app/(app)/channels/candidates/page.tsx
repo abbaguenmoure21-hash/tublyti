@@ -87,7 +87,7 @@ export default async function CandidatesPage({
                 {(candidates ?? []).length}
               </span>
             </div>
-            <p className="text-[16px] font-medium text-muted-foreground/80">
+            <p className="text-[16px] font-medium text-muted-foreground">
               Chaque nuit, TubLyTI lit les chaînes découvertes, détecte leur niche à partir de leurs derniers titres, puis les ajoute au catalogue ou les écarte. Quand au moins 3 bonnes chaînes semblables ne ressemblent à aucune niche, une nouvelle niche est créée pour elles. Celles qui restent ici n’ont pas encore été lues.
             </p>
           </div>
@@ -163,7 +163,7 @@ export default async function CandidatesPage({
                           <div className="flex flex-col gap-1 items-start">
                             {facelessBadge(c.faceless_probability as number | null)}
                             {(c.faceless_reason as string | null) ? (
-                              <span className="text-[11px] font-medium text-muted-foreground/70 max-w-[200px] line-clamp-2">
+                              <span className="text-[11px] font-medium text-muted-foreground max-w-[200px] line-clamp-2">
                                 {c.faceless_reason as string}
                               </span>
                             ) : null}
@@ -180,7 +180,7 @@ export default async function CandidatesPage({
                               )}
                             </span>
                           ) : (
-                            <span className="text-muted-foreground/50">À lire cette nuit</span>
+                            <span className="text-muted-foreground">À lire cette nuit</span>
                           )}
                         </td>
                         <td className="px-5 py-4">

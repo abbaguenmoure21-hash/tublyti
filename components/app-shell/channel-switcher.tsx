@@ -217,7 +217,7 @@ export function ChannelSwitcher({ items, value, onChange, compact = false }: Cha
                       <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: i.color }} aria-hidden="true" />
                       <span className="truncate">{i.label}</span>
                       {!i.verified && (
-                        <span className="ml-auto shrink-0 rounded-md bg-phase-1-soft px-1.5 text-[10px] font-semibold text-phase-1-ink" title="Chaîne pas encore vérifiée">
+                        <span className="ml-auto shrink-0 rounded-md bg-phase-1-soft px-1.5 text-xs font-semibold text-phase-1-ink" title="Chaîne pas encore vérifiée">
                           À vérifier
                         </span>
                       )}

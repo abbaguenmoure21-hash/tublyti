@@ -71,7 +71,7 @@ function ScatterPlot({
           </linearGradient>
         </defs>
         <rect x={L} y={T} width={161} height={148} fill="url(#ocean-gradient)" rx="8" />
-        <text x={L + 10} y={T + 20} fontSize={11} fontWeight={600} fill="#30D158" opacity={0.8}>
+        <text x={L + 10} y={T + 20} fontSize={12} fontWeight={600} fill="var(--phase-2-ink)">
           OCÉAN BLEU
         </text>
 
@@ -88,7 +88,7 @@ function ScatterPlot({
         <line x1={L} y1={T} x2={L} y2={B} stroke="var(--muted-foreground)" strokeOpacity={0.25} />
 
         {/* Y axis labels */}
-        <g fontSize={11} fill="var(--muted-foreground)" fontFamily="inherit" opacity={0.7}>
+        <g fontSize={12} fill="var(--muted-foreground)" fontFamily="inherit">
           <text x={46} y={B + 4} textAnchor="end">0</text>
           <text x={46} y={301} textAnchor="end">25</text>
           <text x={46} y={209} textAnchor="end">50</text>
@@ -96,7 +96,7 @@ function ScatterPlot({
           <text x={46} y={24} textAnchor="end">100</text>
         </g>
         {/* X axis labels */}
-        <g fontSize={11} fill="var(--muted-foreground)" fontFamily="inherit" opacity={0.7}>
+        <g fontSize={12} fill="var(--muted-foreground)" fontFamily="inherit">
           <text x={L} y={410} textAnchor="middle">0</text>
           <text x={217} y={410} textAnchor="middle">3</text>
           <text x={378} y={410} textAnchor="middle">6</text>
@@ -104,10 +104,10 @@ function ScatterPlot({
           <text x={700} y={410} textAnchor="middle">12+</text>
         </g>
         {/* Axis titles */}
-        <text x={388} y={440} textAnchor="middle" fontWeight={500} fontSize={11} fill="var(--muted-foreground)">
+        <text x={388} y={440} textAnchor="middle" fontWeight={500} fontSize={12} fill="var(--muted-foreground)">
           Vidéos de qualité publiées sur 180 jours
         </text>
-        <text x={14} y={205} textAnchor="middle" fontWeight={500} fontSize={11} fill="var(--muted-foreground)" transform="rotate(-90 14 205)">
+        <text x={14} y={205} textAnchor="middle" fontWeight={500} fontSize={12} fill="var(--muted-foreground)" transform="rotate(-90 14 205)">
           Demande (0–100)
         </text>
 

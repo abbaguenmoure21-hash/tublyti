@@ -661,13 +661,13 @@ function SignalSection({ signals }: { signals: Record<string, { date: string; va
         </g>
         <line x1={L} y1={B} x2={R} y2={B} stroke="var(--muted-foreground)" strokeOpacity={0.15} />
 
-        <g fontSize={11} className="fill-muted-foreground/60 font-medium">
+        <g fontSize={12} className="fill-muted-foreground font-medium">
           <text x={28} y={T + 4} textAnchor="end">100</text>
           <text x={28} y={84} textAnchor="end">66</text>
           <text x={28} y={144} textAnchor="end">33</text>
         </g>
 
-        <g fontSize={11} className="fill-muted-foreground/60 font-medium">
+        <g fontSize={12} className="fill-muted-foreground font-medium">
           {dateLabels.map((d, i) => (
             <text
               key={d}

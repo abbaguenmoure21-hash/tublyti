@@ -152,7 +152,7 @@ export default async function ChannelsPage() {
                             <span className="truncate max-w-[250px] block">{ch.title ?? ch.id}</span>
                             <ExternalLink className="w-3.5 h-3.5 opacity-0 group-hover:opacity-100 transition-opacity" />
                           </Link>
-                          <span className="text-[12px] text-muted-foreground/70 font-medium">
+                          <span className="text-[12px] text-muted-foreground font-medium">
                             {ch.id.startsWith('UC') ? 'YouTube' : 'Source'}
                           </span>
                         </div>

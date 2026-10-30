@@ -111,7 +111,7 @@ function Chart({
         {[0, 25, 50, 75, 100].map((v) => (
           <g key={`y${v}`}>
             <line x1={PAD.l} x2={W - PAD.r} y1={y(v)} y2={y(v)} stroke="var(--border)" strokeWidth={1} />
-            <text x={PAD.l - 10} y={y(v) + 4} textAnchor="end" fontSize={11} fill="var(--muted-foreground)">
+            <text x={PAD.l - 10} y={y(v) + 4} textAnchor="end" fontSize={12} fill="var(--muted-foreground)">
               {v}
             </text>
           </g>
@@ -127,7 +127,7 @@ function Chart({
               strokeOpacity={v === 1 ? 0.45 : 1}
               strokeDasharray={v === 1 ? '4 4' : undefined}
             />
-            <text x={x(v)} y={PAD.t + ih + 18} textAnchor="middle" fontSize={11} fill="var(--muted-foreground)">
+            <text x={x(v)} y={PAD.t + ih + 18} textAnchor="middle" fontSize={12} fill="var(--muted-foreground)">
               {v === 0 ? '0' : v === 1 ? 'moyenne' : `×${nf1.format(v)}`}
             </text>
           </g>

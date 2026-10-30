@@ -398,7 +398,7 @@ export default async function TodayPage() {
           <input
             type="search"
             placeholder="Rechercher un sujet, une chaîne, une action…"
-            className="flex-1 bg-transparent border-0 outline-none text-foreground placeholder:text-muted-foreground/70 text-[14px] font-medium"
+            className="flex-1 bg-transparent border-0 outline-none text-foreground placeholder:text-muted-foreground text-[14px] font-medium"
             aria-label="Recherche"
             readOnly
           />
@@ -431,7 +431,7 @@ export default async function TodayPage() {
             <h1 className="text-[28px] font-bold leading-tight tracking-[-0.02em] text-foreground">
               Tes meilleurs sujets cette semaine
             </h1>
-            <p className="text-[15px] font-medium text-muted-foreground/80">
+            <p className="text-[15px] font-medium text-muted-foreground">
               {subtitleParts.length > 0 ? subtitleParts.join('. ') + '.' : 'Aucun score disponible pour le moment.'}
             </p>
           </div>
@@ -471,8 +471,8 @@ export default async function TodayPage() {
           <div className="bg-white/60 dark:bg-white/5 backdrop-blur-xl border border-white/40 dark:border-white/10 shadow-sm rounded-2xl p-4 flex flex-col gap-1.5">
             <span className="text-[12px] text-muted-foreground font-semibold">Vidéos TubLyTI <span className="opacity-60 font-medium">J+30</span></span>
             <div className="flex items-baseline gap-2">
-              <span className="text-[28px] font-bold text-mono-metric tabular-nums tracking-tight leading-none text-muted-foreground/40">—</span>
-              <span className="text-[11px] text-muted-foreground/70 font-medium">Pas encore de données</span>
+              <span className="text-[28px] font-bold text-mono-metric tabular-nums tracking-tight leading-none text-muted-foreground">—</span>
+              <span className="text-xs text-muted-foreground font-medium">Pas encore de données</span>
             </div>
           </div>
         </div>
@@ -536,7 +536,7 @@ export default async function TodayPage() {
                         </div>
                         
                         {t.quote && (
-                          <p className="text-[13px] leading-relaxed text-muted-foreground/80 italic line-clamp-2 -mt-1 bg-black/5 dark:bg-white/5 p-2.5 rounded-xl border border-black/5 dark:border-white/5">
+                          <p className="text-[13px] leading-relaxed text-muted-foreground italic line-clamp-2 -mt-1 bg-black/5 dark:bg-white/5 p-2.5 rounded-xl border border-black/5 dark:border-white/5">
                             « {t.quote} »
                           </p>
                         )}
@@ -628,14 +628,14 @@ export default async function TodayPage() {
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img src={evt.oldValue} alt="" className="object-cover w-full h-full" />
                           <div className="absolute inset-0 flex items-center justify-center">
-                            <span className="text-[9px] uppercase tracking-wider font-bold bg-black/60 text-white px-1.5 py-0.5 rounded backdrop-blur-sm">Avant</span>
+                            <span className="text-xs uppercase tracking-wider font-bold bg-foreground/80 text-background px-1.5 py-0.5 rounded backdrop-blur-sm">Avant</span>
                           </div>
                         </div>
                         <div className="relative aspect-video rounded-md overflow-hidden shadow-sm border border-black/10">
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img src={evt.newValue} alt="" className="object-cover w-full h-full" />
                           <div className="absolute inset-0 flex items-center justify-center">
-                            <span className="text-[9px] uppercase tracking-wider font-bold bg-green-500/80 text-white px-1.5 py-0.5 rounded backdrop-blur-sm">Après</span>
+                            <span className="text-xs uppercase tracking-wider font-bold bg-phase-2-soft text-phase-2-ink px-1.5 py-0.5 rounded backdrop-blur-sm">Après</span>
                           </div>
                         </div>
                       </div>
@@ -724,7 +724,7 @@ export default async function TodayPage() {
                             {change.label}
                           </Link>
                           {' '}
-                          <span className="text-muted-foreground/80">
+                          <span className="text-muted-foreground">
                             {PHASE_LABELS[change.fromPhase!] ?? `Phase ${change.fromPhase}`}
                           </span>
                           <span className="text-muted-foreground/60 mx-1.5">→</span>
@@ -763,7 +763,7 @@ export default async function TodayPage() {
                     className="group flex items-center gap-3 text-[14px] hover:bg-black/5 dark:hover:bg-white/5 -mx-3 px-3 py-3 rounded-[14px] transition-all border border-transparent hover:border-black/5 dark:hover:border-white/10"
                   >
                     <span className="flex-1 font-semibold text-foreground group-hover:text-primary transition-colors">{t.label}</span>
-                    <span className="text-[11px] font-bold uppercase tracking-[0.1em] text-muted-foreground/70 shrink-0">{t.nicheName}</span>
+                    <span className="text-[11px] font-bold uppercase tracking-[0.1em] text-muted-foreground shrink-0">{t.nicheName}</span>
                     <span className="tabular-nums text-mono-metric text-foreground text-[12px] font-bold shrink-0 bg-white dark:bg-white/10 px-2.5 py-1 rounded-md border border-black/5 dark:border-white/10 shadow-sm">
                       J+{t.ageDays}
                     </span>

@@ -180,7 +180,7 @@ export function AngleSection({
           <span className="text-[14px] font-semibold leading-snug">{a.title}</span>
         </div>
         {a.hook && (
-          <p className="text-[13px] leading-relaxed text-muted-foreground/90 pl-9 line-clamp-2">{a.hook}</p>
+          <p className="text-[13px] leading-relaxed text-muted-foreground pl-9 line-clamp-2">{a.hook}</p>
         )}
         <div className="flex gap-2 pt-1.5 pl-9">
           <button
@@ -262,7 +262,7 @@ export function AngleSection({
             {selectedAngle.rationale && (
               <div className="flex flex-col gap-2.5">
                 <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Justification & Stratégie</span>
-                <p className="text-[13.5px] text-muted-foreground/90 leading-relaxed whitespace-pre-wrap bg-[--bg-surface-1]/50 p-3.5 rounded-md border border-[--glass-border]">
+                <p className="text-[13.5px] text-muted-foreground leading-relaxed whitespace-pre-wrap bg-[--bg-surface-1]/50 p-3.5 rounded-md border border-[--glass-border]">
                   {selectedAngle.rationale}
                 </p>
               </div>

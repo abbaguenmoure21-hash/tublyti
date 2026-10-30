@@ -122,7 +122,7 @@ export default async function JobsPage() {
             <p className="text-sm font-medium text-muted-foreground">
               Aucune tâche enregistrée pour le moment.
             </p>
-            <p className="text-xs text-muted-foreground/70 mt-1">
+            <p className="text-xs text-muted-foreground mt-1">
               Lance une tâche ci-dessus pour commencer.
             </p>
           </CardContent>

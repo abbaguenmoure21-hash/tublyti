@@ -71,7 +71,7 @@ export function MatriceFilters({ channels }: { channels: Channel[] }) {
           <h1 className="text-[28px] font-bold leading-tight tracking-[-0.015em] text-foreground">
             Où sont les océans bleus ?
           </h1>
-          <p className="text-[15px] font-medium text-muted-foreground/80">
+          <p className="text-[15px] font-medium text-muted-foreground">
             En haut à gauche : demande massive, presque aucune vidéo de qualité.
           </p>
         </div>
@@ -228,7 +228,7 @@ export function MatriceFilters({ channels }: { channels: Channel[] }) {
         })}
 
         <div className="flex-1" />
-        <span className="text-[12px] font-medium text-muted-foreground/80 px-2">
+        <span className="text-[12px] font-medium text-muted-foreground px-2">
           Taille du point = score MGI
         </span>
       </div>
