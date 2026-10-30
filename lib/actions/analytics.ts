@@ -92,15 +92,26 @@ export async function disconnectAnalytics(id: string): Promise<{ error?: string;
   if (!tok) return { success: true };
   try {
     const refresh = decrypt(tok.refresh_token_enc as string);
-    await fetch(`https://oauth2.googleapis.com/revoke?token=${encodeURIComponent(refresh)}`, {
+    const res = await fetch(`https://oauth2.googleapis.com/revoke?token=${encodeURIComponent(refresh)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     });
-  } catch {
+    if (!res.ok) console.error('[analytics] Google token revoke failed', res.status);
+  } catch (e) {
     // Le jeton est effacé de toute façon ; il peut aussi être retiré depuis myaccount.google.com.
+    console.error('[analytics] Google token revoke failed', e instanceof Error ? e.message : e);
   }
-  await db.from('user_channel_tokens').delete().eq('user_channel_id', id).eq('user_id', user.id);
-  await db.from('channel_analytics').delete().eq('user_channel_id', id);
+  const { error: delError } = await db
+    .from('user_channel_tokens')
+    .delete()
+    .eq('user_channel_id', id)
+    .eq('user_id', user.id);
+  if (delError) {
+    console.error('[analytics] token delete failed', delError.message);
+    return { error: 'La déconnexion n’a pas abouti. Réessaie dans un instant.' };
+  }
+  const { error: analyticsError } = await db.from('channel_analytics').delete().eq('user_channel_id', id);
+  if (analyticsError) console.error('[analytics] channel_analytics delete failed', analyticsError.message);
   revalidatePath('/my-channel');
   return { success: true };
 }

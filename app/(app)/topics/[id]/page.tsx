@@ -4,7 +4,7 @@ import type { Metadata } from 'next';
 import { createServiceClient } from '@/lib/supabase/server';
 import { requireUser, isDbReady } from '@/lib/auth/session';
 import { resolveScope } from '@/lib/scope';
-import { PhaseBadge, MgiScore, PHASE_LABELS } from '@/components/tublyti';
+import { PhaseBadge, PHASE_LABELS } from '@/components/tublyti';
 import { getMgiBand, type ConfidenceResult } from '@/lib/scoring/mgi';
 import { OutlierBadge } from '@/components/tublyti/outlier-badge';
 import { AnalyzeVideoButton } from '@/components/tublyti/video-analysis';
@@ -173,7 +173,7 @@ export default async function TopicPage({
 
   // Get latest views
   const videoIds = (videos ?? []).map((v: Record<string, unknown>) => v.id as string);
-  let videoViews: Record<string, number> = {};
+  const videoViews: Record<string, number> = {};
   if (videoIds.length > 0) {
     const { data: snaps } = await db
       .from('video_snapshots')
@@ -191,7 +191,7 @@ export default async function TopicPage({
   }
 
   // Fetch outlier scores for these videos
-  let videoOutliers: Record<string, { score: number; ageDays: number; method: string; baseline: number }> = {};
+  const videoOutliers: Record<string, { score: number; ageDays: number; method: string; baseline: number }> = {};
   if (videoIds.length > 0) {
     const { data: outliers } = await db
       .from('video_outliers')
@@ -428,7 +428,7 @@ export default async function TopicPage({
             <div className="flex flex-col gap-0.5">
               <span className="text-[13px] font-semibold">Faisabilité</span>
               <span className="text-[13px] text-muted-foreground">
-                <Link href="/settings#chaines" className="text-primary hover:underline">Ajoute l'adresse YouTube de ta chaîne dans Réglages</Link> pour voir tes chances.
+                <Link href="/settings#chaines" className="text-primary hover:underline">Ajoute l’adresse YouTube de ta chaîne dans Réglages</Link> pour voir tes chances.
               </span>
             </div>
           </div>

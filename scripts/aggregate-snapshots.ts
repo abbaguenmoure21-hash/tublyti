@@ -47,7 +47,7 @@ async function main() {
 
   let totalAggregated = 0;
   let totalDeleted = 0;
-  let offset = 0;
+  const offset = 0;
 
   // Process in batches
   while (true) {

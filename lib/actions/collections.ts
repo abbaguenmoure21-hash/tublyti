@@ -10,9 +10,11 @@ const NO_ACCESS = { error: 'Connecte-toi pour utiliser les favoris.' } as const;
 type ToolsUser = NonNullable<Awaited<ReturnType<typeof getToolsUser>>>;
 
 /** Limite une requête aux collections du compte (après la migration 00019). */
+// Q is a supabase-js filter builder whose eq() returns `this`. A generic constraint
+// on Q triggers TS2589 (builder types too deep), hence the narrow structural cast.
+type EqFilterable<Q> = { eq(column: string, value: string): Q };
 function mine<Q>(q: Q, user: ToolsUser): Q {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return user.personal ? (q as any).eq('user_id', user.id) : q;
+  return user.personal ? (q as unknown as EqFilterable<Q>).eq('user_id', user.id) : q;
 }
 
 /** Collection « Favoris » du compte, créée au premier usage. */

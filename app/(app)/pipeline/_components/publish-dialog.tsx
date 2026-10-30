@@ -36,8 +36,8 @@ export function PublishDialog({
               Publier « {card.angleTitle} »
             </DialogPrimitive.Title>
             <DialogPrimitive.Description className="text-[13px] text-muted-foreground mt-1">
-              Entre l'identifiant ou l'URL de la vidéo YouTube publiée.
-              L'API vérifiera que la vidéo existe (1 unité de quota).
+              Entre l’identifiant ou l’URL de la vidéo YouTube publiée.
+              L’API vérifiera que la vidéo existe (1 unité de quota).
             </DialogPrimitive.Description>
 
             <form onSubmit={handleSubmit} className="mt-4 space-y-4">

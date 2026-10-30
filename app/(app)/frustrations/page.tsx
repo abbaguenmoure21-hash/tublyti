@@ -1,5 +1,4 @@
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Card, CardContent } from '@/components/ui/card';
 
 export const metadata = { title: 'Questions du public' };
 import { Badge } from '@/components/ui/badge';
@@ -450,7 +449,7 @@ export default async function FrustrationsPage({
         <div className="space-y-6">
           <div className="flex items-center gap-3">
             <p className="text-[15px] font-medium text-muted-foreground">
-              Vidéos de chaînes <strong className="text-foreground font-bold">≤ 50 k abonnés</strong> qui surperforment la moyenne de leur chaîne. Les vidéos des 60 derniers jours d'abord, puis le reste de l'année ; 2 par chaîne au plus. Mis à jour chaque nuit.
+              Vidéos de chaînes <strong className="text-foreground font-bold">≤ 50 k abonnés</strong> qui surperforment la moyenne de leur chaîne. Les vidéos des 60 derniers jours d’abord, puis le reste de l’année ; 2 par chaîne au plus. Mis à jour chaque nuit.
             </p>
           </div>
           {outlierVideos.length === 0 ? (
@@ -584,7 +583,7 @@ export default async function FrustrationsPage({
                             {/* Comment text */}
                             <div className="flex-1 min-w-0 mb-5">
                               <p className="text-[15px] font-medium text-foreground whitespace-pre-wrap break-words leading-relaxed italic border-l-[3px] border-primary/30 pl-4 py-1">
-                                "{item.commentText}"
+                                “{item.commentText}”
                               </p>
                               {item.requestedAngle && (
                                 <div className="mt-5 bg-primary/5 border border-primary/10 rounded-2xl p-4">

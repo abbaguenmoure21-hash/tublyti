@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useTransition, useId, useEffect } from 'react';
+import { useState, useCallback, useTransition, useId } from 'react';
 import {
   DndContext,
   DragOverlay,
@@ -18,8 +18,7 @@ import { KanbanColumn } from './kanban-column';
 import { KanbanCardComponent } from './kanban-card';
 import { PublishDialog } from './publish-dialog';
 import { moveAngleToProduction, moveAngleToIdea, publishAngle } from '@/lib/actions/pipeline';
-import { LayoutGrid } from 'lucide-react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { useMounted } from '@/hooks/use-mounted';
 
 const COLUMNS: { id: PipelineColumn; label: string; color: string }[] = [
   { id: 'idea', label: 'Idée', color: 'bg-phase-0' },
@@ -41,11 +40,7 @@ export function KanbanBoard({
   const [activeCard, setActiveCard] = useState<PipelineCard | null>(null);
   const [publishCard, setPublishCard] = useState<PipelineCard | null>(null);
   const dndId = useId();
-  const [isMounted, setIsMounted] = useState(false);
-
-  useEffect(() => {
-    setIsMounted(true);
-  }, []);
+  const isMounted = useMounted();
 
   const staticCount = 3;
   let visibleNiches = niches.slice(0, staticCount);

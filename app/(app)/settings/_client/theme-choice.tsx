@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import { useTheme } from 'next-themes';
+import { useMounted } from '@/hooks/use-mounted';
 
 const OPTIONS = [
   { value: 'light', label: 'Clair' },
@@ -11,8 +11,7 @@ const OPTIONS = [
 
 export function ThemeChoice() {
   const { theme, setTheme } = useTheme();
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  const mounted = useMounted();
   const current = mounted ? theme ?? 'system' : 'system';
 
   return (

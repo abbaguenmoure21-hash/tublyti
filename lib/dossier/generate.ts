@@ -155,7 +155,7 @@ export async function fetchDossierData(topicId: string): Promise<DossierData | n
     .limit(5);
 
   const videoIds = (vids ?? []).map((v: Record<string, unknown>) => v.id as string);
-  let videoViews: Record<string, number> = {};
+  const videoViews: Record<string, number> = {};
   if (videoIds.length > 0) {
     const { data: snaps } = await db
       .from('video_snapshots')

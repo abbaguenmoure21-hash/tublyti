@@ -299,6 +299,17 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    async function init() {
+      const settings = await getSettings();
+      if (!settings.token) { setConfigured(false); setLoading(false); return; }
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (tab?.url) {
+        setPage(parseYoutubeUrl(tab.url));
+        if (tab.id) await fetchData(tab.id);
+      } else {
+        setLoading(false);
+      }
+    }
     init();
     const listener = (tabId: number, changeInfo: chrome.tabs.TabChangeInfo) => {
       if (changeInfo.url) {
@@ -310,18 +321,6 @@ export default function App() {
     chrome.tabs.onUpdated.addListener(listener);
     return () => chrome.tabs.onUpdated.removeListener(listener);
   }, [fetchData]);
-
-  async function init() {
-    const settings = await getSettings();
-    if (!settings.token) { setConfigured(false); setLoading(false); return; }
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (tab?.url) {
-      setPage(parseYoutubeUrl(tab.url));
-      if (tab.id) await fetchData(tab.id);
-    } else {
-      setLoading(false);
-    }
-  }
 
   async function handleAction(action: string, topicId: string) {
     setActionLoading(action);

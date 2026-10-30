@@ -1,6 +1,13 @@
 'use client';
 
 import { getMgiBand, type ConfidenceResult } from '@/lib/scoring/mgi';
+import { useMounted } from '@/hooks/use-mounted';
+
+const STALE_AFTER_MS = 36 * 3_600_000;
+
+function isOlderThan(iso: string, ms: number): boolean {
+  return Date.now() - new Date(iso).getTime() > ms;
+}
 
 const CONFIDENCE_LABELS: Record<string, string> = {
   high: 'Élevée',
@@ -35,6 +42,8 @@ export function MgiScore({
   scoredAt?: string | null;
   compact?: boolean;
 }) {
+  // Date.now() differs between server and client: only evaluate staleness after hydration.
+  const mounted = useMounted();
   if (value === null || value === undefined) {
     return (
       <span className="text-sm text-muted-foreground tabular-nums">\u2014</span>
@@ -44,9 +53,7 @@ export function MgiScore({
   const rounded = Math.round(value);
   const band = getMgiBand(rounded);
   const freshness = formatFreshness(scoredAt);
-  const isStale = scoredAt
-    ? Date.now() - new Date(scoredAt).getTime() > 36 * 3_600_000
-    : false;
+  const isStale = mounted && scoredAt ? isOlderThan(scoredAt, STALE_AFTER_MS) : false;
 
   if (compact) {
     return (

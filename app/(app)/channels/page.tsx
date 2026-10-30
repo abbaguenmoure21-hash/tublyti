@@ -6,8 +6,6 @@ export const dynamic = 'force-dynamic';
 
 export const metadata = { title: 'Chaînes suivies' };
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { createServiceClient } from '@/lib/supabase/server';
 import { AddChannelForm } from './_components/add-channel-form';
 import { DeleteChannelButton } from './_components/delete-channel-button';
@@ -88,17 +86,17 @@ export default async function ChannelsPage() {
             <Tv className="w-8 h-8" />
           </div>
           <p className="text-[20px] font-bold text-foreground tracking-tight">
-            Aucune chaîne suivie pour l'instant
+            Aucune chaîne suivie pour l’instant
           </p>
           <p className="text-[15px] text-muted-foreground mt-3 max-w-[460px] leading-relaxed">
-            Collez l'URL ou l'ID d'une chaîne YouTube dans le formulaire ci-dessus,
+            Collez l’URL ou l’ID d’une chaîne YouTube dans le formulaire ci-dessus,
             choisissez sa niche, et cliquez sur Ajouter. TubLyTI commencera à analyser
             ses vidéos et les commentaires de son audience.
           </p>
           <div className="flex flex-col items-start gap-4 mt-10 text-[14px] text-muted-foreground font-medium bg-black/5 dark:bg-white/5 p-6 rounded-[20px] border border-black/5 dark:border-white/10">
             <p className="flex items-center gap-3">
               <span className="flex items-center justify-center w-6 h-6 rounded-full bg-background border border-border text-foreground text-[12px] font-bold shadow-sm">1</span>
-              Copiez l'URL d'une chaîne YouTube
+              Copiez l’URL d’une chaîne YouTube
             </p>
             <p className="flex items-center gap-3">
               <span className="flex items-center justify-center w-6 h-6 rounded-full bg-background border border-border text-foreground text-[12px] font-bold shadow-sm">2</span>
@@ -106,7 +104,7 @@ export default async function ChannelsPage() {
             </p>
             <p className="flex items-center gap-3">
               <span className="flex items-center justify-center w-6 h-6 rounded-full bg-background border border-border text-foreground text-[12px] font-bold shadow-sm">3</span>
-              Cliquez sur Ajouter — c'est tout !
+              Cliquez sur Ajouter — c’est tout !
             </p>
           </div>
         </div>

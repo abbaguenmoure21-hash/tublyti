@@ -168,7 +168,7 @@ export async function runYouTubeSearch(
         if (newVideoIds.length === 0) continue;
 
         // Enrich with videos.list (1 unit per 50 videos) for views, duration, subs
-        let enrichMap = new Map<string, { views: number; durationS: number; channelTitle: string }>();
+        const enrichMap = new Map<string, { views: number; durationS: number; channelTitle: string }>();
         if (quotaUsed + 1 <= softLimit) {
           const enrichUrl = new URL(`${YT_BASE}/videos`);
           enrichUrl.searchParams.set('key', apiKey);

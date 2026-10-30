@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import { motion, useSpring, useTransform, useMotionValue } from 'framer-motion';
+import { useEffect, useState } from 'react';
+import { motion, useSpring, useMotionValue } from 'framer-motion';
 
 function getGaugeColor(value: number): string {
   if (value >= 80) return '#30D158'; // Emerald — excellent

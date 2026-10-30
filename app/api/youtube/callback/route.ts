@@ -12,6 +12,14 @@ import {
   type GoogleChannels,
 } from '@/lib/youtube/google-oauth';
 
+// Revocation stays non-blocking, but a failure must leave a trace in the logs.
+function logRevoke(res: Response): void {
+  if (!res.ok) console.error('[oauth] Google token revoke failed', res.status);
+}
+function logRevokeError(e: unknown): void {
+  console.error('[oauth] Google token revoke failed', e instanceof Error ? e.message : e);
+}
+
 /**
  * Retour de Google : lit les chaînes du compte choisi, révoque aussitôt l'accès,
  * puis renvoie le client sur Réglages pour choisir la thématique de chaque chaîne.
@@ -63,7 +71,7 @@ export async function GET(request: NextRequest) {
   await fetch(`https://oauth2.googleapis.com/revoke?token=${encodeURIComponent(token.access_token)}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-  }).catch(() => undefined);
+  }).then(logRevoke, logRevokeError);
 
   const channels: GoogleChannels['channels'] = (data?.items ?? []).map((item) => {
     const sn = item.snippet as { title: string; customUrl?: string; thumbnails?: Record<string, { url?: string }> };
@@ -112,7 +120,7 @@ async function connectAnalytics(
     fetch(`https://oauth2.googleapis.com/revoke?token=${encodeURIComponent(token.refresh_token ?? token.access_token ?? '')}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    }).catch(() => undefined);
+    }).then(logRevoke, logRevokeError);
 
   const db = createServiceClient();
   const { data: row } = await db
@@ -154,6 +162,8 @@ async function connectAnalytics(
   if (!row.verified_at) await db.from('user_channels').update({ verified_at: new Date().toISOString() }).eq('id', row.id);
   await db.from('channel_analytics').delete().eq('user_channel_id', row.id);
   // Impressions et CTR des miniatures : la tâche de rapport quotidien est créée tout de suite (premier fichier sous 48 h).
-  if (token.access_token) await ensureReachJob(db, row.id, token.access_token).catch(() => undefined);
+  if (token.access_token) await ensureReachJob(db, row.id, token.access_token).catch((e: unknown) => {
+    console.error('[oauth] ensureReachJob failed', e instanceof Error ? e.message : e);
+  });
   return go(scopes.some((sc) => sc.endsWith('yt-analytics-monetary.readonly')) ? 'ok' : 'ok-sans-revenus');
 }

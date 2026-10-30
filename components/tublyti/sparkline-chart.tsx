@@ -1,7 +1,7 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { useMemo } from 'react';
+import { useId, useMemo } from 'react';
 
 interface SparklineChartProps {
   data: number[];
@@ -66,6 +66,9 @@ export function SparklineChart({
     return d;
   }, [data, width, height]);
 
+  // Stable across server/client render; must be called before any early return.
+  const gradientId = `spark-grad-${useId().replace(/:/g, '')}`;
+
   const fillPath = useMemo(() => {
     if (!path) return '';
     const lastPoint = data.length > 0 ? width - 2 : 0;
@@ -82,9 +85,6 @@ export function SparklineChart({
       </div>
     );
   }
-
-  // Unique gradient ID
-  const gradientId = useMemo(() => `spark-grad-${Math.random().toString(36).slice(2, 8)}`, []);
 
   return (
     <svg
