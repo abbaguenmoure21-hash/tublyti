@@ -3,6 +3,13 @@
 Adresse : `https://tublyti.vercel.app/api/mcp` · authentification : jeton TubLyTI (Réglages › Connexion à Claude), en-tête `Authorization: Bearer <jeton>`.
 Lecture seule. Le jeton ne voit que les chaînes **vérifiées** de son propriétaire. Les quatre outils répondent en **JSON** (texte JSON dans le contenu MCP).
 
+**Erreurs (tous les outils)** : `isError: true` et un texte JSON `{ "error": "<code>", "message": "<phrase en français>", … }`. Codes :
+`invalid` (paramètre invalide), `not_found`, `out_of_scope` (hors des thématiques du compte), `read_only`, `admin_only`,
+`rate_limited` (+ `limit`, `reset_at` = minuit UTC suivant), `already_exists`, `analytics_not_connected`, `no_data_yet`,
+`youtube_unavailable` (YouTube ne répond pas / quota : réessayer plus tard, l'identifiant n'est pas en cause),
+`budget_exceeded`, `server_error`. `analyze_video` garde en plus ses propres codes (`disabled`, `private`, `live`, `too_long`, `budget`, `busy`, `gemini`).
+Les paramètres hors bornes (ex. `limit: 0` ou `51`) sont refusés par la validation MCP avant tout décompte.
+
 ## 1. `list_my_channels` — aucun paramètre
 ```json
 { "channels": [ { "channel_id": "UC…", "name": "…", "handle": "@…", "subscribers": 1234, "niche": "…", "analytics_connected": true } ] }

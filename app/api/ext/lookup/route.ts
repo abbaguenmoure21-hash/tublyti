@@ -9,9 +9,11 @@ import { RealYouTubeClient } from '@/lib/youtube/client';
 import { escapeLike } from '@/lib/utils';
 
 const bodySchema = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('video'), id: z.string().min(1) }),
-  z.object({ type: z.literal('channel'), id: z.string().min(1) }),
-  z.object({ type: z.literal('search'), query: z.string().min(1) }),
+  // Strict formats: an arbitrary string must not trigger YouTube calls (quota) nor pollute the cache.
+  z.object({ type: z.literal('video'), id: z.string().regex(/^[\w-]{11}$/) }),
+  // UC id, @handle or legacy /c/<name> (what the extension extracts from the URL).
+  z.object({ type: z.literal('channel'), id: z.string().regex(/^(UC[\w-]{22}|@[\w.\-%]{1,100}|[\w.\-%]{1,100})$/) }),
+  z.object({ type: z.literal('search'), query: z.string().trim().min(1).max(200) }),
   z.object({ type: z.literal('ping') }),
 ]);
 

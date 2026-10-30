@@ -4,15 +4,26 @@ import { NextRequest, NextResponse } from 'next/server';
  * CORS headers for the Chrome extension API routes.
  * Allows any chrome-extension:// origin (we validate via api_tokens, not origin).
  */
+function isAllowedOrigin(origin: string): boolean {
+  const appUrls = [process.env.NEXT_PUBLIC_APP_URL, process.env.NEXT_PUBLIC_SITE_URL].filter(Boolean);
+  if (appUrls.includes(origin)) return true;
+  if (!origin.startsWith('chrome-extension://')) return false;
+  // Optional allow-list (comma-separated chrome-extension://<id>): defence in depth once the
+  // extension ID is known. Without it, any extension origin is accepted (auth stays token-based).
+  const allowList = (process.env.EXT_ALLOWED_ORIGINS ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+  return allowList.length === 0 || allowList.includes(origin);
+}
+
 function corsHeaders(origin: string | null): Record<string, string> {
   const headers: Record<string, string> = {
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Access-Control-Max-Age': '86400',
+    // The allowed origin is echoed back: caches must key on it.
+    Vary: 'Origin',
   };
 
-  // Allow chrome-extension origins and the TubLyTI app itself
-  if (origin && (origin.startsWith('chrome-extension://') || origin === process.env.NEXT_PUBLIC_APP_URL)) {
+  if (origin && isAllowedOrigin(origin)) {
     headers['Access-Control-Allow-Origin'] = origin;
   }
 

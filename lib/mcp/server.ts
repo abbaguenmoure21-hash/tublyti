@@ -13,6 +13,7 @@ import { getChannelAnalytics, getVideoRetention, getVideoTotals, PERIODS, type P
 import { analyzeVideo, parseVideoId, retentionContextFrom, type RetentionContext } from '@/lib/video/analyze';
 import { linkSaturation, topicSaturation } from '@/lib/saturation';
 import { compareKeywords } from '@/lib/keywords';
+import { generateAnglesForTopic } from '@/lib/services/angles';
 
 // ── Constants ──────────────────────────────────────────────────────────
 
@@ -41,8 +42,59 @@ function ok(text: string): TextResult {
   return { content: [{ type: 'text' as const, text }] };
 }
 
-function fail(text: string): TextResult {
-  return { content: [{ type: 'text' as const, text }], isError: true };
+/** Structured error (same contract as analyze_video): `{ "error": <code>, "message": <text>, ...extra }`. */
+type ErrorCode =
+  | 'invalid'
+  | 'not_found'
+  | 'out_of_scope'
+  | 'read_only'
+  | 'admin_only'
+  | 'rate_limited'
+  | 'already_exists'
+  | 'youtube_unavailable'
+  | 'analytics_not_connected'
+  | 'no_account'
+  | 'budget_exceeded'
+  | 'server_error'
+  | (string & {});
+
+interface Blocked {
+  error: ErrorCode;
+  message: string;
+  [extra: string]: unknown;
+}
+
+function failJson(code: ErrorCode | Blocked, message?: string, extra?: Record<string, unknown>): TextResult {
+  const body: Blocked = typeof code === 'string' ? { error: code, message: message ?? '', ...extra } : code;
+  return { content: [{ type: 'text' as const, text: JSON.stringify(body) }], isError: true };
+}
+
+const SERVER_ERROR = 'Petit souci de notre cote, reessaie dans un instant.';
+
+/** Logs the internal error and returns a neutral message (no Postgres detail sent to the client). */
+function serverError(tool: string, err: unknown): TextResult {
+  console.error(`[mcp:${tool}]`, err);
+  const code = (err as { code?: string } | null)?.code;
+  if (code === '23505') return failJson('already_exists', 'Cet element existe deja.');
+  return failJson('server_error', SERVER_ERROR);
+}
+
+const VIDEO_ID_RE = /^[\w-]{11}$/;
+const CHANNEL_ID_RE = /^UC[\w-]{22}$/;
+
+/** GET on the YouTube Data API with a timeout. Returns null when YouTube fails (quota, 5xx, timeout, non-JSON). */
+async function youtubeGet<T>(url: string): Promise<T | null> {
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(10_000), cache: 'no-store' });
+    if (!res.ok) {
+      console.error('[mcp:youtube] HTTP', res.status);
+      return null;
+    }
+    return (await res.json().catch(() => null)) as T | null;
+  } catch (err) {
+    console.error('[mcp:youtube]', err);
+    return null;
+  }
 }
 
 /**
@@ -55,32 +107,49 @@ function anglesVisibleTo(token: McpTokenInfo): string {
 
 const OUT_OF_SCOPE = 'Ce contenu ne fait pas partie de tes thematiques. Ajoute la thematique dans Reglages > Mes chaines.';
 
+function nextUtcMidnight(): string {
+  const d = new Date();
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1)).toISOString();
+}
+
+/** Counts one call against the daily limit. Call it AFTER input validation for costly tools. */
+async function consume(token: McpTokenInfo, toolName: string): Promise<Blocked | null> {
+  const rl = await checkRateLimit(token.id, toolName);
+  if (rl.error) return { error: 'server_error', message: SERVER_ERROR };
+  if (!rl.allowed) {
+    return {
+      error: 'rate_limited',
+      message: `Plafond quotidien atteint pour ${toolName} (${rl.limit}/jour). Les compteurs sont reinitialises a minuit UTC.`,
+      limit: rl.limit,
+      reset_at: nextUtcMidnight(),
+    };
+  }
+  return null;
+}
+
 async function guard(
   token: McpTokenInfo,
   toolName: string,
-  opts?: { write?: boolean; admin?: boolean; topicId?: string; channelId?: string },
-): Promise<string | null> {
+  opts?: { write?: boolean; admin?: boolean; topicId?: string; channelId?: string; consume?: boolean },
+): Promise<Blocked | null> {
   if (opts?.admin && !token.isAdmin) {
-    return 'Outil reserve a l\'equipe TubLyTI.';
+    return { error: 'admin_only', message: 'Outil reserve a l\'equipe TubLyTI.' };
   }
   if (opts?.topicId && token.nicheIds !== null) {
     const { data } = await createServiceClient().from('topics').select('niche_id').eq('id', opts.topicId).maybeSingle();
-    if (!data) return 'Sujet introuvable.';
-    if (!canSeeNiche(token, data.niche_id as string)) return OUT_OF_SCOPE;
+    if (!data) return { error: 'not_found', message: 'Sujet introuvable.' };
+    if (!canSeeNiche(token, data.niche_id as string)) return { error: 'out_of_scope', message: OUT_OF_SCOPE };
   }
   if (opts?.channelId && token.nicheIds !== null) {
     const { data } = await createServiceClient().from('channels').select('niche_id').eq('id', opts.channelId).maybeSingle();
-    if (!data) return 'Chaine introuvable.';
-    if (!canSeeNiche(token, data.niche_id as string)) return OUT_OF_SCOPE;
+    if (!data) return { error: 'not_found', message: 'Chaine introuvable.' };
+    if (!canSeeNiche(token, data.niche_id as string)) return { error: 'out_of_scope', message: OUT_OF_SCOPE };
   }
   if (opts?.write && !canWrite(token)) {
-    return 'Acces refuse : ce jeton est en lecture seule. Cree un jeton lecture/ecriture dans Reglages > Connexion a Claude.';
+    return { error: 'read_only', message: 'Acces refuse : ce jeton est en lecture seule. Cree un jeton lecture/ecriture dans Reglages > Connexion a Claude.' };
   }
-  const rl = await checkRateLimit(token.id, toolName);
-  if (!rl.allowed) {
-    return `Plafond quotidien atteint pour ${toolName} (${rl.limit}/jour). Les compteurs sont reinitialises a minuit UTC.`;
-  }
-  return null;
+  if (opts?.consume === false) return null;
+  return consume(token, toolName);
 }
 
 async function resolveNicheOrFail(db: ReturnType<typeof createServiceClient>, query: string, token: McpTokenInfo) {
@@ -120,7 +189,7 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
     {},
     async () => {
       const blocked = await guard(token, 'list_niches');
-      if (blocked) return fail(blocked);
+      if (blocked) return failJson(blocked);
 
       const db = createServiceClient();
       const { data: niches } = await inScope(
@@ -148,7 +217,7 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
     {},
     async () => {
       const blocked = await guard(token, 'list_today');
-      if (blocked) return fail(blocked);
+      if (blocked) return failJson(blocked);
 
       const db = createServiceClient();
       const scoredAt = await getLatestScoreDate(db);
@@ -218,20 +287,20 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
     'list_opportunities',
     'Liste les sujets d\'une niche tries par MGI avec les composantes (demande, offre, frustration, monetisation) et la phase. Utilise pour explorer une niche en detail. Accepte le nom, la categorie ou la chaine liee.',
     {
-      niche: z.string().describe('Nom, categorie ou chaine liee de la niche'),
-      limit: z.number().optional().describe('Nombre max de resultats (defaut 10, max 50)'),
-      phase: z.number().optional().describe('Filtrer par phase (0=emergence, 1=viralite courte, 2=fenetre ideale, 3=saturation)'),
+      niche: z.string().trim().min(1).max(100).describe('Nom, categorie ou chaine liee de la niche'),
+      limit: z.number().int().min(1).max(50).optional().describe('Nombre max de resultats (defaut 10, max 50)'),
+      phase: z.number().int().min(0).max(3).optional().describe('Filtrer par phase (0=A surveiller, 1=Ca monte, 2=C\'est le moment, 3=Trop tard)'),
     },
     async ({ niche, limit, phase }) => {
       const blocked = await guard(token, 'list_opportunities');
-      if (blocked) return fail(blocked);
+      if (blocked) return failJson(blocked);
 
       const db = createServiceClient();
       const maxResults = Math.min(limit ?? 10, 50);
 
       const resolved = await resolveNicheOrFail(db, niche, token);
       if (!resolved.niche) {
-        return fail(`Niche « ${niche} » introuvable. Disponibles : ${resolved.available.join(', ')}.`);
+        return failJson('not_found', `Niche « ${niche} » introuvable. Disponibles : ${resolved.available.join(', ')}.`, { available: resolved.available });
       }
       const nicheRow = resolved.niche;
       const scoredAt = await getLatestScoreDate(db);
@@ -249,7 +318,7 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
       }
 
       const { data: scores, error: qErr } = await query;
-      if (qErr) return fail(`Erreur: ${qErr.message}`);
+      if (qErr) return serverError('list_opportunities', qErr);
       if (!scores?.length) return ok(`Aucun sujet score pour la niche « ${nicheRow.name} ».`);
 
       const lines = scores.map((s: Record<string, unknown>, i: number) => {
@@ -273,12 +342,12 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
     'search_topics',
     'Recherche semantique de sujets par embedding (Voyage AI). Utilise quand l\'utilisateur decrit un sujet en langage naturel plutot que par son nom exact. Retourne les sujets les plus proches avec leur phase.',
     {
-      query: z.string().describe('Description du sujet en langage naturel'),
-      limit: z.number().optional().describe('Nombre max (defaut 10, max 20)'),
+      query: z.string().trim().min(1).max(200).describe('Description du sujet en langage naturel'),
+      limit: z.number().int().min(1).max(20).optional().describe('Nombre max (defaut 10, max 20)'),
     },
     async ({ query, limit }) => {
       const blocked = await guard(token, 'search_topics');
-      if (blocked) return fail(blocked);
+      if (blocked) return failJson(blocked);
 
       const maxResults = Math.min(limit ?? 10, 20);
       const voyageKey = process.env.VOYAGE_API_KEY;
@@ -319,10 +388,13 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
         signal: AbortSignal.timeout(15_000),
       });
 
-      if (!embedRes.ok) return fail(`Erreur Voyage AI: ${embedRes.status}`);
+      if (!embedRes.ok) {
+        console.error('[mcp:search_topics] embedding HTTP', embedRes.status);
+        return failJson('server_error', SERVER_ERROR);
+      }
       const embedData = await embedRes.json();
       const queryVec = embedData.data?.[0]?.embedding;
-      if (!queryVec) return fail('Echec de l\'embedding.');
+      if (!queryVec) return failJson('server_error', SERVER_ERROR);
 
       const db = createServiceClient();
       const vecStr = `[${queryVec.join(',')}]`;
@@ -385,7 +457,7 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
     },
     async ({ topic_id }) => {
       const blocked = await guard(token, 'get_topic_gap', { topicId: topic_id });
-      if (blocked) return fail(blocked);
+      if (blocked) return failJson(blocked);
 
       const db = createServiceClient();
 
@@ -395,7 +467,7 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
         .eq('id', topic_id)
         .single();
 
-      if (!topic) return fail('Sujet introuvable.');
+      if (!topic) return failJson('not_found', 'Sujet introuvable.');
 
       const niche = topic.niches as unknown as { name: string; rpm_coefficient: number } | null;
 
@@ -498,7 +570,7 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
     },
     async ({ topic_id }) => {
       const blocked = await guard(token, 'get_topic_phase', { topicId: topic_id });
-      if (blocked) return fail(blocked);
+      if (blocked) return failJson(blocked);
 
       const db = createServiceClient();
 
@@ -508,7 +580,7 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
         .eq('id', topic_id)
         .single();
 
-      if (!topic) return fail('Sujet introuvable.');
+      if (!topic) return failJson('not_found', 'Sujet introuvable.');
 
       const thirtyDaysAgo = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
       const { data: history } = await db
@@ -551,11 +623,11 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
     'Liste les frustrations exprimees dans les commentaires YouTube pour un sujet, avec la citation exacte, le nombre de likes et le lien vers le commentaire. C\'est le coeur de la proposition TubLyTI : les angles de contenu viennent des douleurs reelles.',
     {
       topic_id: z.string().uuid().describe('UUID du sujet'),
-      limit: z.number().optional().describe('Nombre max (defaut 20, max 50)'),
+      limit: z.number().int().min(1).max(50).optional().describe('Nombre max (defaut 20, max 50)'),
     },
     async ({ topic_id, limit }) => {
       const blocked = await guard(token, 'list_frustrations', { topicId: topic_id });
-      if (blocked) return fail(blocked);
+      if (blocked) return failJson(blocked);
 
       const maxResults = Math.min(limit ?? 20, 50);
       const db = createServiceClient();
@@ -566,7 +638,7 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
         .eq('id', topic_id)
         .single();
 
-      if (!topic) return fail('Sujet introuvable.');
+      if (!topic) return failJson('not_found', 'Sujet introuvable.');
 
       const { data: frustRows } = await db
         .from('comment_labels')
@@ -596,16 +668,16 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
     'get_niche_dossier',
     'Genere un dossier complet d\'une niche en Markdown : top 10 sujets avec MGI decompose, chaines suivies, formules de titres, fourchette RPM, frustrations et concurrents du sujet n°1. Exportable tel quel.',
     {
-      niche: z.string().describe('Nom, categorie ou chaine liee de la niche'),
+      niche: z.string().trim().min(1).max(100).describe('Nom, categorie ou chaine liee de la niche'),
     },
     async ({ niche }) => {
       const blocked = await guard(token, 'get_niche_dossier');
-      if (blocked) return fail(blocked);
+      if (blocked) return failJson(blocked);
 
       const db = createServiceClient();
       const resolved = await resolveNicheOrFail(db, niche, token);
       if (!resolved.niche) {
-        return fail(`Niche « ${niche} » introuvable. Disponibles : ${resolved.available.join(', ')}.`);
+        return failJson('not_found', `Niche « ${niche} » introuvable. Disponibles : ${resolved.available.join(', ')}.`, { available: resolved.available });
       }
       const nicheRow = resolved.niche;
       const scoredAt = await getLatestScoreDate(db);
@@ -779,13 +851,13 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
     'channel_outliers',
     'Liste les videos outliers d\'une chaine : videos dont les vues depassent significativement la mediane de la chaine. Le score d\'outlier est date.',
     {
-      channel_id: z.string().describe('ID YouTube de la chaine'),
-      min_ratio: z.number().optional().describe('Ratio minimum vues/mediane (defaut 2.0)'),
-      limit: z.number().optional().describe('Nombre max (defaut 10)'),
+      channel_id: z.string().trim().regex(CHANNEL_ID_RE, 'ID de chaine invalide (UC + 22 caracteres)').describe('ID YouTube de la chaine'),
+      min_ratio: z.number().min(0).max(1000).optional().describe('Ratio minimum vues/mediane (defaut 2.0)'),
+      limit: z.number().int().min(1).max(50).optional().describe('Nombre max (defaut 10, max 50)'),
     },
     async ({ channel_id, min_ratio, limit }) => {
       const blocked = await guard(token, 'channel_outliers', { channelId: channel_id });
-      if (blocked) return fail(blocked);
+      if (blocked) return failJson(blocked);
 
       const db = createServiceClient();
       const minR = min_ratio ?? 2.0;
@@ -797,7 +869,7 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
         .eq('id', channel_id)
         .single();
 
-      if (!channel) return fail('Chaine introuvable.');
+      if (!channel) return failJson('not_found', 'Chaine introuvable.');
 
       const { data: videos } = await db
         .from('videos')
@@ -866,12 +938,12 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
     'similar_channels',
     'Trouve les chaines les plus similaires par embedding (moyenne des 20 derniers titres de videos). Retourne les 5 plus proches avec leur score de similarite. Si aucun embedding n\'est disponible, retourne les chaines de la meme niche.',
     {
-      channel_id: z.string().describe('ID YouTube de la chaine de reference'),
-      limit: z.number().optional().describe('Nombre max (defaut 5, max 20)'),
+      channel_id: z.string().trim().regex(CHANNEL_ID_RE, 'ID de chaine invalide (UC + 22 caracteres)').describe('ID YouTube de la chaine de reference'),
+      limit: z.number().int().min(1).max(20).optional().describe('Nombre max (defaut 5, max 20)'),
     },
     async ({ channel_id, limit }) => {
       const blocked = await guard(token, 'similar_channels', { channelId: channel_id });
-      if (blocked) return fail(blocked);
+      if (blocked) return failJson(blocked);
 
       const db = createServiceClient();
       const maxResults = Math.min(limit ?? 5, 20);
@@ -882,7 +954,7 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
         .eq('id', channel_id)
         .single();
 
-      if (!channel) return fail('Chaine introuvable.');
+      if (!channel) return failJson('not_found', 'Chaine introuvable.');
 
       // Try embedding-based similarity first
       if (channel.embedding) {
@@ -930,23 +1002,27 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
 
   mcp.tool(
     'generate_angles',
-    'Genere 5 angles de contenu pour un sujet a partir des frustrations reelles des spectateurs. Cout estime : ~0,02 $ par appel (Claude Sonnet). Le budget IA quotidien est plafonne. Necessite un jeton lecture/ecriture.',
+    'Réservé à l\'équipe TubLyTI. Génère 5 angles de contenu pour un sujet à partir des frustrations réelles des spectateurs. Coût estimé : ~0,02 $ par appel. Le budget IA mensuel est plafonné. Nécessite un jeton lecture/écriture. Réponse : texte (erreurs en JSON { error, message }).',
     {
       topic_id: z.string().uuid().describe('UUID du sujet'),
     },
     async ({ topic_id }) => {
-      const blocked = await guard(token, 'generate_angles', { write: true, admin: true });
-      if (blocked) return fail(blocked);
-
-      const baseUrl = process.env.NEXT_PUBLIC_SITE_URL ?? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
-      const res = await fetch(`${baseUrl}/api/topics/${topic_id}/angles`, { method: 'POST' });
-      const data = await res.json();
-
-      if (!res.ok) {
-        return fail(data.error ?? 'Erreur lors de la generation des angles.');
-      }
+      // Counted only once the topic is known to exist (an invalid ID must not burn the daily quota).
+      const blocked = await guard(token, 'generate_angles', { write: true, admin: true, consume: false });
+      if (blocked) return failJson(blocked);
 
       const db = createServiceClient();
+      const { data: exists } = await db.from('topics').select('id').eq('id', topic_id).maybeSingle();
+      if (!exists) return failJson('not_found', 'Sujet introuvable.');
+      const limited = await consume(token, 'generate_angles');
+      if (limited) return failJson(limited);
+
+      // Direct call to the shared service (the HTTP route requires CRON_SECRET, which we no longer forward).
+      const data = await generateAnglesForTopic(db, topic_id);
+      if (!data.ok) {
+        return failJson(data.code, data.message, data.code === 'budget_exceeded' ? { budget_remaining_usd: data.budgetRemainingUSD } : undefined);
+      }
+
       const { data: angles } = await db
         .from('angles')
         .select('id, title, hook, rationale')
@@ -973,12 +1049,12 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
     'Sauvegarde un sujet, une video, une chaine ou un angle dans les favoris (collection par defaut). Necessite un jeton lecture/ecriture.',
     {
       item_type: z.enum(['topic', 'video', 'channel', 'angle']).describe('Type d\'element'),
-      ref_id: z.string().describe('ID de l\'element a sauvegarder'),
-      note: z.string().optional().describe('Note optionnelle'),
+      ref_id: z.string().trim().min(1).max(64).describe('ID de l\'element a sauvegarder'),
+      note: z.string().max(500).optional().describe('Note optionnelle'),
     },
     async ({ item_type, ref_id, note }) => {
       const blocked = await guard(token, 'save_to_collection', { write: true });
-      if (blocked) return fail(blocked);
+      if (blocked) return failJson(blocked);
 
       const db = createServiceClient();
 
@@ -990,7 +1066,7 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
         ({ data: defaultCol } = await db.from('collections').insert({ name: 'Favoris', is_default: true, user_id: token.userId }).select('id').single());
       }
 
-      if (!defaultCol) return fail('Collection par defaut introuvable. Cree-en une dans Reglages.');
+      if (!defaultCol) return failJson('not_found', 'Collection par defaut introuvable. Cree-en une dans Reglages.');
 
       const { error: upsertErr } = await db
         .from('collection_items')
@@ -999,7 +1075,7 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
           { onConflict: 'collection_id,item_type,ref_id' },
         );
 
-      if (upsertErr) return fail(`Erreur : ${upsertErr.message}`);
+      if (upsertErr) return serverError('save_to_collection', upsertErr);
 
       return ok(`Element sauvegarde dans les favoris (${item_type} \`${ref_id}\`).`);
     },
@@ -1016,7 +1092,7 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
     },
     async ({ topic_id, angle_id }) => {
       const blocked = await guard(token, 'create_pipeline_card', { write: true, topicId: topic_id });
-      if (blocked) return fail(blocked);
+      if (blocked) return failJson(blocked);
 
       const db = createServiceClient();
 
@@ -1026,7 +1102,7 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
         .eq('id', topic_id)
         .single();
 
-      if (!topic) return fail('Sujet introuvable.');
+      if (!topic) return failJson('not_found', 'Sujet introuvable.');
 
       const { data: angle } = await db
         .from('angles')
@@ -1037,7 +1113,7 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
         .or(token.userId ? 'user_id.is.null' : anglesVisibleTo(token))
         .single();
 
-      if (!angle) return fail('Angle introuvable ou ne correspond pas au sujet.');
+      if (!angle) return failJson('not_found', 'Angle introuvable ou ne correspond pas au sujet.');
 
       if (token.userId) {
         // Compte client : nouvelle video dans SES « Mes videos » ; l'angle propose (commun) n'est pas modifie.
@@ -1049,7 +1125,7 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
           status: 'in_production',
           user_id: token.userId,
         });
-        if (insErr) return fail(`Erreur : ${insErr.message}`);
+        if (insErr) return serverError('create_pipeline_card', insErr);
       } else {
         await db.from('topics').update({ status: 'in_production' }).eq('id', topic_id);
         await db.from('angles').update({ status: 'in_production' }).eq('id', angle_id);
@@ -1066,13 +1142,13 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
     'Marque un angle comme publie en associant l\'ID de la video YouTube. Valide l\'existence de la video (1 unite de quota YouTube). Necessite un jeton lecture/ecriture.',
     {
       angle_id: z.string().uuid().describe('UUID de l\'angle a publier'),
-      video_id: z.string().describe('ID de la video YouTube publiee (ex: dQw4w9WgXcQ)'),
+      video_id: z.string().trim().regex(VIDEO_ID_RE, 'ID de video YouTube invalide (11 caracteres)').describe('ID de la video YouTube publiee (ex: dQw4w9WgXcQ)'),
     },
     async ({ angle_id, video_id }) => {
       const blocked = await guard(token, 'mark_published', { write: true });
-      if (blocked) return fail(blocked);
+      if (blocked) return failJson(blocked);
 
-      if (!video_id?.trim()) return fail('L\'identifiant de la video YouTube est requis.');
+      if (!video_id?.trim()) return failJson('invalid', 'L\'identifiant de la video YouTube est requis.');
 
       const db = createServiceClient();
 
@@ -1080,15 +1156,15 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
       if (token.userId) angleQ = angleQ.eq('user_id', token.userId);
       const { data: angle } = await angleQ.maybeSingle();
 
-      if (!angle) return fail('Video introuvable dans tes « Mes videos ».');
+      if (!angle) return failJson('not_found', 'Video introuvable dans tes « Mes videos ».');
 
       const ytKey = process.env.YOUTUBE_API_KEY;
       if (ytKey) {
-        const res = await fetch(
+        const yt = await youtubeGet<{ items?: unknown[] }>(
           `https://www.googleapis.com/youtube/v3/videos?part=id&id=${encodeURIComponent(video_id.trim())}&key=${ytKey}`,
         );
-        const data = await res.json();
-        if (!data.items?.length) return fail('Video YouTube introuvable. Verifie l\'identifiant.');
+        if (!yt) return failJson('youtube_unavailable', 'YouTube ne repond pas pour le moment, reessaie plus tard.');
+        if (!yt.items?.length) return failJson('not_found', 'Video YouTube introuvable. Verifie l\'identifiant.');
       }
 
       await db.from('angles').update({ status: 'published', video_id: video_id.trim() }).eq('id', angle_id);
@@ -1104,12 +1180,12 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
     'add_candidate_channel',
     'Ajoute une chaine YouTube a suivre dans une niche. Recupere les infos de base via l\'API YouTube (1 unite de quota). Necessite un jeton lecture/ecriture.',
     {
-      channel_id: z.string().describe('ID YouTube de la chaine (ex: UCxxxxxx)'),
-      niche: z.string().describe('Nom de la niche a laquelle rattacher la chaine'),
+      channel_id: z.string().trim().regex(CHANNEL_ID_RE, 'ID de chaine invalide (UC + 22 caracteres)').describe('ID YouTube de la chaine (ex: UCxxxxxx)'),
+      niche: z.string().min(1).max(100).describe('Nom de la niche a laquelle rattacher la chaine'),
     },
     async ({ channel_id, niche }) => {
       const blocked = await guard(token, 'add_candidate_channel', { write: true, admin: true });
-      if (blocked) return fail(blocked);
+      if (blocked) return failJson(blocked);
 
       const db = createServiceClient();
 
@@ -1119,11 +1195,11 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
         .eq('id', channel_id)
         .single();
 
-      if (existing) return fail(`La chaine « ${existing.title ?? channel_id} » est deja suivie.`);
+      if (existing) return failJson('already_exists', `La chaine « ${existing.title ?? channel_id} » est deja suivie.`);
 
       const resolved = await resolveNicheOrFail(db, niche, token);
       if (!resolved.niche) {
-        return fail(`Niche « ${niche} » introuvable. Disponibles : ${resolved.available.join(', ')}.`);
+        return failJson('not_found', `Niche « ${niche} » introuvable. Disponibles : ${resolved.available.join(', ')}.`, { available: resolved.available });
       }
 
       const ytKey = process.env.YOUTUBE_API_KEY;
@@ -1132,12 +1208,12 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
       let uploadsPlaylistId: string | null = null;
 
       if (ytKey) {
-        const res = await fetch(
+        const yt = await youtubeGet<{ items?: { snippet?: { title?: string }; statistics?: { subscriberCount?: string }; contentDetails?: { relatedPlaylists?: { uploads?: string } } }[] }>(
           `https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics,contentDetails&id=${encodeURIComponent(channel_id)}&key=${ytKey}`,
         );
-        const data = await res.json();
-        const item = data.items?.[0];
-        if (!item) return fail('Chaine YouTube introuvable. Verifie l\'identifiant.');
+        if (!yt) return failJson('youtube_unavailable', 'YouTube ne repond pas pour le moment, reessaie plus tard.');
+        const item = yt.items?.[0];
+        if (!item) return failJson('not_found', 'Chaine YouTube introuvable. Verifie l\'identifiant.');
 
         title = item.snippet?.title ?? channel_id;
         subscriberCount = Number(item.statistics?.subscriberCount) || null;
@@ -1152,7 +1228,7 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
         uploads_playlist_id: uploadsPlaylistId,
       });
 
-      if (insertErr) return fail(`Erreur : ${insertErr.message}`);
+      if (insertErr) return serverError('add_candidate_channel', insertErr);
 
       return ok(`Chaine « ${title} » ajoutee a la niche « ${resolved.niche.name} ».`);
     },
@@ -1235,14 +1311,14 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
     'get_my_channel_stats',
     'Statistiques d\'une de MES chaines verifiees : chiffres publics (vues habituelles, interactions, rythme, meilleur jour, Shorts vs longues, videos qui ont decolle, revenus estimes) et, si YouTube Analytics est connecte, les chiffres prives (vues, duree regardee, abonnes, sources de trafic, pays, appareils, age, revenus reels, RPM, CPM, meilleures videos). Lecture seule.',
     {
-      channel: z.string().optional().describe('Nom, @pseudo ou ID UC de la chaine (facultatif si une seule chaine)'),
+      channel: z.string().trim().max(100).optional().describe('Nom, @pseudo ou ID UC de la chaine (facultatif si une seule chaine)'),
       period: z.enum(['7', '28', '90', '365']).optional().describe('Periode YouTube Analytics en jours (defaut 28)'),
     },
     async ({ channel, period }) => {
       const blocked = await guard(token, 'get_my_channel_stats');
-      if (blocked) return fail(blocked);
+      if (blocked) return failJson(blocked);
       const picked = await pickMyChannel(channel);
-      if (!picked.channel) return fail(picked.error ?? 'Chaine introuvable.');
+      if (!picked.channel) return failJson('not_found', picked.error ?? 'Chaine introuvable.');
       const ch = picked.channel;
       const db = createServiceClient();
       const per = (period ?? '28') as Period;
@@ -1320,21 +1396,21 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
     'get_video_retention',
     'Courbe de retention d\'une video d\'une de MES chaines (YouTube Analytics doit etre connecte) : part des spectateurs encore presents au fil de la video, plus forte chute, comparaison avec les videos YouTube de meme duree. Lecture seule.',
     {
-      video: z.string().describe('Lien YouTube ou ID de la video (11 caracteres)'),
-      channel: z.string().optional().describe('Nom, @pseudo ou ID UC de la chaine (facultatif si une seule chaine)'),
+      video: z.string().trim().min(11).max(300).describe('Lien YouTube ou ID de la video (11 caracteres)'),
+      channel: z.string().trim().max(100).optional().describe('Nom, @pseudo ou ID UC de la chaine (facultatif si une seule chaine)'),
     },
     async ({ video, channel }) => {
       const blocked = await guard(token, 'get_video_retention');
-      if (blocked) return fail(blocked);
-      const id = video.match(/(?:v=|youtu\.be\/|\/shorts\/|\/live\/)([\w-]{11})/)?.[1] ?? (/^[\w-]{11}$/.test(video.trim()) ? video.trim() : null);
-      if (!id) return fail('Lien ou ID de video invalide.');
+      if (blocked) return failJson(blocked);
+      const id = parseVideoId(video);
+      if (!id) return failJson('invalid', 'Lien ou ID de video invalide.');
       const db = createServiceClient();
 
       // La video doit appartenir a une des chaines verifiees du compte.
       let ch: MyChannel | undefined;
       if (channel) {
         const picked = await pickMyChannel(channel);
-        if (!picked.channel) return fail(picked.error ?? 'Chaine introuvable.');
+        if (!picked.channel) return failJson('not_found', picked.error ?? 'Chaine introuvable.');
         ch = picked.channel;
       } else {
         const { data: v } = await db.from('videos').select('channel_id').eq('id', id).maybeSingle();
@@ -1345,13 +1421,14 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
           .not('verified_at', 'is', null);
         const list = (mine ?? []) as MyChannel[];
         ch = list.find((c) => c.youtube_channel_id && c.youtube_channel_id === v?.channel_id) ?? (list.length === 1 ? list[0] : undefined);
-        if (!ch) return fail(list.length ? 'Video introuvable sur tes chaines : precise le parametre channel.' : 'Aucune chaine verifiee sur ce compte.');
+        if (!ch) return failJson('not_found', list.length ? 'Video introuvable sur tes chaines : precise le parametre channel.' : 'Aucune chaine verifiee sur ce compte.');
       }
 
       const res = await getVideoRetention(db, ch.id, id);
-      if (res.status === 'absent') return fail('YouTube Analytics n\'est pas connecte pour cette chaine (TubLyTI > Ma chaine > « Connecter YouTube Analytics »).');
+      if (res.status === 'absent') return failJson('analytics_not_connected', 'YouTube Analytics n\'est pas connecte pour cette chaine (TubLyTI > Ma chaine > « Connecter YouTube Analytics »).');
       if (res.status === 'erreur') {
-        return fail(
+        return failJson(
+          res.reason === 'vide' ? 'no_data_yet' : res.reason === 'acces-retire' ? 'analytics_not_connected' : 'youtube_unavailable',
           res.reason === 'vide'
             ? 'YouTube n\'a pas encore assez de vues pour calculer la retention de cette video.'
             : res.reason === 'acces-retire'
@@ -1403,7 +1480,7 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
     {},
     async () => {
       const blocked = await guard(token, 'list_my_channels');
-      if (blocked) return fail(blocked);
+      if (blocked) return failJson(blocked);
       const db = createServiceClient();
       const mine = await myVerifiedChannels();
       const ids = mine.map((c) => c.id);
@@ -1451,14 +1528,14 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
     'list_my_videos',
     'Liste les videos publiees d\'une de MES chaines (JSON), les plus recentes d\'abord : video_id, titre, date, duree, vues, j\'aime, commentaires, format (long/short).',
     {
-      channel: z.string().optional().describe('Nom, @pseudo ou ID UC de la chaine (facultatif si une seule chaine)'),
-      limit: z.number().optional().describe('Nombre de videos (defaut 20, max 50)'),
+      channel: z.string().trim().max(100).optional().describe('Nom, @pseudo ou ID UC de la chaine (facultatif si une seule chaine)'),
+      limit: z.number().int().min(1).max(50).optional().describe('Nombre de videos (defaut 20, max 50)'),
     },
     async ({ channel, limit }) => {
       const blocked = await guard(token, 'list_my_videos');
-      if (blocked) return fail(blocked);
+      if (blocked) return failJson(blocked);
       const picked = await pickMyChannel(channel);
-      if (!picked.channel?.youtube_channel_id) return fail(picked.error ?? 'Chaine non reliee a YouTube.');
+      if (!picked.channel?.youtube_channel_id) return failJson('not_found', picked.error ?? 'Chaine non reliee a YouTube.');
       const db = createServiceClient();
       const { data: vids } = await db
         .from('videos')
@@ -1500,18 +1577,18 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
     'get_video_performance',
     'Performance d\'une video d\'une de MES chaines (JSON) : vues, duree moyenne regardee, % vu, abonnes gagnes, interactions, courbe de retention (point par point, en secondes et en part de la video), plus forte chute, comparaison aux videos de meme duree, et CTR/impressions des miniatures quand ils sont disponibles. Necessite YouTube Analytics connecte pour les chiffres prives.',
     {
-      video: z.string().describe('Lien YouTube ou ID de la video (11 caracteres)'),
+      video: z.string().trim().min(11).max(300).describe('Lien YouTube ou ID de la video (11 caracteres)'),
     },
     async ({ video }) => {
       const blocked = await guard(token, 'get_video_performance');
-      if (blocked) return fail(blocked);
-      const id = video.match(/(?:v=|youtu\.be\/|\/shorts\/|\/live\/)([\w-]{11})/)?.[1] ?? (/^[\w-]{11}$/.test(video.trim()) ? video.trim() : null);
-      if (!id) return fail('Lien ou ID de video invalide.');
+      if (blocked) return failJson(blocked);
+      const id = parseVideoId(video);
+      if (!id) return failJson('invalid', 'Lien ou ID de video invalide.');
       const db = createServiceClient();
       const { data: v } = await db.from('videos').select('id, title, published_at, duration_s, channel_id').eq('id', id).maybeSingle();
       const mine = await myVerifiedChannels();
       const ch = mine.find((c) => c.youtube_channel_id && c.youtube_channel_id === v?.channel_id);
-      if (!v || !ch) return fail('Video introuvable sur tes chaines verifiees (elle apparait apres la collecte de nuit qui suit sa publication).');
+      if (!v || !ch) return failJson('not_found', 'Video introuvable sur tes chaines verifiees (elle apparait apres la collecte de nuit qui suit sa publication).');
 
       const [{ data: snap }, totals, ret, { data: tok }, reach, { data: job }] = await Promise.all([
         db.from('video_snapshots').select('views, likes, comments, captured_at').eq('video_id', id).order('captured_at', { ascending: false }).limit(1).maybeSingle(),
@@ -1586,14 +1663,17 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
     'analyze_video',
     'Analyse le CONTENU d\'une video YouTube publique (JSON) : l\'IA regarde l\'image, ecoute l\'audio et lit le texte a l\'ecran. Renvoie resume, accroche (dit/montre/promesse/technique), structure par parties avec horaires, forme (style, visuels, voix, musique, rythme, coupes/min), relances d\'attention, appels a l\'action, pourquoi ca marche, points faibles, quoi reprendre, transcription. Pour une video d\'une de MES chaines avec Analytics connecte, explique aussi ce qui se passe a chaque decrochage de retention (retention_notes). Resultat garde en cache : une video deja analysee revient instantanement. Prend 30 s a 2 min la premiere fois.',
     {
-      video: z.string().describe('Lien YouTube ou ID de la video (11 caracteres)'),
+      video: z.string().trim().min(11).max(300).describe('Lien YouTube ou ID de la video (11 caracteres)'),
       force: z.boolean().optional().describe('Refaire l\'analyse meme si elle existe deja (administrateur uniquement)'),
     },
     async ({ video, force }) => {
-      const blocked = await guard(token, 'analyze_video');
-      if (blocked) return fail(blocked);
+      // Costly tool (Gemini): count the call only once the input is valid.
+      const blocked = await guard(token, 'analyze_video', { consume: false });
+      if (blocked) return failJson(blocked);
       const id = parseVideoId(video);
-      if (!id) return fail(JSON.stringify({ error: 'invalid', message: 'Lien ou ID de video invalide.' }));
+      if (!id) return failJson('invalid', 'Lien ou ID de video invalide.');
+      const limited = await consume(token, 'analyze_video');
+      if (limited) return failJson(limited);
       const db = createServiceClient();
 
       // Video d'une de mes chaines : on ajoute la courbe de retention.
@@ -1608,7 +1688,7 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
       }
 
       const res = await analyzeVideo(db, id, { userId: token.userId, retention, force: Boolean(force && token.isAdmin) });
-      if (!res.ok) return fail(JSON.stringify({ error: res.reason, message: res.message }));
+      if (!res.ok) return failJson(res.reason, res.message);
       const r = res.row;
       return json({
         video_id: r.videoId,
@@ -1630,33 +1710,56 @@ export function createMcpServer(token: McpTokenInfo): McpServer {
     'Le sujet ou la video est-il sature ? (JSON) Pour un sujet (topic_id) : niveau open|filling|saturated, score 0-100, chaines ayant publie ces 30 jours, rythme de publication avant/apres, performance des nouvelles videos vs anciennes, conseil. Pour n\'importe quelle video YouTube (video, meme hors catalogue : niche detectee automatiquement) : combien de fois son idee a ete copiee dans la niche depuis, par combien de chaines, et si les copies marchent encore.',
     {
       topic_id: z.string().uuid().optional().describe('ID du sujet'),
-      video: z.string().optional().describe('Lien YouTube ou ID de la video'),
+      video: z.string().trim().min(11).max(300).optional().describe('Lien YouTube ou ID de la video (exactement un des deux : topic_id ou video)'),
     },
     async ({ topic_id, video }) => {
+      if (!topic_id && !video) return failJson('invalid', 'Donne topic_id ou video.');
       const blocked = await guard(token, 'check_saturation', topic_id ? { topicId: topic_id } : undefined);
-      if (blocked) return fail(blocked);
+      if (blocked) return failJson(blocked);
       const db = createServiceClient();
       if (topic_id) return json({ topic_id, ...(await topicSaturation(db, topic_id)) });
       const id = video ? parseVideoId(video) : null;
-      if (!id) return fail('Donne topic_id ou video.');
+      if (!id) return failJson('invalid', 'Lien ou ID de video invalide.');
+      // Client token: a catalogue video from a niche outside its scope is not shown.
+      if (token.nicheIds !== null) {
+        const { data: known } = await db.from('videos').select('channels(niche_id)').eq('id', id).maybeSingle();
+        const kn = (known?.channels as unknown as { niche_id: string | null } | null)?.niche_id ?? null;
+        if (kn && !canSeeNiche(token, kn)) return failJson('out_of_scope', OUT_OF_SCOPE);
+      }
       const r = await linkSaturation(db, id, token.nicheIds ?? []);
-      if ('error' in r) return fail(r.error);
+      if ('error' in r) {
+        if (r.error.includes('_API_KEY')) {
+          console.error('[mcp:check_saturation]', r.error);
+          return failJson('server_error', SERVER_ERROR);
+        }
+        return failJson(r.error.startsWith('Lien') ? 'invalid' : 'not_found', r.error);
+      }
+      // Off-catalogue video: the niche is detected over the whole catalogue; refuse if it is not one of the token's.
+      if (token.nicheIds !== null) {
+        const { data: mineN } = await db.from('niches').select('name').in('id', token.nicheIds.length ? token.nicheIds : ['00000000-0000-0000-0000-000000000000']);
+        const names = new Set(((mineN ?? []) as { name: string }[]).map((n) => n.name));
+        if (!r.nicheName || !names.has(r.nicheName)) return failJson('out_of_scope', OUT_OF_SCOPE);
+      }
       return json(r);
     },
   );
 
   mcp.tool(
     'compare_keywords',
-    'Quel mot attire le plus ? (JSON) Compare 2 a 4 mots-cles sur les videos du catalogue qui les ont dans leur titre : nombre de videos, vues medianes, sur-performance mediane (vues / vues habituelles de la chaine), part a 2x et plus, meilleures videos, gagnant et verdict. scope "niche" (thematiques du jeton) ou "all".',
+    'Quel mot attire le plus ? (JSON) Compare 2 a 4 mots-cles sur les videos du catalogue qui les ont dans leur titre : nombre de videos, vues medianes, sur-performance mediane (vues / vues habituelles de la chaine), part a 2x et plus, meilleures videos, gagnant et verdict. scope "niche" (thematiques du jeton) ou "all" (tout le catalogue, réservé à l\'équipe : ignoré pour un compte client, qui reste sur ses thématiques).',
     {
       terms: z.array(z.string().min(2).max(60)).min(2).max(4).describe('Mots ou sujets a comparer'),
       scope: z.enum(['niche', 'all']).optional().describe('niche (par defaut) ou all'),
     },
     async ({ terms, scope }) => {
       const blocked = await guard(token, 'compare_keywords');
-      if (blocked) return fail(blocked);
-      const nicheIds = scope === 'all' ? null : token.nicheIds;
-      return json(await compareKeywords(createServiceClient(), terms, nicheIds && nicheIds.length ? nicheIds : null));
+      if (blocked) return failJson(blocked);
+      // scope "all" (whole catalogue) is for the team only; a client token always stays within its niches
+      // (none ⇒ empty result, never the other accounts' catalogue).
+      void scope; // admin token: whole catalogue either way (no niche restriction)
+      const nicheIds: string[] | null =
+        token.nicheIds === null ? null : token.nicheIds.length ? token.nicheIds : ['00000000-0000-0000-0000-000000000000'];
+      return json(await compareKeywords(createServiceClient(), terms, nicheIds));
     },
   );
 

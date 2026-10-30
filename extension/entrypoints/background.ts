@@ -98,9 +98,12 @@ export default defineBackground(() => {
         Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(10_000),
     });
 
-    if (!res.ok) return { found: false, type: page.type === 'search' ? 'search' : page.type };
+    // Server error / revoked token / rate limit: throw so the badge shows "!" and nothing is cached
+    // (caching it as "not found" would hide the problem for 10 minutes).
+    if (!res.ok) throw new Error(`lookup HTTP ${res.status}`);
     return res.json();
   }
 

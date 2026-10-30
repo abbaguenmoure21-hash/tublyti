@@ -4,11 +4,11 @@ import { createServiceClient } from '@/lib/supabase/server';
 import { handleCors, jsonWithCors } from '@/lib/ext/cors';
 import { authenticateExtRequest, isAuthError } from '@/lib/ext/auth';
 import { canWrite } from '@/lib/mcp/auth';
-import { escapeLike } from '@/lib/utils';
+import { resolveNiche } from '@/lib/niches/resolve';
 
 const bodySchema = z.object({
-  channel_id: z.string().min(1),
-  niche: z.string().min(1),
+  channel_id: z.string().trim().regex(/^UC[\w-]{22}$/),
+  niche: z.string().trim().min(1).max(100),
 });
 
 export async function OPTIONS(request: NextRequest) {
@@ -45,28 +45,30 @@ export async function POST(request: NextRequest) {
   const db = createServiceClient();
 
   try {
-    // Find or create niche
-    let nicheId: string;
-    const { data: existingNiche } = await db
-      .from('niches')
-      .select('id')
-      .ilike('name', escapeLike(niche))
-      .single();
-
-    if (existingNiche) {
-      nicheId = existingNiche.id;
-    } else {
-      const { data: newNiche, error: nicheError } = await db
-        .from('niches')
-        .insert({ name: niche })
-        .select('id')
-        .single();
-
-      if (nicheError || !newNiche) {
-        return jsonWithCors(request, { error: 'Impossible de creer la niche.' }, { status: 500 });
+    // '_candidates' (extension addCandidate): goes to the candidate_channels review queue,
+    // never to a niche of that name.
+    if (niche === '_candidates') {
+      const { error: candErr } = await db
+        .from('candidate_channels')
+        .upsert({ id: channel_id, discovered_via: 'extension' }, { onConflict: 'id', ignoreDuplicates: true });
+      if (candErr) {
+        console.error('[ext:track-channel] candidate insert failed', candErr);
+        return jsonWithCors(request, { error: 'Impossible d\'ajouter la chaine.' }, { status: 500 });
       }
-      nicheId = newNiche.id;
+      return jsonWithCors(request, { ok: true, message: 'Chaine proposee.' });
     }
+
+    // Existing niche only: a typo must not create a ghost niche (visible everywhere, collected every night).
+    const { data: allNiches } = await db.from('niches').select('id, name, category, owner_channel');
+    const resolved = resolveNiche(niche, (allNiches ?? []) as { id: string; name: string; category: string | null; owner_channel: string | null }[]);
+    if (!resolved.niche) {
+      return jsonWithCors(
+        request,
+        { error: 'Thematique introuvable.', code: 'niche_not_found', available: resolved.available },
+        { status: 404 },
+      );
+    }
+    const nicheId = resolved.niche.id;
 
     // Check if channel already exists
     const { data: existing } = await db
@@ -92,7 +94,8 @@ export async function POST(request: NextRequest) {
     }
 
     return jsonWithCors(request, { ok: true, message: 'Chaine ajoutee.' });
-  } catch {
+  } catch (e) {
+    console.error('[ext:track-channel]', e);
     return jsonWithCors(request, { error: 'Erreur serveur.' }, { status: 500 });
   }
 }
