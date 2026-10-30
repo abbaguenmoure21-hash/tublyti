@@ -9,7 +9,7 @@ import { googleEnabled } from '@/lib/youtube/google-oauth';
 import { encryptionReady } from '@/lib/crypto/tokens';
 import { getChannelAnalytics, PERIODS, type AnalyticsData, type Period } from '@/lib/youtube/analytics';
 import { getPublicStats, type PublicStats, type PublicVideo } from '@/lib/youtube/public-stats';
-import { getVideoReachTotals } from '@/lib/youtube/reach-totals';
+import { getVideoReachTotalsInRange } from '@/lib/youtube/reach-totals';
 import { AnalyticsControls, DailyChart, MonthlyChart, RefreshPublicButton } from './_components/channel-charts';
 import { TopVideos } from './_components/top-videos';
 import { PeriodTabs } from './_components/period-tabs';
@@ -503,13 +503,8 @@ async function AnalyticsSection({ channelId, period, canConnect, linked }: { cha
   let reachSince: string | null = null;
   if (analytics.status === 'ok' && analytics.data.topVideos.length) {
     const { startDate, endDate } = analytics.data;
-    const acc = await getVideoReachTotals(db, channelId, analytics.data.topVideos.map((v) => v.id), {
-      from: startDate,
-      to: endDate,
-      onFirstDay: (day) => {
-        if (day && day > startDate) reachSince = day;
-      },
-    });
+    const { totals: acc, firstDay } = await getVideoReachTotalsInRange(db, channelId, analytics.data.topVideos.map((v) => v.id), { from: startDate, to: endDate });
+    if (firstDay && firstDay > startDate) reachSince = firstDay;
     for (const [k, v] of acc) reach.set(k, { impressions: v.impressions, ctr: v.impressions ? v.clicks / v.impressions : null });
   }
   // Où en est le rapport quotidien des miniatures (affiché tant qu'aucun chiffre n'est arrivé).

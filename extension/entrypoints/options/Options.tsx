@@ -81,7 +81,7 @@ export default function Options() {
             className="w-full h-9 px-3 rounded-lg border border-border bg-card text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary font-mono"
           />
           <p className="text-xs text-muted-foreground mt-1">
-            Trouve ton jeton dans Reglages &gt; Acces API.
+            Trouve ton jeton dans Réglages › Connexion à Claude.
           </p>
         </div>
       </div>

@@ -4,6 +4,8 @@ import { smoothScrollIntoView } from '@/lib/ui/smooth-scroll';
 import { useEffect, useRef, useState, useTransition } from 'react';
 import { AlertTriangle, Check, Film, ImagePlus, Loader2, Plus, Sparkles, TrendingDown, TrendingUp, Trophy, X } from 'lucide-react';
 import dynamic from 'next/dynamic';
+import { useRouter } from 'next/navigation';
+import { ConfirmDialog } from '@/components/admin/confirm-dialog';
 import { evaluateBeforePublish, startVideoUpload, videoUploadState } from '@/lib/actions/preflight';
 import type { PreflightResult } from '@/lib/preflight/engine';
 import type { TitleScore } from '@/lib/preflight/titles';
@@ -88,6 +90,9 @@ export function PreflightForm({ userChannelId, aiEnabled }: { userChannelId: str
   const resultRef = useRef<HTMLDivElement>(null);
   const [announce, setAnnounce] = useState('');
   const [elapsed, setElapsed] = useState(0);
+  // In-app link clicked while an upload/evaluation runs: asked in a dialog before leaving.
+  const [leaveHref, setLeaveHref] = useState<string | null>(null);
+  const router = useRouter();
   const busyVideo = video?.status === 'uploading' || video?.status === 'processing';
 
   // Elapsed time while evaluating (1 to 3 min with a video).
@@ -115,10 +120,9 @@ export function PreflightForm({ userChannelId, aiEnabled }: { userChannelId: str
       if (!a || a.target === '_blank' || e.defaultPrevented) return;
       const url = new URL(a.href, window.location.href);
       if (url.origin !== window.location.origin || url.pathname === window.location.pathname) return;
-      if (!window.confirm('Une vidéo est en cours d’envoi ou d’évaluation. Quitter cette page l’arrête. Quitter quand même ?')) {
-        e.preventDefault();
-        e.stopPropagation();
-      }
+      e.preventDefault();
+      e.stopPropagation();
+      setLeaveHref(url.pathname + url.search + url.hash);
     };
     window.addEventListener('beforeunload', warn);
     document.addEventListener('click', onClick, true);
@@ -182,7 +186,6 @@ export function PreflightForm({ userChannelId, aiEnabled }: { userChannelId: str
               <div key={i} className="flex items-center gap-2">
                 <input
                   id={i === 0 ? 'pf-title-0' : undefined}
-                  aria-label={i === 0 ? undefined : `Variante ${i + 1}`}
                   value={t}
                   onChange={(e) => setTitles((xs) => xs.map((x, j) => (j === i ? e.target.value : x)))}
                   placeholder={i === 0 ? 'Ex. : Why Nobody Talks About the Richest Village in Africa' : `Variante ${i + 1}`}
@@ -310,6 +313,22 @@ export function PreflightForm({ userChannelId, aiEnabled }: { userChannelId: str
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={leaveHref !== null}
+        onOpenChange={(open) => {
+          if (!open) setLeaveHref(null);
+        }}
+        title="Quitter l’évaluation ?"
+        description="Une vidéo est en cours d’envoi ou d’évaluation. Quitter cette page l’arrête."
+        confirmLabel="Quitter quand même"
+        destructive
+        onConfirm={() => {
+          const href = leaveHref;
+          setLeaveHref(null);
+          if (href) router.push(href);
+        }}
+      />
     </section>
   );
 }

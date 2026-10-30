@@ -17,24 +17,12 @@ export interface ReachTotal {
 const RPC = 'video_reach_totals';
 const PAGE = 1000;
 
-/**
- * @param range optional day window (YYYY-MM-DD, inclusive). The RPC sums all history, so a window
- * is read from the daily rows (paginated); `firstDay` then reports the first day actually covered.
- */
-export async function getVideoReachTotals(
-  db: SupabaseClient,
-  userChannelId: string,
-  videoIds: string[],
-  range?: { from: string; to: string; onFirstDay?: (day: string | null) => void },
-): Promise<Map<string, ReachTotal>> {
+export async function getVideoReachTotals(db: SupabaseClient, userChannelId: string, videoIds: string[]): Promise<Map<string, ReachTotal>> {
   const map = new Map<string, ReachTotal>();
   const ids = [...new Set(videoIds.filter(Boolean))];
-  if (!ids.length) {
-    range?.onFirstDay?.(null);
-    return map;
-  }
+  if (!ids.length) return map;
 
-  if (!range && !rpcKnownMissing(RPC)) {
+  if (!rpcKnownMissing(RPC)) {
     const { data, error } = await db.rpc(RPC, { p_user_channel_id: userChannelId, p_video_ids: ids });
     if (!error) {
       for (const r of (data ?? []) as { video_id: string; impressions: number | string | null; clicks: number | string | null }[]) {
@@ -47,6 +35,32 @@ export async function getVideoReachTotals(
     else console.error('[reach-totals] rpc failed, using paginated read:', error.message);
   }
 
+  return (await readDaily(db, userChannelId, ids)).totals;
+}
+
+/**
+ * Totals over a day window (YYYY-MM-DD, inclusive), e.g. the analytics period. The RPC sums the
+ * whole history, so a window is read from the daily rows (paginated). `firstDay` is the first day
+ * actually covered by the reports (null without rows).
+ */
+export async function getVideoReachTotalsInRange(
+  db: SupabaseClient,
+  userChannelId: string,
+  videoIds: string[],
+  range: { from: string; to: string },
+): Promise<{ totals: Map<string, ReachTotal>; firstDay: string | null }> {
+  const ids = [...new Set(videoIds.filter(Boolean))];
+  if (!ids.length) return { totals: new Map(), firstDay: null };
+  return readDaily(db, userChannelId, ids, range);
+}
+
+async function readDaily(
+  db: SupabaseClient,
+  userChannelId: string,
+  ids: string[],
+  range?: { from: string; to: string },
+): Promise<{ totals: Map<string, ReachTotal>; firstDay: string | null }> {
+  const map = new Map<string, ReachTotal>();
   let firstDay: string | null = null;
   for (let from = 0; ; from += PAGE) {
     let q = db
@@ -74,6 +88,5 @@ export async function getVideoReachTotals(
     }
     if (rows.length < PAGE) break;
   }
-  range?.onFirstDay?.(firstDay);
-  return map;
+  return { totals: map, firstDay };
 }

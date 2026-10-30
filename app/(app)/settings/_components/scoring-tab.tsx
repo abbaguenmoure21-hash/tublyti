@@ -85,7 +85,7 @@ export function ScoringTab({
           </div>
           <div>
             <label htmlFor="scoring-2" className="text-[12px] text-muted-foreground block mb-1">
-              Max supply pour Phase 2
+              Offre qualifiée max pour Phase 2 (× la médiane de la niche)
             </label>
             <input
               id="scoring-2"
