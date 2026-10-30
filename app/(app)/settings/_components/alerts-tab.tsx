@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useTransition, useEffect, useRef } from 'react';
+import { useState, useTransition, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import {
   Plus,
@@ -91,8 +92,7 @@ export function AlertsTab({
   const [events, setEvents] = useState<Record<string, unknown>[]>([]);
   const [eventsState, setEventsState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [eventsAttempt, setEventsAttempt] = useState(0);
-  // Deletions wait a few seconds so the toast can offer « Annuler ».
-  const pendingDeletes = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const router = useRouter();
 
   // New rule form state
   const [newType, setNewType] = useState<AlertRuleType>('phase_change');
@@ -126,17 +126,6 @@ export function AlertsTab({
     };
   }, [eventsAttempt]);
 
-  // Flush pending deletions if the user leaves the page before the delay ends.
-  useEffect(() => {
-    const map = pendingDeletes.current;
-    return () => {
-      map.forEach((timer, id) => {
-        clearTimeout(timer);
-        void deleteAlertRule(id);
-      });
-      map.clear();
-    };
-  }, []);
 
   // Preview trigger count when form changes
   useEffect(() => {
@@ -203,36 +192,51 @@ export function AlertsTab({
     });
   }
 
+  /**
+   * Deletes on the server right away (nothing is lost if the tab closes),
+   * then « Annuler » recreates the same alert (its past history is not restored).
+   */
   function handleDelete(rule: AlertRuleData) {
     const index = rules.findIndex((r) => r.id === rule.id);
-    setRules((prev) => prev.filter((r) => r.id !== rule.id));
-    const restore = () =>
-      setRules((prev) => {
-        if (prev.some((r) => r.id === rule.id)) return prev;
-        const next = [...prev];
-        next.splice(Math.max(0, Math.min(index, next.length)), 0, rule);
-        return next;
-      });
-    const timer = setTimeout(async () => {
-      pendingDeletes.current.delete(rule.id);
+    startTransition(async () => {
       const result = await deleteAlertRule(rule.id);
       if (result.error) {
         toast.error(result.error);
-        restore();
+        return;
       }
-    }, 5000);
-    pendingDeletes.current.set(rule.id, timer);
-    toast(`Alerte « ${rule.label} » supprimée.`, {
-      duration: 5000,
-      action: {
-        label: 'Annuler',
-        onClick: () => {
-          const t = pendingDeletes.current.get(rule.id);
-          if (t) clearTimeout(t);
-          pendingDeletes.current.delete(rule.id);
-          restore();
-        },
-      },
+      setRules((prev) => prev.filter((r) => r.id !== rule.id));
+      router.refresh();
+      toast(`Alerte « ${rule.label} » supprimée.`, {
+        duration: 6000,
+        action: { label: 'Annuler', onClick: () => restoreRule(rule, index) },
+      });
+    });
+  }
+
+  function restoreRule(rule: AlertRuleData, index: number) {
+    startTransition(async () => {
+      const created = await createAlertRule({
+        rule_type: rule.rule_type,
+        params: rule.params,
+        label: rule.label,
+        instant_email: rule.instant_email,
+      });
+      if (created.error || !created.data) {
+        toast.error(created.error ?? 'L’alerte n’a pas pu être remise. Crée-la de nouveau.');
+        return;
+      }
+      let restored = created.data as AlertRuleData;
+      if (!rule.enabled) {
+        const off = await toggleAlertRule(restored.id, false);
+        if (!off.error) restored = { ...restored, enabled: false };
+      }
+      setRules((prev) => {
+        const next = [...prev];
+        next.splice(Math.max(0, Math.min(index, next.length)), 0, restored);
+        return next;
+      });
+      router.refresh();
+      toast.success(`Alerte « ${rule.label} » remise.`);
     });
   }
 
