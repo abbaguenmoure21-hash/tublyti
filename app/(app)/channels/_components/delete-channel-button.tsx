@@ -17,13 +17,16 @@ export function DeleteChannelButton({
   const [isPending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
   const [videos, setVideos] = useState<number | null>(null);
+  const [impactError, setImpactError] = useState(false);
 
   function ask() {
     setVideos(null);
+    setImpactError(false);
     setOpen(true);
     startTransition(async () => {
       const res = await getChannelImpact(channelId);
       if ('videos' in res) setVideos(res.videos);
+      else setImpactError(true);
     });
   }
 
@@ -39,12 +42,7 @@ export function DeleteChannelButton({
     });
   }
 
-  const impact =
-    videos === null
-      ? 'Calcul de l’impact…'
-      : videos > 0
-        ? `Elle a ${videos.toLocaleString('fr-FR')} vidéo${videos > 1 ? 's' : ''} dans le catalogue commun : les sujets qui s’appuient dessus perdront ces sources pour tous les clients.`
-        : 'Elle n’a encore aucune vidéo dans le catalogue.';
+  const blocked = videos !== null && videos > 0;
 
   return (
     <>
@@ -62,18 +60,35 @@ export function DeleteChannelButton({
       <ConfirmDialog
         open={open}
         onOpenChange={setOpen}
-        title={`Supprimer « ${channelTitle} » ?`}
+        title={blocked ? `« ${channelTitle} » ne peut pas être supprimée` : `Supprimer « ${channelTitle} » ?`}
         description={
-          <div className="flex flex-col gap-2">
-            <p>La chaîne sera retirée du catalogue de tous les clients et ne sera plus collectée.</p>
-            <p>{impact}</p>
-            <p className="font-medium text-foreground">Action définitive.</p>
-          </div>
+          blocked ? (
+            <div className="flex flex-col gap-2">
+              <p>
+                Cette chaîne a {videos!.toLocaleString('fr-FR')} vidéo{videos! > 1 ? 's' : ''} dans le catalogue commun : elle ne peut pas être supprimée sans casser les sujets qui s’appuient dessus.
+              </p>
+              <p>Seule une chaîne sans aucune vidéo collectée peut être retirée.</p>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              <p>La chaîne sera retirée du catalogue de tous les clients et ne sera plus collectée.</p>
+              <p>
+                {impactError
+                  ? 'Impossible de vérifier ses vidéos pour le moment. Ferme et réessaie.'
+                  : videos === null
+                    ? 'Vérification de ses vidéos…'
+                    : 'Elle n’a encore aucune vidéo dans le catalogue.'}
+              </p>
+              <p className="font-medium text-foreground">Action définitive.</p>
+            </div>
+          )
         }
         confirmLabel="Supprimer la chaîne"
         onConfirm={handleDelete}
         destructive
         pending={isPending}
+        blocked={blocked}
+        confirmDisabled={videos === null || impactError}
       />
     </>
   );
