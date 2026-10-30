@@ -17,8 +17,10 @@ export function FollowedNiches({ catalogue, followed, withChannel }: { catalogue
 
   function toggle(n: Niche) {
     startTransition(async () => {
-      const res = on.has(n.id) ? await unfollowNiche(n.id) : await followNiche(n.id);
+      const wasOn = on.has(n.id);
+      const res = wasOn ? await unfollowNiche(n.id) : await followNiche(n.id);
       if ('error' in res && res.error) toast.error(res.error);
+      else toast.success(wasOn ? `Tu ne suis plus « ${n.name} »` : `Thématique suivie : ${n.name}`);
       router.refresh();
     });
   }

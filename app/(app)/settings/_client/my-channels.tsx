@@ -2,10 +2,14 @@
 
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { toast } from 'sonner';
 import { Plus, Trash2, Copy, Check, ShieldCheck, Search, Link2 } from 'lucide-react';
 import { previewMyChannel, addMyChannel, verifyMyChannel, removeMyChannel, addGoogleChannel, dismissGoogleChannels, type ChannelPreview } from '@/lib/actions/compte';
 import type { MyChannel } from '@/lib/my-channels';
+import { ConfirmDialog } from '../_components/confirm-dialog';
+
+const CONTACT_EMAIL = process.env.NEXT_PUBLIC_CONTACT_EMAIL;
 
 interface Niche { id: string; name: string; color: string }
 
@@ -81,6 +85,7 @@ export function MyChannels({
   );
   const [copied, setCopied] = useState(false);
   const [replacing, setReplacing] = useState<string | null>(null);
+  const [toRemove, setToRemove] = useState<MyChannel | null>(null);
 
   function addFromGoogle(c: GoogleChannel) {
     const nid = googleNiche[c.id];
@@ -166,6 +171,7 @@ export function MyChannels({
         return;
       }
       toast(`${c.title} retirée`, { description: 'Tes vidéos déjà créées restent dans « Mes vidéos ».' });
+      setToRemove(null);
       router.refresh();
     });
   }
@@ -291,10 +297,11 @@ export function MyChannels({
               )}
               <button
                 type="button"
-                onClick={() => remove(c)}
+                onClick={() => setToRemove(c)}
                 disabled={pending}
                 aria-label={`Retirer ${c.title}`}
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-destructive"
+                title="Retirer"
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-destructive"
               >
                 <Trash2 className="h-4 w-4" aria-hidden="true" />
               </button>
@@ -302,6 +309,28 @@ export function MyChannels({
           ))}
         </ul>
       )}
+      {channels.some((c) => c.status === 'verified') && (
+        <p className="border-b border-muted px-4 py-3 text-[13px] text-muted-foreground">
+          Les statistiques privées de YouTube (YouTube Analytics) se connectent et se retirent dans{' '}
+          <Link href="/my-channel" className="font-medium text-primary hover:underline">Mes vidéos › Ma chaîne</Link>.
+        </p>
+      )}
+
+      <ConfirmDialog
+        open={toRemove !== null}
+        onOpenChange={(o) => {
+          if (!o) setToRemove(null);
+        }}
+        title={toRemove ? `Retirer « ${toRemove.title} » ?` : 'Retirer cette chaîne ?'}
+        description={
+          toRemove?.status === 'verified'
+            ? 'Ses sujets disparaîtront de « Sujets ». Pour la remettre, il faudra refaire la vérification. Tes vidéos déjà créées restent dans « Mes vidéos ».'
+            : 'Ses sujets disparaîtront de « Sujets ». Tes vidéos déjà créées restent dans « Mes vidéos ».'
+        }
+        confirmLabel="Retirer"
+        pending={pending}
+        onConfirm={() => toRemove && remove(toRemove)}
+      />
 
       {step === 'idle' &&
         (googleEnabled ? (
@@ -342,7 +371,7 @@ export function MyChannels({
               <label htmlFor="lien-chaine" className="text-sm font-medium">
                 {replacing ? 'Lien YouTube de cette chaîne' : 'Lien de ta chaîne YouTube'}
               </label>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <input
                   id="lien-chaine"
                   autoFocus
@@ -350,7 +379,7 @@ export function MyChannels({
                   value={link}
                   onChange={(e) => setLink(e.target.value)}
                   placeholder="youtube.com/@machaine"
-                  className={field}
+                  className={`${field} min-w-0 flex-1 basis-56`}
                 />
                 <button type="submit" disabled={pending || !link.trim()} className="inline-flex h-11 shrink-0 items-center gap-2 rounded-[10px] bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-60">
                   <Search className="h-4 w-4" aria-hidden="true" /> {pending ? 'Recherche…' : 'Rechercher'}
@@ -387,7 +416,15 @@ export function MyChannels({
                     <option key={n.id} value={n.id}>{n.name}</option>
                   ))}
                 </select>
-                <span className="text-xs font-normal text-muted-foreground">Ta thématique n’est pas dans la liste ? Écris-nous, nous l’ajoutons.</span>
+                <span className="text-xs font-normal text-muted-foreground">
+                  Ta thématique n’est pas dans la liste ? Choisis la plus proche. Pour en changer ensuite, il faudra retirer la chaîne puis l’ajouter de nouveau (et refaire la vérification).
+                  {CONTACT_EMAIL && (
+                    <>
+                      {' '}Ou{' '}
+                      <a href={`mailto:${CONTACT_EMAIL}`} className="font-medium text-primary hover:underline">écris-nous</a>, nous l’ajoutons.
+                    </>
+                  )}
+                </span>
               </label>
               <div className="flex gap-2">
                 <button type="button" onClick={add} disabled={pending || !nicheId} className="inline-flex h-11 items-center rounded-[10px] bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-60">
@@ -431,7 +468,7 @@ export function MyChannels({
             <li>Colle le code n’importe où dans la description, puis clique sur « Publier ».</li>
             <li>Reviens ici et clique sur « Vérifier » (YouTube peut mettre quelques minutes à l’afficher).</li>
           </ol>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <button type="button" onClick={() => verify(verifying.id)} disabled={pending} className="inline-flex h-11 items-center gap-2 rounded-[10px] bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-60">
               <ShieldCheck className="h-4 w-4" aria-hidden="true" /> {pending ? 'Vérification…' : 'Vérifier'}
             </button>

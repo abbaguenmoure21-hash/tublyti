@@ -2,7 +2,7 @@
 
 export const ROUTINE = [
   {
-    when: 'Une seule fois · 1 minute',
+    when: 'Une seule fois · 2 à 5 minutes',
     title: 'Ajoute et vérifie tes chaînes',
     text: 'Dans « Réglages », colle le lien de ta chaîne, choisis sa thématique, puis prouve qu’elle est à toi : avec Google, ou en collant le code TUBLYTI-… dans sa description. Tant qu’elle n’est pas vérifiée, aucune donnée ne s’affiche pour elle.',
     href: '/settings#chaines',
@@ -47,7 +47,7 @@ export const SPACES = [
   {
     name: 'Veille',
     href: '/activity',
-    question: 'Que se passe-t-il dans ma niche ?',
+    question: 'Que se passe-t-il dans mes thématiques ?',
     use: 'Les vidéos de tes thématiques à regarder cette semaine : changements de titre ou de miniature, vidéos qui surperforment.',
   },
   {
@@ -89,46 +89,103 @@ export const LABELS = [
   { name: 'Longue recherche', text: 'La personne a longtemps cherché cette information sans la trouver.' },
 ];
 
-export const FAQ = [
+export const FAQ_GROUPS = [
+  { id: 'demarrer', title: 'Démarrer et compte' },
+  { id: 'chiffres', title: 'Comprendre les chiffres' },
+  { id: 'outils', title: 'Outils avancés' },
+] as const;
+
+/** Each entry has a stable id: /guide#faq-<id> opens it (used by Réglages and the search). */
+export const FAQ: { id: string; group: (typeof FAQ_GROUPS)[number]['id']; q: string; a: string }[] = [
   {
-    q: 'Comment choisir entre deux mots ou deux sujets ?',
-    a: 'Avant de publier → « Quel mot attire le plus ? ». Écris 2 à 4 mots (ex. Rome, Égypte, Aztèques). TubLyTI compare les vidéos qui les ont dans leur titre, dans ta niche ou dans toutes les niches, et surtout combien elles font par rapport aux vues habituelles de leur chaîne : c’est la demande propre au mot, indépendamment de la taille des chaînes. Le mot gagnant mérite d’être dans ton titre.',
+    id: 'aucune-donnee',
+    group: 'demarrer',
+    q: 'Une chaîne n’affiche aucune donnée, pourquoi ?',
+    a: 'Elle n’est pas encore vérifiée. Ouvre Réglages › Mes chaînes et termine la vérification (Google ou code dans la description). Si la chaîne vient d’être ajoutée, ses vidéos arrivent après la prochaine collecte de nuit.',
   },
   {
-    q: 'Comment savoir si un sujet ou une idée est saturé ?',
-    a: 'Sur la fiche d’un sujet, la carte « Saturation du sujet » donne un niveau (Ouvert, Se remplit, Saturé) et un score sur 100. Il combine le nombre de chaînes qui ont publié ces 30 derniers jours, l’accélération du rythme de publication, et surtout si les nouvelles vidéos font moins bien que celles d’il y a 1 à 4 mois. À côté de chaque vidéo qui a sur-performé, le bouton « Copiée ? » cherche les vidéos très proches publiées depuis dans ta niche : combien, par combien de chaînes, et si elles marchent encore.',
+    id: 'verification',
+    group: 'demarrer',
+    q: 'La vérification par code ne marche pas',
+    a: 'Vérifie que le code TUBLYTI-… est bien collé dans la description de la chaîne (YouTube Studio › Personnalisation › Informations générales), puis que tu as cliqué sur « Publier ». YouTube peut mettre quelques minutes à afficher la nouvelle description : attends 2 à 5 minutes, puis clique de nouveau sur « Vérifier ». Le plus simple reste « Vérifier avec Google », quand il est proposé. Tu peux enlever le code dès que la chaîne est vérifiée.',
   },
   {
-    q: 'Comment fonctionne « Avant de publier » ?',
-    a: 'Mes vidéos → Avant de publier. Écris jusqu’à 3 titres, ajoute ta miniature et ton script (au moins l’accroche). TubLyTI compare chaque titre aux vidéos de ta niche aux titres les plus proches et regarde combien elles ont fait par rapport aux vues habituelles de leur chaîne ; Gemini note la miniature face aux miniatures gagnantes de la niche et le script (accroche, relances, passages où l’on décroche). Tu obtiens une note, des corrections et une probabilité (chances de faire ×2 ou ×10 tes vues habituelles). Ce n’est jamais une garantie : après publication, la vidéo est suivie et mesurée à 7 jours, et les prédictions suivantes se recalent sur tes résultats réels.',
+    id: 'thematique-absente',
+    group: 'demarrer',
+    q: 'Ma thématique n’est pas dans la liste',
+    a: 'Choisis la plus proche. Pour en changer ensuite, il faudra retirer la chaîne dans Réglages puis l’ajouter de nouveau, et refaire la vérification. Quand plusieurs chaînes semblables ne trouvent pas leur thématique, TubLyTI en crée une automatiquement.',
   },
   {
-    q: 'Comment analyser le contenu d’une vidéo (image, voix, texte) ?',
-    a: 'Clique sur « Analyser » (icône étincelles) à côté d’une vidéo : dans Ma chaîne ou dans « Vidéos déjà publiées sur ce sujet ». L’IA regarde les images, écoute la voix et la musique, lit le texte à l’écran, puis te donne l’accroche, la structure avec les horaires, le style de montage, la transcription et ce que tu peux reprendre. Pour tes propres vidéos, elle explique aussi ce qui se passe à chaque décrochage de ta rétention. Vidéos publiques uniquement, 60 minutes maximum ; une vidéo déjà analysée s’affiche tout de suite.',
+    id: 'sans-chaine',
+    group: 'demarrer',
+    q: 'Je n’ai pas encore de chaîne, puis-je utiliser TubLyTI ?',
+    a: 'Oui. Dans Réglages › Thématiques à explorer (ou dès la page de bienvenue), suis les thématiques qui t’intéressent : leurs sujets apparaissent dans « Sujets ». Seule la lettre de faisabilité demande une chaîne vérifiée.',
   },
   {
-    q: 'Pourquoi un sujet n’a pas de lettre de faisabilité ?',
-    a: 'La lettre compare ta chaîne aux chaînes déjà présentes sur le sujet. Il faut une chaîne vérifiée dans la thématique du sujet et son nombre d’abonnés (mis à jour chaque nuit). Sans chaîne, la lettre est remplacée par un lien vers Réglages.',
+    id: 'claude',
+    group: 'demarrer',
+    q: 'Comment connecter Claude ou l’extension Chrome ?',
+    a: 'Dans Réglages › Connexion à Claude, crée un jeton et copie-le tout de suite (il ne s’affiche qu’une fois). Pour Claude : Réglages › Connecteurs › Ajouter un connecteur personnalisé, puis colle « l’adresse pour Claude » (elle finit par /api/mcp) et le jeton. Pour l’extension Chrome TubLyTI : dans ses options, colle « l’adresse pour l’extension » (l’adresse de l’app, sans rien après) dans « URL de TubLyTI », et le même jeton dans « Jeton API ». Tu peux révoquer un jeton à tout moment.',
   },
   {
-    q: 'Pourquoi « Pas encore mesuré · N vidéos repérées » ?',
-    a: 'Le potentiel se calcule à partir de 5 vidéos. En dessous, le sujet est suivi : chaque nuit, TubLyTI lui cherche des vidéos. Un sujet resté sous 5 vidéos pendant 21 jours est fermé.',
+    id: 'analytics',
+    group: 'demarrer',
+    q: 'Comment connecter YouTube Analytics ?',
+    a: 'Ouvre Mes vidéos › Ma chaîne et clique sur « Connecter YouTube Analytics ». Google te demande l’accord, en lecture seule. Tu verras alors tes vrais chiffres, ta rétention et tes revenus (si ta chaîne est monétisée). Le même écran permet de te déconnecter.',
   },
   {
+    id: 'confidentialite',
+    group: 'demarrer',
+    q: 'Que fait TubLyTI de mon accès YouTube Analytics ?',
+    a: 'Il lit tes statistiques en lecture seule, ne publie et ne modifie rien. L’accès est chiffré et le bouton « Déconnecter » de Ma chaîne le supprime. Détails dans la page Confidentialité.',
+  },
+  {
+    id: 'mise-a-jour',
+    group: 'chiffres',
     q: 'Quand les chiffres changent-ils ?',
     a: 'Chaque nuit, la collecte part vers 3 h (heure du Cameroun) et se termine vers 4 h 30 : nouvelles vidéos, vues, commentaires, potentiel. Les chiffres de YouTube Analytics (page Ma chaîne) ont environ 2 jours de retard, comme dans YouTube Studio.',
   },
   {
-    q: 'Une chaîne n’affiche aucune donnée, pourquoi ?',
-    a: 'Elle n’est pas encore vérifiée. Ouvre Réglages › Mes chaînes et termine la vérification (Google ou code dans la description). Si la chaîne vient d’être ajoutée, ses vidéos arrivent après la prochaine collecte.',
+    id: 'pas-mesure',
+    group: 'chiffres',
+    q: 'Pourquoi « Pas encore mesuré · N vidéos repérées » ?',
+    a: 'Le potentiel se calcule à partir de 5 vidéos. En dessous, le sujet est suivi : chaque nuit, TubLyTI lui cherche des vidéos. Un sujet resté sous 5 vidéos pendant 21 jours est fermé.',
   },
   {
+    id: 'faisabilite',
+    group: 'chiffres',
+    q: 'Pourquoi un sujet n’a pas de lettre de faisabilité ?',
+    a: 'La lettre compare ta chaîne aux chaînes déjà présentes sur le sujet. Il faut une chaîne vérifiée dans la thématique du sujet et son nombre d’abonnés (mis à jour chaque nuit). Sans chaîne, la lettre est remplacée par un lien vers Réglages.',
+  },
+  {
+    id: 'revenus',
+    group: 'chiffres',
     q: 'Les revenus estimés sont-ils fiables ?',
-    a: 'L’estimation multiplie les vues de tes vidéos longues par le RPM habituel de ta thématique : c’est un ordre de grandeur. Seuls les revenus de YouTube Analytics (si ta chaîne est monétisée et connectée) sont tes vrais chiffres.',
+    a: 'L’estimation multiplie les vues de tes vidéos longues par ce que rapportent habituellement 1 000 vues dans ta thématique : c’est un ordre de grandeur. Seuls les revenus de YouTube Analytics (si ta chaîne est monétisée et connectée) sont tes vrais chiffres.',
   },
   {
-    q: 'Que fait TubLyTI de mon accès YouTube Analytics ?',
-    a: 'Il lit tes statistiques en lecture seule, ne publie et ne modifie rien. Le jeton est chiffré et le bouton « Déconnecter » de Ma chaîne le supprime. Détails dans la page Confidentialité.',
+    id: 'avant-de-publier',
+    group: 'outils',
+    q: 'Comment fonctionne « Avant de publier » ?',
+    a: 'Mes vidéos › Avant de publier. Écris jusqu’à 3 titres, ajoute ta miniature et ton script (au moins l’accroche). TubLyTI compare chaque titre aux vidéos de ta thématique aux titres les plus proches et regarde combien elles ont fait par rapport aux vues habituelles de leur chaîne ; l’IA note la miniature face aux miniatures qui marchent et le script (accroche, relances, passages où l’on décroche). Tu obtiens une note, des corrections et tes chances de faire 2 ou 10 fois tes vues habituelles. Ce n’est jamais une garantie : après publication, la vidéo est mesurée à 7 jours, et les prédictions suivantes se recalent sur tes résultats réels.',
+  },
+  {
+    id: 'comparer-mots',
+    group: 'outils',
+    q: 'Comment choisir entre deux mots ou deux sujets ?',
+    a: 'Avant de publier › « Quel mot attire le plus ? ». Écris 2 à 4 mots (ex. Rome, Égypte, Aztèques). TubLyTI compare les vidéos qui les ont dans leur titre, dans ta thématique ou partout, et surtout combien elles font par rapport aux vues habituelles de leur chaîne : c’est l’attrait propre du mot, quelle que soit la taille des chaînes. Le mot gagnant mérite d’être dans ton titre.',
+  },
+  {
+    id: 'concurrence',
+    group: 'outils',
+    q: 'Comment savoir si un sujet ou une idée est déjà trop traité ?',
+    a: 'Sur la fiche d’un sujet, la carte « Concurrence sur ce sujet » donne un niveau (Peu de concurrence, Concurrence en hausse, Trop de concurrence) et un score sur 100. Il combine le nombre de chaînes qui ont publié ces 30 derniers jours, l’accélération du rythme de publication, et surtout si les nouvelles vidéos font moins bien que celles d’il y a 1 à 4 mois. À côté de chaque vidéo qui a surperformé, le bouton « Copiée ? » cherche les vidéos très proches publiées depuis dans ta thématique : combien, par combien de chaînes, et si elles marchent encore.',
+  },
+  {
+    id: 'analyse-video',
+    group: 'outils',
+    q: 'Comment analyser le contenu d’une vidéo (image, voix, texte) ?',
+    a: 'Clique sur « Analyser » (icône étincelles) à côté d’une vidéo : dans Ma chaîne ou dans « Vidéos déjà publiées sur ce sujet ». L’IA regarde les images, écoute la voix et la musique, lit le texte à l’écran, puis te donne l’accroche, la structure avec les horaires, le style de montage, la transcription et ce que tu peux reprendre. Pour tes propres vidéos, elle explique aussi ce qui se passe à chaque décrochage. Vidéos publiques uniquement, 60 minutes maximum ; une vidéo déjà analysée s’affiche tout de suite.',
   },
 ];
 
@@ -150,8 +207,8 @@ export const PHASES = [
 ];
 
 export const TERMS = [
-  { term: 'Potentiel (0 à 100)', def: 'L’intérêt d’un sujet comparé aux autres sujets de ta niche. 100 = le plus intéressant en ce moment.' },
-  { term: 'Fiabilité', def: 'La quantité de données derrière le potentiel. « Fiable » : beaucoup de vidéos et de commentaires analysés. « Peu de données » : à prendre avec prudence.' },
+  { term: 'Potentiel (0 à 100)', def: 'L’intérêt d’un sujet comparé aux autres sujets de ta thématique. 100 = le plus intéressant en ce moment.' },
+  { term: 'Fiabilité', def: 'La quantité de données derrière le potentiel. « Fiable » : beaucoup de vidéos et de commentaires analysés. « Assez fiable » : assez de données pour se fier à la tendance, moins au chiffre exact. « Peu de données » : à prendre avec prudence.' },
   { term: 'Questions du public', def: 'Les commentaires qui réclament une vidéo, signalent une explication manquante ou une vidéo trop courte.' },
   { term: 'Vidéo qui surperforme', def: 'Une vidéo qui fait plus de vues que d’habitude pour sa chaîne : comparée à la médiane de ses 10 vidéos précédentes, au même âge quand c’est possible. Le chiffre (1,5×, 3×, 10×+) dit combien de fois plus.' },
   { term: 'Bonne vidéo (concurrente)', def: 'Une vidéo de plus de 8 minutes, publiée par une chaîne d’au moins 10 000 abonnés, dont les vues dépassent 20 % des abonnés de la chaîne. Ce sont elles qui comptent comme « offre » sur un sujet.' },
@@ -159,11 +216,11 @@ export const TERMS = [
   { term: 'Faisabilité (A à F)', def: 'Tes chances de te faire une place sur le sujet, selon la taille de ta chaîne face aux chaînes déjà présentes. Voir le détail plus haut.' },
   { term: 'Vues habituelles', def: 'La médiane des vues de tes vidéos longues : la moitié de tes vidéos font plus, l’autre moitié moins. Plus juste qu’une moyenne, qu’une seule vidéo virale fausse.' },
   { term: 'RPM / CPM', def: 'RPM : ce que tu touches pour 1 000 vues. CPM : ce que paient les annonceurs pour 1 000 affichages de pub (avant la part de YouTube).' },
-  { term: 'Chaîne vérifiée', def: 'Une chaîne dont tu as prouvé qu’elle est à toi (Google ou code dans la description). Seules les chaînes vérifiées donnent accès aux données.' },
+  { term: 'Chaîne vérifiée', def: 'Une chaîne dont tu as prouvé qu’elle est à toi (Google ou code dans la description). Seules les chaînes vérifiées donnent accès aux données. Si ça bloque : voir « La vérification par code ne marche pas » dans les questions fréquentes.' },
   { term: 'Sujet sensible', def: 'Un sujet délicat (santé mentale grave, par exemple). Il reste visible mais n’apparaît jamais dans tes recommandations.' },
   { term: 'Favoris', def: 'Clique sur l’étoile d’un sujet pour le garder sous la main. Tes favoris ne sont visibles que par toi.' },
   { term: 'Alertes', def: 'Dans Réglages, choisis quand recevoir un e-mail : un sujet qui devient le bon moment, un favori qui change, un sujet qui se remplit vite.' },
-  { term: 'Niche créée automatiquement', def: 'Quand plusieurs chaînes semblables ne correspondent à aucune thématique existante, TubLyTI en crée une. Tu peux la suivre comme les autres.' },
+  { term: 'Thématique créée automatiquement', def: 'Quand plusieurs chaînes semblables ne correspondent à aucune thématique existante, TubLyTI en crée une. Tu peux la suivre comme les autres.' },
   { term: 'Connexion à Claude', def: 'Un jeton d’accès (Réglages) permet de poser tes questions à Claude : tes sujets, les questions du public, mais aussi les statistiques de ta chaîne, tes revenus et la rétention de tes vidéos (si YouTube Analytics est connecté). Il ne donne accès qu’à tes chaînes, en lecture seule pour tes statistiques.' },
   { term: 'Afficher (barre latérale)', def: 'Choisis une de tes chaînes pour ne voir que ses sujets, partout dans l’app. « Toutes mes chaînes » pour tout voir.' },
 ];

@@ -24,7 +24,7 @@ export function ProfileForm({ displayName, email }: { displayName: string; email
   }
 
   return (
-    <form onSubmit={submit} className="flex flex-col gap-3 rounded-xl border border-border bg-card px-4 py-4">
+    <form onSubmit={submit} className="flex flex-col gap-3">
       <label className="flex flex-col gap-1.5 text-sm font-medium">
         Nom affiché
         <input

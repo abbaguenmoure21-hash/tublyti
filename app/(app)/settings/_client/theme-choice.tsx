@@ -26,7 +26,7 @@ export function ThemeChoice() {
             aria-checked={on}
             onClick={() => setTheme(o.value)}
             className={`flex h-8 items-center rounded-[8px] px-3.5 text-[13px] transition-all ${
-              on ? 'bg-card font-semibold shadow-[0_1px_2px_rgba(20,24,34,0.12)]' : 'font-medium text-muted-foreground hover:text-foreground'
+              on ? 'elev-1 bg-card font-semibold' : 'font-medium text-muted-foreground hover:text-foreground'
             }`}
           >
             {o.label}
