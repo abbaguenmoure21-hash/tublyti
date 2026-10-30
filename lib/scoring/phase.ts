@@ -76,3 +76,34 @@ export function computePhase(inputs: PhaseInputs, thresholds?: PhaseThresholds):
   // Default: short virality
   return 1;
 }
+
+/** Days a topic stays in phase 3 once it entered it (Réglages burst or saturation). */
+export const PHASE3_HOLD_DAYS = 14;
+
+/**
+ * Hysteresis on phase 3. A 72 h burst of qualified videos puts a topic in phase 3, but the
+ * slope alone would bring it back to phase 2 as soon as the burst leaves the 72 h window
+ * (2 → 3 → 2, and a misleading "now in the ideal window" alert right after a saturation).
+ * A topic that entered phase 3 less than PHASE3_HOLD_DAYS ago stays in phase 3, unless its
+ * activity really collapsed (computed phase 0: almost no uploads any more).
+ *
+ * @param history previous scores of the topic (any order), dates YYYY-MM-DD before `today`
+ */
+export function applyPhase3Hold(
+  computed: number,
+  history: { scored_at: string; phase: number | null }[],
+  today: string,
+  holdDays = PHASE3_HOLD_DAYS,
+): number {
+  if (computed === 3 || computed === 0) return computed;
+  const prev = [...history].filter((h) => h.scored_at < today).sort((a, b) => b.scored_at.localeCompare(a.scored_at));
+  if (!prev.length || prev[0].phase !== 3) return computed;
+  // Start of the current uninterrupted run of phase 3.
+  let entry = prev[0].scored_at;
+  for (const h of prev) {
+    if (h.phase !== 3) break;
+    entry = h.scored_at;
+  }
+  const days = (Date.parse(`${today}T00:00:00Z`) - Date.parse(`${entry}T00:00:00Z`)) / 86_400_000;
+  return days < holdDays ? 3 : computed;
+}

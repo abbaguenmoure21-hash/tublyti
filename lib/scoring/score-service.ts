@@ -9,7 +9,7 @@ import {
   MIN_TOPICS_FOR_RANK,
   type TopicYTDemand,
 } from './mgi';
-import { computePhase, type PhaseThresholds } from './phase';
+import { applyPhase3Hold, computePhase, PHASE3_HOLD_DAYS, type PhaseThresholds } from './phase';
 import { DEFAULT_SCORING } from './scoring-config';
 import { computeFeasibility } from './feasibility';
 import type { AlertSender } from '../email/alerts';
@@ -461,10 +461,13 @@ export async function runScore(
 
   // ── Previous phases for alert evaluation ────────────────────────
   const previousPhaseByTopic = new Map<string, number>();
+  // Recent phase history per topic (phase-3 hysteresis).
+  const phaseHistoryByTopic = new Map<string, { scored_at: string; phase: number | null }[]>();
   {
     // Last score before today, in batches of 200 topics (URL length) over the last 14 days,
     // paginated (the 1 000-row cap used to drop most topics, so phase alerts never fired).
-    const since = new Date(Date.now() - 14 * 86_400_000).toISOString().slice(0, 10);
+    // Window longer than the phase-3 hold, so the start of a phase-3 run is known.
+    const since = new Date(Date.now() - (PHASE3_HOLD_DAYS + 7) * 86_400_000).toISOString().slice(0, 10);
     for (let i = 0; i < topicIds.length; i += IN_BATCH_TOPIC) {
       const batch = topicIds.slice(i, i + IN_BATCH_TOPIC);
       for (let offset = 0; ; offset += PAGE_SIZE) {
@@ -481,6 +484,9 @@ export async function runScore(
           'topic_scores (veille)',
         ) ?? [];
         for (const s of prevScores) {
+          const h = phaseHistoryByTopic.get(s.topic_id) ?? [];
+          h.push({ scored_at: s.scored_at as string, phase: s.phase === null ? null : Number(s.phase) });
+          phaseHistoryByTopic.set(s.topic_id, h);
           if (!previousPhaseByTopic.has(s.topic_id) && s.phase !== null) {
             previousPhaseByTopic.set(s.topic_id, s.phase as number);
           }
@@ -536,7 +542,11 @@ export async function runScore(
     };
 
     if (confidence.level === 'insufficient') {
-      const phase = computePhase({ ...phaseInputs, supplyQ: null }, thresholds);
+      const phase = applyPhase3Hold(
+        computePhase({ ...phaseInputs, supplyQ: null }, thresholds),
+        phaseHistoryByTopic.get(topic.id) ?? [],
+        today,
+      );
       insufficientRows.push(
         {
           topic_id: topic.id,
@@ -561,7 +571,7 @@ export async function runScore(
     const demand = computeYTDemand(c.ytDemand, nicheSignals);
     const nicheMedian = nicheMedianSupply.get(nicheId) ?? 1;
     const supplyQ = computeSupplyQ(c.longQualityCount, nicheMedian);
-    const phase = computePhase({ ...phaseInputs, supplyQ }, thresholds);
+    const phase = applyPhase3Hold(computePhase({ ...phaseInputs, supplyQ }, thresholds), phaseHistoryByTopic.get(topic.id) ?? [], today);
 
     const rawMgi = computeMGI({
       demand,
