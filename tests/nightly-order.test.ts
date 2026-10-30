@@ -29,8 +29,18 @@ describe('nightly pipeline order', () => {
     expect(steps.length).toBeGreaterThanOrEqual(6);
   });
 
+  it('runs signals after collect (uses the evening snapshots) and before score (trend points feed D)', () => {
+    expect(steps).toContain('signals');
+    expect(steps.indexOf('collect')).toBeLessThan(steps.indexOf('signals'));
+    expect(steps.indexOf('signals')).toBeLessThan(steps.indexOf('score'));
+  });
+
   it('runs collect before embed', () => {
     expect(steps.indexOf('collect')).toBeLessThan(steps.indexOf('embed'));
+  });
+
+  it('every step kind appears once', () => {
+    expect(new Set(steps).size).toBe(steps.length);
   });
 
   it('runs embed before attach', () => {
