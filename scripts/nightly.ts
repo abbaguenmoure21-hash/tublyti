@@ -28,7 +28,7 @@ if (existsSync(envPath)) {
 }
 
 import { RealYouTubeClient } from '../lib/youtube/client';
-import { runCollect, runCommentIngestion } from '../lib/youtube/collect';
+import { collectHealthError, runCollect, runCommentIngestion } from '../lib/youtube/collect';
 import { collectSignals } from '../lib/signals/collect-signals';
 import { runEmbedAll } from '../lib/topics/embed-service';
 import { runAttachAll } from '../lib/topics/attach-service';
@@ -227,9 +227,12 @@ async function main() {
     console.log('  Videos & snapshots...');
     const collect = await runCollect(db, yt, end);
     console.log(`    Channels: ${collect.channelsUpdated}, Videos: ${collect.videosDiscovered} (RSS: ${collect.videosFromRSS}, API: ${collect.videosFromAPI})`);
-    console.log(`    Snapshots: ${collect.snapshotsTaken}`);
+    console.log(`    Snapshots: ${collect.snapshotsTaken}/${collect.snapshotsDue} due`);
     if (collect.stoppedByQuota) console.log('    Stopped by quota budget');
     if (collect.stoppedByTimeout) console.log('    Stopped by timeout');
+    // No view snapshot at all while some were due = failed night (critical step → red run + summary).
+    const health = collectHealthError(collect);
+    if (health) throw new Error(health);
 
     return { items: collect.videosDiscovered + collect.snapshotsTaken + collect.commentsImported };
   });

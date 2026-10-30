@@ -37,7 +37,7 @@ export function tailReserveMs(deadlineMs: number): number {
 /** Shares of the step budget, in run order. Sum = 1. */
 export const NIGHTLY_SHARES: ReadonlyArray<readonly [string, number]> = [
   ['user-channels', 0.02],
-  ['collect', 0.24],
+  ['collect', 0.30],
   ['signals', 0.04],
   ['embed', 0.07],
   ['attach', 0.05],
@@ -45,14 +45,14 @@ export const NIGHTLY_SHARES: ReadonlyArray<readonly [string, number]> = [
   ['reach', 0.03],
   ['thumb-watch', 0.03],
   ['comments', 0.09],
-  ['discover-topics', 0.09],
+  ['discover-topics', 0.06],
   ['quality-gates', 0.02],
   ['search-emerging', 0.04],
   ['search', 0.05],
   ['discover-sources', 0.03],
   ['discover-channels', 0.05],
   ['auto-triage', 0.06],
-  ['embed-pass2', 0.05],
+  ['embed-pass2', 0.02],
 ];
 
 /** Default target for the steps before classify/score (well under the GitHub timeout and the free minutes). */

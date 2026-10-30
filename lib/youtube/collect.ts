@@ -25,6 +25,48 @@ export interface CollectResult {
   quotaUsed: number;
   stoppedByQuota: boolean;
   stoppedByTimeout: boolean;
+  /** Videos that needed a view snapshot tonight (daily < 14 d, weekly < 90 d, monthly beyond). */
+  snapshotsDue: number;
+}
+
+/**
+ * Share of the collect window reserved for view snapshots (priority n° 1): channel updates and video
+ * discovery stop at `end − max(5 min, 40 %)` (at most 60 % of the window), snapshots get the rest.
+ */
+export function prepDeadline(startMs: number, deadlineMs: number): number {
+  const windowMs = Math.max(0, deadlineMs - startMs);
+  const reserve = Math.min(windowMs * 0.6, Math.max(5 * 60_000, windowMs * 0.4));
+  return deadlineMs - reserve;
+}
+
+/** Snapshot targets, most useful first: daily (< 14 d), then weekly (< 90 d), then monthly. */
+export function orderSnapshotTargets(
+  videos: { id: string; published_at: string }[],
+  has: { today: Set<string>; week: Set<string>; month: Set<string> },
+  now: Date,
+): string[] {
+  const d14 = now.getTime() - 14 * 86_400_000;
+  const d90 = now.getTime() - 90 * 86_400_000;
+  const daily: { id: string; t: number }[] = [];
+  const weekly: string[] = [];
+  const monthly: string[] = [];
+  for (const v of videos) {
+    const t = new Date(v.published_at).getTime();
+    if (t >= d14) { if (!has.today.has(v.id)) daily.push({ id: v.id, t }); }
+    else if (t >= d90) { if (!has.week.has(v.id)) weekly.push(v.id); }
+    else if (!has.month.has(v.id)) monthly.push(v.id);
+  }
+  daily.sort((a, b) => b.t - a.t); // newest first
+  return [...daily.map((d) => d.id), ...weekly, ...monthly];
+}
+
+/** Error to raise when the collect produced no view snapshot although some were due (null = healthy). */
+export function collectHealthError(r: Pick<CollectResult, 'snapshotsTaken' | 'snapshotsDue' | 'stoppedByTimeout' | 'stoppedByQuota'>): string | null {
+  if (r.snapshotsDue > 0 && r.snapshotsTaken === 0) {
+    const why = r.stoppedByQuota ? 'quota budget' : r.stoppedByTimeout ? 'time' : 'unknown reason';
+    return `collect: 0 view snapshot taken out of ${r.snapshotsDue} due (stopped by ${why})`;
+  }
+  return null;
 }
 
 /**
@@ -90,10 +132,18 @@ export async function runCollect(
     quotaUsed: 0,
     stoppedByQuota: false,
     stoppedByTimeout: false,
+    snapshotsDue: 0,
   };
 
   function isTimedOut() {
     return Date.now() >= deadlineMs;
+  }
+  // Channel updates + discovery must leave the reserved share to the snapshots.
+  const prepEnd = prepDeadline(Date.now(), deadlineMs);
+  let prepStopped = false;
+  function isPrepTimedOut() {
+    if (Date.now() >= prepEnd) { prepStopped = true; return true; }
+    return false;
   }
 
   const budget = await loadQuotaBudget(db, getQuotaSoftLimit());
@@ -124,10 +174,7 @@ export async function runCollect(
 
     // Update channel info in batches of 50
     for (let i = 0; i < channels.length; i += 50) {
-      if (isTimedOut()) {
-        result.stoppedByTimeout = true;
-        break;
-      }
+      if (isPrepTimedOut()) break;
 
       const batch = channels.slice(i, i + 50);
       const ids = batch.map((c) => c.id);
@@ -153,11 +200,7 @@ export async function runCollect(
     }
 
     logStep('channel-updates', t1);
-
-    if (result.stoppedByTimeout) {
-      result.quotaUsed = yt.getQuotaUsed();
-      return result;
-    }
+    // No early return on lack of time any more: the snapshots always get their reserved share.
 
     // ── Step 2: Discover new videos — RSS first, API fallback ────────
     const t2 = Date.now();
@@ -182,7 +225,7 @@ export async function runCollect(
       let next = 0;
       const worker = async () => {
         while (next < updatedChannels.length) {
-          if (isTimedOut()) { result.stoppedByTimeout = true; return; }
+          if (isPrepTimedOut()) return;
           const channel = updatedChannels[next++]!;
           try {
             const entries = await fetchRSSVideos(channel.id);
@@ -201,7 +244,7 @@ export async function runCollect(
 
     // 2b. API fallback (playlistItems.list, 1 unit) for channels whose feed failed.
     for (const channel of rssFailed) {
-      if (isTimedOut()) { result.stoppedByTimeout = true; break; }
+      if (isPrepTimedOut()) break;
       if (!channel.uploads_playlist_id) continue;
       if (trackingQuota >= budget.tracking) { result.stoppedByQuota = true; break; }
       try {
@@ -229,7 +272,7 @@ export async function runCollect(
     }
 
     for (let i = 0; i < newIds.length; i += 50) {
-      if (isTimedOut()) { result.stoppedByTimeout = true; break; }
+      if (isPrepTimedOut()) break;
       if (trackingQuota >= budget.tracking) { result.stoppedByQuota = true; break; }
       const batch = newIds.slice(i, i + 50);
       const videos = await yt.getVideos(batch);
@@ -267,18 +310,12 @@ export async function runCollect(
     console.log(`    [collect] ${updatedChannels.length} channels, RSS failed ${rssFailed.length}, ${newIds.length} new videos`);
 
     logStep('video-discovery', t2);
-
-    if (result.stoppedByTimeout || result.stoppedByQuota) {
-      result.quotaUsed = yt.getQuotaUsed();
-      return result;
-    }
+    if (prepStopped) console.log('    [collect] channel updates / discovery cut short to keep the snapshot share');
 
     // ── Step 3: Tiered snapshots ─────────────────────────────────────
     const t3 = Date.now();
-    // Daily for <14 days, weekly for 14-90 days, monthly for >90 days
+    // Daily for <14 days, weekly for 14-90 days, monthly for >90 days (orderSnapshotTargets)
     const now = new Date();
-    const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
-    const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
 
     const todayStart = new Date(now);
     todayStart.setUTCHours(0, 0, 0, 0);
@@ -330,21 +367,9 @@ export async function runCollect(
       }
     }
 
-    const snapshotIds: string[] = [];
-    for (const v of allVideos ?? []) {
-      const pubDate = new Date(v.published_at);
-
-      if (pubDate >= fourteenDaysAgo) {
-        // Very recent: daily snapshots
-        if (!hasSnapToday.has(v.id)) snapshotIds.push(v.id);
-      } else if (pubDate >= ninetyDaysAgo) {
-        // Medium: weekly snapshots
-        if (!hasSnapThisWeek.has(v.id)) snapshotIds.push(v.id);
-      } else {
-        // Old: monthly snapshots
-        if (!hasSnapThisMonth.has(v.id)) snapshotIds.push(v.id);
-      }
-    }
+    // Daily snapshots of recent videos first: when time runs out, the least useful ones are cut.
+    const snapshotIds = orderSnapshotTargets(allVideos, { today: hasSnapToday, week: hasSnapThisWeek, month: hasSnapThisMonth }, now);
+    result.snapshotsDue = snapshotIds.length;
 
     for (let i = 0; i < snapshotIds.length; i += 50) {
       if (isTimedOut()) {
