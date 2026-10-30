@@ -17,6 +17,7 @@ import { DossierExport } from './_components/dossier-export';
 import { getFavoriteIds } from '@/lib/actions/collections';
 import { computeFeasibilityForUser, isNoChannelResult } from '@/lib/scoring/feasibility-for-user';
 import { getUserSubsByNiche } from '@/lib/scoring/user-subs';
+import { summarizeSeries } from '@/lib/charts/summary';
 
 // L'analyse vidéo (Gemini) peut prendre jusqu'à 2-3 minutes.
 export const maxDuration = 300;
@@ -649,7 +650,10 @@ function SignalSection({ signals }: { signals: Record<string, { date: string; va
         </div>
       </div>
 
-      <svg width="100%" viewBox={`0 0 ${W} ${H + 20}`} role="img" aria-label="Signaux sur 90 jours">
+      <p id="signals-summary" className="sr-only">
+        {summarizeSeries(Object.fromEntries(activeSources.map((s) => [s, signals[s]])), SIGNAL_LABELS)}
+      </p>
+      <svg width="100%" viewBox={`0 0 ${W} ${H + 20}`} role="img" aria-label="Signaux sur 90 jours" aria-describedby="signals-summary">
         <g stroke="var(--glass-border)" strokeDasharray="3 4">
           {[T, 80, 140].map((y) => (
             <line key={y} x1={L} y1={y} x2={R} y2={y} />

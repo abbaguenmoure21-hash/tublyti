@@ -136,7 +136,11 @@ export function MyChannelClient({
         <h3 className="text-[16px] font-semibold mb-6">Évolution des vues</h3>
         
         {chartData.length > 1 ? (
-          <div className="h-[300px] w-full">
+          <div
+            className="h-[300px] w-full"
+            role="img"
+            aria-label={`Évolution des vues : ${chartData[0].views.toLocaleString('fr-FR')} vues le ${chartData[0].date}, ${chartData[chartData.length - 1].views.toLocaleString('fr-FR')} vues le ${chartData[chartData.length - 1].date}.`}
+          >
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                 <defs>

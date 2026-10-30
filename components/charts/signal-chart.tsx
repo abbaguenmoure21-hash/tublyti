@@ -1,5 +1,8 @@
 'use client';
 
+import { useId } from 'react';
+import { summarizeSeries } from '@/lib/charts/summary';
+
 interface DataPoint {
   date: string;
   value: number;
@@ -28,6 +31,7 @@ const H = 200;
 const PAD = 40;
 
 export function SignalChart({ series }: SignalChartProps) {
+  const descId = useId();
   const allSources = Object.keys(series).filter(
     (s) => series[s].length > 0,
   );
@@ -60,7 +64,10 @@ export function SignalChart({ series }: SignalChartProps) {
 
   return (
     <div>
-      <svg viewBox={`0 0 ${W} ${H + 30}`} className="w-full max-w-2xl">
+      <p id={descId} className="sr-only">
+        {summarizeSeries(Object.fromEntries(allSources.map((s) => [s, series[s]])), LABELS)}
+      </p>
+      <svg viewBox={`0 0 ${W} ${H + 30}`} className="w-full max-w-2xl" role="img" aria-label="Signaux de demande" aria-describedby={descId}>
         {/* Grid lines */}
         {[0, 0.25, 0.5, 0.75, 1].map((frac) => {
           const y = PAD + (1 - frac) * (H - PAD * 2);

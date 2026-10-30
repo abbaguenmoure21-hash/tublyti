@@ -357,8 +357,9 @@ function PublicBlock({ s, linked, channelId }: { s: PublicStats; linked: boolean
                     <div className="well flex h-24 w-full items-end overflow-hidden rounded-lg bg-background">
                       <div className="w-full rounded-t-[4px] bg-[var(--chart-1)]" style={{ height: `${(w.median / max) * 100}%` }} />
                     </div>
-                    <span className="text-xs text-muted-foreground">{w.day.slice(0, 3)}.</span>
-                    <span className="text-xs tabular-nums">{w.videos ? compact.format(w.median) : '—'}</span>
+                    <span className="sr-only">{`${w.day} : ${w.videos} vidéos, ${nf.format(Math.round(w.median))} vues habituelles`}</span>
+                    <span className="text-xs text-muted-foreground" aria-hidden="true">{w.day.slice(0, 3)}.</span>
+                    <span className="text-xs tabular-nums" aria-hidden="true">{w.videos ? compact.format(w.median) : '—'}</span>
                   </li>
                 );
               })}

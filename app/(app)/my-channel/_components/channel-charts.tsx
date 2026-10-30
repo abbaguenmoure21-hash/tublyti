@@ -37,8 +37,14 @@ export function DailyChart({ data, metric, label }: { data: { date: string; view
   const rows = data.map((d) => ({ date: d.date, v: metric === 'revenue' ? d.revenue ?? 0 : d[metric] }));
   const unit = metric === 'revenue' ? 'usd' : metric === 'subsNet' ? 'subs' : 'views';
   const color = metric === 'revenue' ? 'var(--chart-2)' : metric === 'subsNet' ? 'var(--chart-5)' : 'var(--chart-1)';
+  const fmt = (v: number) => (unit === 'usd' ? usd.format(v) : nf.format(Math.round(v)));
+  const total = rows.reduce((s, r) => s + r.v, 0);
+  const best = rows.reduce<{ date: string; v: number } | null>((m, r) => (!m || r.v > m.v ? r : m), null);
+  const summary = rows.length
+    ? `${label}. Du ${dayLabel(rows[0].date)} au ${dayLabel(rows[rows.length - 1].date)} : total ${fmt(total)}, meilleur jour le ${dayLabel(best!.date)} avec ${fmt(best!.v)}, dernier jour ${fmt(rows[rows.length - 1].v)}.`
+    : label;
   return (
-    <div className="h-56 w-full" role="img" aria-label={label}>
+    <div className="h-56 w-full" role="img" aria-label={summary}>
       <ResponsiveContainer width="100%" height="100%">
         {metric === 'views' ? (
           <AreaChart data={rows} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
@@ -70,7 +76,13 @@ export function DailyChart({ data, metric, label }: { data: { date: string; view
 
 export function MonthlyChart({ data }: { data: { month: string; videos: number; views: number }[] }) {
   return (
-    <div className="h-52 w-full" role="img" aria-label="Vues actuelles des vidéos, par mois de publication">
+    <div
+      className="h-52 w-full"
+      role="img"
+      aria-label={`Vues actuelles des vidéos, par mois de publication. ${data
+        .map((d) => `${monthLabel(d.month)} : ${nf.format(d.views)} vues, ${d.videos} vidéos`)
+        .join(' ; ')}.`}
+    >
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
           <CartesianGrid vertical={false} stroke="var(--border)" strokeOpacity={0.6} />

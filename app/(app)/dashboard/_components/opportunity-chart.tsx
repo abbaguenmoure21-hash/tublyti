@@ -24,8 +24,15 @@ interface ScatterPoint {
 
 export function OpportunityChart({ data }: { data: ScatterPoint[] }) {
   if (data.length === 0) return null;
+  const top = [...data].sort((a, b) => b.mgi - a.mgi).slice(0, 3);
 
   return (
+    <div
+      role="img"
+      aria-label={`Carte des opportunités, ${data.length} sujets. Meilleurs potentiels : ${top
+        .map((t) => `${t.label} (${Math.round(t.mgi)})`)
+        .join(', ')}.`}
+    >
     <ResponsiveContainer width="100%" height={350}>
       <ScatterChart margin={{ top: 10, right: 20, bottom: 30, left: 10 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
@@ -80,5 +87,6 @@ export function OpportunityChart({ data }: { data: ScatterPoint[] }) {
         </Scatter>
       </ScatterChart>
     </ResponsiveContainer>
+    </div>
   );
 }

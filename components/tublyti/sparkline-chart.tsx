@@ -93,6 +93,10 @@ export function SparklineChart({
       viewBox={`0 0 ${width} ${height}`}
       className={className}
       style={{ overflow: 'visible' }}
+      role="img"
+      aria-label={`Tendance : de ${Math.round(data[0])} à ${Math.round(data[data.length - 1])}${
+        data[data.length - 1] > data[0] ? ', en hausse' : data[data.length - 1] < data[0] ? ', en baisse' : ', stable'
+      }`}
     >
       {showFill && (
         <defs>
