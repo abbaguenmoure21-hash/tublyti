@@ -17,6 +17,8 @@ export interface TopicRow {
   /** Le client a déjà créé une vidéo sur ce sujet. */
   inMyVideos: boolean;
   sensitive: boolean;
+  /** Subscriber counts of channels already on the topic (per-user feasibility). */
+  competitorSubs: number[] | null;
 }
 
 export interface TopicFilters {
@@ -51,14 +53,24 @@ export async function getUserTopicSets(db: SupabaseClient, userId: string) {
   };
 }
 
+/**
+ * Latest scoring date, or null when nothing has been scored yet (first night not run).
+ * (getLatestScoreDate falls back to today, which made the UI claim « mis à jour aujourd'hui ».)
+ */
+export async function getLatestScoreDateOrNull(db: SupabaseClient): Promise<string | null> {
+  const { data, error } = await db.from('topic_scores').select('scored_at').order('scored_at', { ascending: false }).limit(1).maybeSingle();
+  if (error) throw new Error(`latest score date failed: ${error.message}`);
+  return (data?.scored_at as string | undefined) ?? null;
+}
+
 /** Liste des sujets scorés, filtrée et triée (potentiel décroissant, sujets sensibles en fin de liste). */
-export async function listTopics(db: SupabaseClient, f: TopicFilters): Promise<{ rows: TopicRow[]; scoredAt: string }> {
-  const scoredAt = await getLatestScoreDate(db);
-  if (!f.nicheIds.length) return { rows: [], scoredAt };
-  const { ignored, mine } = await getUserTopicSets(db, f.userId);
+export async function listTopics(db: SupabaseClient, f: TopicFilters): Promise<{ rows: TopicRow[]; scoredAt: string | null }> {
+  const scoredAt = await getLatestScoreDateOrNull(db);
+  if (!f.nicheIds.length || !scoredAt) return { rows: [], scoredAt };
+  const [{ ignored, mine }, ready] = await Promise.all([getUserTopicSets(db, f.userId), isDbReady()]);
   let q = db
     .from('topic_scores')
-    .select('mgi, phase, confidence, topics!inner(id, label, status, niche_id)')
+    .select('mgi, phase, confidence, competitor_subs, topics!inner(id, label, status, niche_id)')
     .eq('scored_at', scoredAt)
     .in('topics.status', ['active', 'in_production'])
     .not('mgi', 'is', null)
@@ -69,7 +81,9 @@ export async function listTopics(db: SupabaseClient, f: TopicFilters): Promise<{
   if (f.reliableOnly) q = q.in('confidence', ['high', 'medium']);
   if (f.query) q = q.ilike('topics.label', `%${f.query.replace(/[%_]/g, '')}%`);
 
-  const { data } = await q;
+  const { data, error } = await q;
+  // A failing query must reach the error state, not look like « no topic matches these filters ».
+  if (error) throw new Error(`listTopics failed: ${error.message}`);
   const rows: TopicRow[] = (data ?? [])
     .filter((s) => !ignored.has((s.topics as unknown as { id: string }).id))
     .map((s) => {
@@ -83,8 +97,10 @@ export async function listTopics(db: SupabaseClient, f: TopicFilters): Promise<{
       potential: Math.round(Number(s.mgi)),
       reliability: (['high', 'medium', 'low'].includes(conf) ? conf : 'low') as Reliability,
       status: t.status,
-      inMyVideos: mine.has(t.id) || t.status === 'in_production',
+      // Per account once multi-account is on; the shared topics.status only before migration 00018.
+      inMyVideos: ready ? mine.has(t.id) : t.status === 'in_production',
       sensitive: isSensitiveTopic(t.label),
+      competitorSubs: (s.competitor_subs as number[] | null) ?? null,
     };
   });
   rows.sort((a, b) => Number(a.sensitive) - Number(b.sensitive) || b.potential - a.potential);
@@ -132,7 +148,10 @@ export async function getTopicDetail(db: SupabaseClient, topicId: string, userId
     db.from('angles').select('id', { count: 'exact', head: true }).eq('topic_id', topicId).eq('user_id', userId),
     db.from('user_topic_state').select('state').eq('topic_id', topicId).eq('user_id', userId).maybeSingle(),
   ]);
+  // Not found (PGRST116) → null; any other failure → error state.
+  if (topicRes.error && topicRes.error.code !== 'PGRST116') throw new Error(`getTopicDetail failed: ${topicRes.error.message}`);
   if (topicRes.error || !topicRes.data) return null;
+  if (scoreRes.error) throw new Error(`getTopicDetail score failed: ${scoreRes.error.message}`);
   const topic = topicRes.data as unknown as {
     id: string; label: string; status: string; niche_id: string;
     niches: { name: string } | null;
@@ -152,7 +171,7 @@ export async function getTopicDetail(db: SupabaseClient, topicId: string, userId
     nicheId: topic.niche_id,
     nicheName: topic.niches?.name ?? '',
     status: topic.status,
-    inMyVideos: (mineRes.count ?? 0) > 0 || topic.status === 'in_production',
+    inMyVideos: ready ? (mineRes.count ?? 0) > 0 : topic.status === 'in_production',
     ignored: stateRes.data?.state === 'ignored',
     phase: s?.phase ?? null,
     potential: s?.mgi != null ? Math.round(Number(s.mgi)) : null,

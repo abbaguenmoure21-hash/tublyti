@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
 import { PhaseBadge } from '@/components/tublyti/phase-badge';
 import { SensitiveBadge } from '@/components/tublyti/sensitive-badge';
+import { FRUSTRATION_LABEL, RELIABILITY_LABELS } from '@/lib/lexique';
+import { PotentialMeter } from '../../sujets/_components/reliability';
 import { FeasibilityBadge } from '@/components/tublyti/feasibility-badge';
 import type { FeasibilityGrade } from '@/lib/scoring/feasibility';
 
@@ -101,10 +103,10 @@ function Chart({
           width={x(lowSupply.supply) - x(0)}
           height={y(lowSupply.demand) - y(100)}
           rx={12}
-          fill="var(--phase-2-soft)"
+          fill="var(--primary-soft)"
           opacity={0.8}
         />
-        <text x={x(0) + 12} y={y(100) + 22} fontSize={12} fontWeight={600} fill="var(--phase-2-ink)">
+        <text x={x(0) + 12} y={y(100) + 22} fontSize={12} fontWeight={600} fill="var(--primary-ink)">
           Très demandés, peu traités
         </text>
 
@@ -234,14 +236,14 @@ function Row({ label, value, hint }: { label: string; value: React.ReactNode; hi
 
 function Detail({ topic, isBest }: { topic: CarteTopic; isBest: boolean }) {
   return (
-    <aside aria-label="Sujet sélectionné" className="flex flex-col gap-4 rounded-2xl bg-card p-5">
+    <aside id="carte-detail" aria-label="Sujet sélectionné" className="flex scroll-mt-4 flex-col gap-4 rounded-2xl bg-card p-5">
       <div className="flex flex-col gap-2">
         <span className="text-[13px] text-muted-foreground">{isBest ? (topic.measured ? 'Le plus prometteur' : 'Le plus suivi') : topic.channel}</span>
         <h2 className="text-[20px] font-semibold leading-tight tracking-[-0.01em]">{topic.label}</h2>
         <div className="flex flex-wrap items-center gap-2">
           <PhaseBadge phase={topic.phase} />
           {topic.sensitive && <SensitiveBadge />}
-          {topic.measured && !topic.reliable && <span className="text-xs text-muted-foreground">Peu de données</span>}
+          {topic.measured && !topic.reliable && <span className="text-xs text-muted-foreground">{RELIABILITY_LABELS.low}</span>}
         </div>
       </div>
 
@@ -260,12 +262,12 @@ function Detail({ topic, isBest }: { topic: CarteTopic; isBest: boolean }) {
             }
             value={formatSupply(topic.supply)}
           />
-          <Row label="Public frustré" hint="Commentaires qui réclament une vidéo" value={`${topic.frustration} %`} />
+          <Row label={FRUSTRATION_LABEL} hint="Commentaires qui réclament une vidéo" value={`${topic.frustration} %`} />
           {topic.feasibility && (
             <Row
               label="Faisabilité"
               hint={topic.feasibilityReason ?? undefined}
-              value={<FeasibilityBadge grade={topic.feasibility as FeasibilityGrade} />}
+              value={<FeasibilityBadge grade={topic.feasibility as FeasibilityGrade} showLabel />}
             />
           )}
         </div>
@@ -293,7 +295,8 @@ function Detail({ topic, isBest }: { topic: CarteTopic; isBest: boolean }) {
 
 // ─────────────────────────────── Vue ───────────────────────────────
 
-const COLS = 'grid-cols-[minmax(0,2.4fr)_150px_120px_84px_110px_96px_70px]';
+// Mobile: Sujet, Moment, Potentiel only (the rest is in the detail card).
+const COLS = 'grid-cols-[minmax(0,1fr)_auto_40px] md:grid-cols-[minmax(0,2.4fr)_150px_120px_84px_110px_96px_70px]';
 
 export function CarteView({
   topics,
@@ -332,7 +335,15 @@ export function CarteView({
         <section aria-labelledby="carte-titre" className="flex flex-col gap-3 rounded-2xl bg-card p-4 md:p-5">
           <h2 id="carte-titre" className="sr-only">Carte</h2>
           {measured.length >= 5 ? (
-            <Chart topics={measured} selectedId={selectedId} onSelect={(id) => setSelectedId(id === selectedId ? null : id)} lowSupply={lowSupply} />
+            <>
+              {/* Too small to read or tap on a phone: the list below replaces it. */}
+              <div className="hidden md:block">
+                <Chart topics={measured} selectedId={selectedId} onSelect={(id) => setSelectedId(id === selectedId ? null : id)} lowSupply={lowSupply} />
+              </div>
+              <p className="px-1 text-sm leading-relaxed text-muted-foreground md:hidden">
+                Sur téléphone, les sujets sont classés ci-dessous. Touche un sujet pour voir son détail ici.
+              </p>
+            </>
           ) : (
             <div className="flex flex-col items-center gap-2 px-6 py-14 text-center">
               <p className="text-[15px] font-medium">Pas assez de sujets mesurés pour dessiner la carte</p>
@@ -342,7 +353,7 @@ export function CarteView({
               </p>
             </div>
           )}
-          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 px-1 text-[13px] text-muted-foreground">
+          <div className="hidden flex-wrap items-center gap-x-5 gap-y-2 px-1 text-[13px] text-muted-foreground md:flex">
             {PHASE_NAME.map((n, i) => (
               <span key={n} className="flex items-center gap-1.5">
                 <span className="h-2.5 w-2.5 rounded-full" style={{ background: PHASE_VAR[i] }} aria-hidden="true" />
@@ -361,15 +372,15 @@ export function CarteView({
       </div>
 
       <section aria-label="Tous les sujets" className="overflow-x-auto rounded-2xl bg-card">
-        <div className="min-w-[860px]">
+        <div className="md:min-w-[860px]">
           <div className={`grid ${COLS} items-end gap-4 border-b border-border px-5 py-3 text-[13px] font-medium text-muted-foreground`}>
             <span>Sujet</span>
             <span>Moment</span>
-            <span>Potentiel</span>
-            <span title="Demande du public, comparée aux autres sujets de la thématique (0 à 100)">Demande</span>
-            <span title="Bonnes vidéos publiées, par rapport à la moyenne de la thématique">Bonnes vidéos</span>
-            <span title="Part des commentaires qui réclament une vidéo ou se plaignent">Public frustré</span>
-            <span title="Chances de réussir le sujet avec une petite chaîne (A = très bonnes)">Faisabilité</span>
+            <span><span className="md:hidden" aria-hidden="true">Pot.</span><span className="sr-only md:not-sr-only">Potentiel</span></span>
+            <span className="hidden md:block" title="Demande du public, comparée aux autres sujets de la thématique (0 à 100)">Demande</span>
+            <span className="hidden md:block" title="Bonnes vidéos publiées, par rapport à la moyenne de la thématique">Bonnes vidéos</span>
+            <span className="hidden md:block" title="Part des commentaires qui réclament une vidéo">{FRUSTRATION_LABEL}</span>
+            <span className="hidden md:block" title="Chances de réussir le sujet avec une petite chaîne (A = très bonnes)">Faisabilité</span>
           </div>
           <ol>
             {topics.map((t) => {
@@ -378,9 +389,15 @@ export function CarteView({
                 <li key={t.id} className="border-b border-muted last:border-b-0">
                   <button
                     type="button"
-                    onClick={() => setSelectedId(on ? null : t.id)}
+                    onClick={() => {
+                      setSelectedId(on ? null : t.id);
+                      // The detail card sits above the list below xl: bring it on screen.
+                      if (!on && window.matchMedia('(max-width: 1279px)').matches) {
+                        requestAnimationFrame(() => document.getElementById('carte-detail')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+                      }
+                    }}
                     aria-pressed={on}
-                    className={`grid w-full ${COLS} items-center gap-4 px-5 py-3 text-left transition-colors ${
+                    className={`grid w-full ${COLS} items-center gap-3 px-4 py-3 text-left md:gap-4 md:px-5 transition-colors ${
                       on ? 'bg-primary-soft/50 shadow-[inset_3px_0_0_var(--primary)]' : 'hover:bg-muted/60'
                     }`}
                   >
@@ -394,21 +411,22 @@ export function CarteView({
                     <span><PhaseBadge phase={t.phase} /></span>
                     {t.measured ? (
                       <>
-                        <span className="flex items-center gap-2">
-                          <span className="w-7 text-[15px] font-semibold tabular-nums">{t.potential}</span>
-                          <span className="h-1.5 w-14 overflow-hidden rounded-full bg-muted">
-                            <span className="block h-full rounded-full bg-primary" style={{ width: `${t.potential}%` }} />
-                          </span>
+                        <span className="flex items-center">
+                          <span className="text-[15px] font-semibold tabular-nums md:hidden">{t.potential}</span>
+                          <span className="hidden md:inline-flex"><PotentialMeter value={t.potential} /></span>
                         </span>
-                        <span className="text-[15px] tabular-nums">{t.demand}</span>
-                        <span className="text-[15px] tabular-nums">{formatSupply(t.supply)}</span>
-                        <span className="text-[15px] tabular-nums">{t.frustration} %</span>
-                        <span>{t.feasibility ? <FeasibilityBadge grade={t.feasibility as FeasibilityGrade} /> : <span className="text-muted-foreground">—</span>}</span>
+                        <span className="hidden text-[15px] tabular-nums md:block">{t.demand}</span>
+                        <span className="hidden text-[15px] tabular-nums md:block">{formatSupply(t.supply)}</span>
+                        <span className="hidden text-[15px] tabular-nums md:block">{t.frustration} %</span>
+                        <span className="hidden md:block">{t.feasibility ? <FeasibilityBadge grade={t.feasibility as FeasibilityGrade} /> : <span className="text-muted-foreground">—</span>}</span>
                       </>
                     ) : (
-                      <span className="col-span-5 text-[13px] text-muted-foreground">
-                        Pas encore mesuré · {t.videos} vidéo{t.videos > 1 ? 's' : ''} repérée{t.videos > 1 ? 's' : ''}
-                      </span>
+                      <>
+                        <span className="text-[15px] text-muted-foreground md:hidden" aria-label="Pas encore mesuré">—</span>
+                        <span className="hidden text-[13px] text-muted-foreground md:col-span-5 md:block">
+                          Pas encore mesuré · {t.videos} vidéo{t.videos > 1 ? 's' : ''} repérée{t.videos > 1 ? 's' : ''}
+                        </span>
+                      </>
                     )}
                   </button>
                 </li>

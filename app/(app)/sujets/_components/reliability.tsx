@@ -1,9 +1,11 @@
 import type { Reliability } from '@/lib/sujets/queries';
+import { RELIABILITY_LABELS } from '@/lib/lexique';
 
+// One scale, one hue (LEXIQUE: « Fiabilité haute, moyenne, faible »).
 const CONFIG: Record<Reliability, { label: string; dots: number; className: string }> = {
-  high: { label: 'Fiable', dots: 3, className: 'text-phase-2-ink' },
-  medium: { label: 'Assez fiable', dots: 2, className: 'text-primary-ink' },
-  low: { label: 'Peu de données', dots: 1, className: 'text-muted-foreground' },
+  high: { label: RELIABILITY_LABELS.high, dots: 3, className: 'text-primary-ink' },
+  medium: { label: RELIABILITY_LABELS.medium, dots: 2, className: 'text-primary-ink' },
+  low: { label: RELIABILITY_LABELS.low, dots: 1, className: 'text-muted-foreground' },
 };
 
 /** Indicateur de fiabilité : 3 points + libellé (jamais la couleur seule). */
@@ -23,13 +25,16 @@ export function ReliabilityMark({ value }: { value: Reliability | null }) {
 }
 
 /** Jauge de potentiel 0–100 (échelle séquentielle d'une seule teinte, DESIGN.md). */
-export function PotentialMeter({ value }: { value: number | null }) {
+/** showLabel: prefix « Potentiel » below md, where the column header is hidden. */
+export function PotentialMeter({ value, showLabel = false }: { value: number | null; showLabel?: boolean }) {
   if (value == null) return <span className="text-sm text-muted-foreground">—</span>;
-  const color = value >= 80 ? '#443cc6' : value >= 60 ? '#646cd8' : value >= 40 ? '#8c97e9' : '#b7c0f8';
+  // Sequential single-hue scale from the primary token (adapts to dark mode).
+  const tone = value >= 80 ? 'bg-primary' : value >= 60 ? 'bg-primary/80' : value >= 40 ? 'bg-primary/60' : 'bg-primary/40';
   return (
     <span className="inline-flex items-center gap-2" aria-label={`Potentiel ${value} sur 100`}>
+      {showLabel && <span className="text-xs text-muted-foreground md:hidden" aria-hidden="true">Potentiel</span>}
       <span className="block h-1.5 w-11 overflow-hidden rounded-full bg-muted" aria-hidden="true">
-        <span className="block h-1.5 rounded-full" style={{ width: `${value}%`, background: color }} />
+        <span className={`block h-1.5 rounded-full ${tone}`} style={{ width: `${value}%` }} />
       </span>
       <span className="w-7 text-right text-sm font-semibold tabular-nums">{value}</span>
     </span>

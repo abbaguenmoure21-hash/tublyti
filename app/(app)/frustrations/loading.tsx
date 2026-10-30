@@ -1,25 +1,17 @@
-import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 
+/** Same shape as Questions du public: header, view tabs, grid of group cards. */
 export default function FrustrationsLoading() {
   return (
-    <div className="p-6 md:p-8 max-w-6xl mx-auto space-y-6">
-      <div className="space-y-2">
-        <Skeleton className="h-8 w-48" />
-        <Skeleton className="h-4 w-80" />
+    <div className="flex w-full flex-1 flex-col gap-6 px-4 pb-12 pt-5 md:px-8" aria-busy="true" aria-label="Chargement des questions du public">
+      <div className="flex flex-col gap-2">
+        <Skeleton className="h-8 w-full max-w-[340px] md:h-9" />
+        <Skeleton className="h-4 w-full max-w-[620px]" />
       </div>
-      <div className="space-y-4">
+      <Skeleton className="h-[38px] w-full max-w-[460px] rounded-[12px]" />
+      <div className="grid gap-4 md:grid-cols-2">
         {Array.from({ length: 4 }).map((_, i) => (
-          <Card key={i}>
-            <CardContent className="space-y-3 pt-4">
-              <Skeleton className="h-4 w-full" />
-              <Skeleton className="h-4 w-3/4" />
-              <div className="flex items-center gap-2">
-                <Skeleton className="h-5 w-24 rounded-full" />
-                <Skeleton className="h-4 w-16" />
-              </div>
-            </CardContent>
-          </Card>
+          <Skeleton key={i} className="h-[180px] rounded-xl" />
         ))}
       </div>
     </div>

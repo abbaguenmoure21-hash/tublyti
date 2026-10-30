@@ -1,6 +1,11 @@
 import { createServiceClient } from '@/lib/supabase/server';
 import { getMgiBand } from '@/lib/scoring/mgi';
 import { getLatestSnapshots } from '@/lib/youtube/latest-snapshots';
+import { COMMENT_LABELS, FEASIBILITY_MEANING, FRUSTRATION_LABEL, RELIABILITY_SHORT, formatLongDate, formatSupply } from '@/lib/lexique';
+import { isDbReady } from '@/lib/auth/session';
+import { getUserSubsByNiche } from '@/lib/scoring/user-subs';
+import { computeFeasibilityForUser, isNoChannelResult } from '@/lib/scoring/feasibility-for-user';
+import type { FeasibilityGrade } from '@/lib/scoring/feasibility';
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -30,9 +35,12 @@ export interface DossierData {
     scoredAt: string;
     confidence: string | null;
     confidenceReason: string | null;
-    feasibilityGrade: string | null;
-    feasibilityReason: string | null;
   } | null;
+  /**
+   * « Tes chances » computed for the requesting account only (never the nightly per-owner grade,
+   * whose reason quotes another account's subscriber count). null = no requesting user (cron).
+   */
+  feasibility: { kind: 'grade'; grade: FeasibilityGrade; meaning: string; reason: string } | { kind: 'no_channel' } | null;
   frustrations: {
     text: string;
     likeCount: number;
@@ -78,6 +86,7 @@ export async function fetchDossierData(
   topicId: string,
   opts: { viewerId?: string | null } = {},
 ): Promise<DossierData | null> {
+  const userId = opts.viewerId ?? null;
   const db = createServiceClient();
 
   const { data: topic } = await db
@@ -105,7 +114,7 @@ export async function fetchDossierData(
   // Latest score
   const { data: scoreRow } = await db
     .from('topic_scores')
-    .select('mgi, demand, frustration, supply_q, monetization, phase, scored_at, confidence, confidence_reason, feasibility_grade, feasibility_reason')
+    .select('mgi, demand, frustration, supply_q, monetization, phase, scored_at, confidence, confidence_reason, competitor_subs')
     .eq('topic_id', topicId)
     .order('scored_at', { ascending: false })
     .limit(1)
@@ -121,9 +130,18 @@ export async function fetchDossierData(
     scoredAt: scoreRow.scored_at as string,
     confidence: (scoreRow.confidence as string) ?? null,
     confidenceReason: (scoreRow.confidence_reason as string) ?? null,
-    feasibilityGrade: (scoreRow.feasibility_grade as string) ?? null,
-    feasibilityReason: (scoreRow.feasibility_reason as string) ?? null,
   } : null;
+
+  // Per-account feasibility (same computation as the topic page).
+  let feasibility: DossierData['feasibility'] = null;
+  if (userId) {
+    const subs = niche ? ((await getUserSubsByNiche(db, userId)).get(niche.id) ?? null) : null;
+    const competitorSubs = (scoreRow?.competitor_subs as number[] | null) ?? null;
+    const f = subs != null ? computeFeasibilityForUser(subs, competitorSubs) : null;
+    feasibility = f && !isNoChannelResult(f)
+      ? { kind: 'grade', grade: f.grade as FeasibilityGrade, meaning: FEASIBILITY_MEANING[f.grade as FeasibilityGrade], reason: f.reason }
+      : { kind: 'no_channel' };
+  }
 
   // Frustrations (top 10)
   const { data: frustRows } = await db
@@ -201,13 +219,15 @@ export async function fetchDossierData(
   }
 
   // Angles (latest 5)
-  const { data: angleRows } = await db
+  let anglesQ = db
     .from('angles')
     .select('title, hook, rationale, formula, frustration_resolved')
     .eq('topic_id', topicId)
-    .or(opts.viewerId ? `user_id.is.null,user_id.eq.${opts.viewerId}` : 'user_id.is.null')
     .order('created_at', { ascending: false })
     .limit(5);
+  // Shared angles + the requesting account's own; never another account's videos.
+  if (await isDbReady()) anglesQ = userId ? anglesQ.or(`user_id.is.null,user_id.eq.${userId}`) : anglesQ.is('user_id', null);
+  const { data: angleRows } = await anglesQ;
 
   const angles = (angleRows ?? []).map((a: Record<string, unknown>) => ({
     title: a.title as string,
@@ -239,6 +259,7 @@ export async function fetchDossierData(
     },
     niche,
     score,
+    feasibility,
     frustrations,
     competitors,
     titlePatterns,
@@ -256,13 +277,6 @@ const PHASE_LABELS: Record<number, string> = {
   3: 'Trop tard',
 };
 
-const LABEL_NAMES: Record<string, string> = {
-  no_one_explains: "Personne n'explique",
-  wish_video_on: 'Souhait de vidéo',
-  stopped_too_early: "S'arrête trop tôt",
-  searched_long: 'Longue recherche',
-};
-
 function formatViews(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)} M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)} k`;
@@ -277,36 +291,40 @@ export function renderDossierMarkdown(data: DossierData): string {
 
   lines.push(`# Dossier : ${topic.label}`);
   lines.push('');
-  lines.push(`**Niche** : ${niche?.name ?? '—'} | **Phase** : ${phase !== null ? PHASE_LABELS[phase] ?? `Phase ${phase}` : 'Inconnue'} | **Statut** : ${topic.status}`);
+  lines.push(`**Thématique** : ${niche?.name ?? '—'} | **Moment** : ${phase !== null ? PHASE_LABELS[phase] ?? '—' : '—'}`);
   lines.push(`**Généré le** : ${new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}`);
 
   // ── MGI breakdown
   if (score) {
     const band = getMgiBand(score.mgi);
     lines.push('');
-    lines.push('## Market Gap Index');
+    lines.push('## Les chiffres');
     lines.push('');
-    lines.push(`| Métrique | Valeur |`);
+    lines.push(`| Indicateur | Valeur |`);
     lines.push(`|----------|--------|`);
-    lines.push(`| **MGI** | **${Math.round(score.mgi)}** (${band.label}) |`);
-    lines.push(`| Demande (D) | ${Math.round(score.demand)} |`);
-    lines.push(`| Frustration (F) | ${Math.round(score.frustration * 100)} % |`);
-    lines.push(`| Offre qualifiée (Oq) | ${Math.round(score.supplyQ)} |`);
-    lines.push(`| Monétisation (P) | × ${score.monetization.toFixed(1)} |`);
+    lines.push(`| **Potentiel** | **${Math.round(score.mgi)} / 100** (${band.label}) |`);
+    lines.push(`| Demande du public | ${Math.round(score.demand * 100)} / 100 |`);
+    lines.push(`| ${FRUSTRATION_LABEL} | ${Math.round(score.frustration * 100)} % |`);
+    lines.push(`| Vidéos de qualité existantes | ${formatSupply(score.supplyQ)} par rapport à la moyenne |`);
+    lines.push(`| Revenus publicitaires | ×${new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 1 }).format(score.monetization)} par rapport à une thématique moyenne |`);
 
     if (score.confidence) {
-      const confLabel = score.confidence === 'high' ? 'Élevée' : score.confidence === 'medium' ? 'Moyenne' : 'Faible';
-      lines.push(`| Confiance | ${confLabel} — ${score.confidenceReason ?? ''} |`);
+      const confLabel = RELIABILITY_SHORT[score.confidence as 'high' | 'medium' | 'low'] ?? 'Faible';
+      lines.push(`| Fiabilité | ${confLabel}${score.confidenceReason ? ` — ${score.confidenceReason}` : ''} |`);
     }
-    lines.push(`| Fraîcheur | Scores du ${score.scoredAt} |`);
+    lines.push(`| Mis à jour | ${formatLongDate(score.scoredAt)} |`);
   }
 
   // ── Feasibility
-  if (score?.feasibilityGrade) {
+  if (data.feasibility) {
     lines.push('');
-    lines.push('## Faisabilité');
+    lines.push('## Tes chances');
     lines.push('');
-    lines.push(`**Note : ${score.feasibilityGrade}** — ${score.feasibilityReason ?? 'Aucune explication.'}`);
+    lines.push(
+      data.feasibility.kind === 'grade'
+        ? `**${data.feasibility.grade} · ${data.feasibility.meaning}** — ${data.feasibility.reason}`
+        : 'Ajoute ta chaîne dans Réglages pour voir tes chances.',
+    );
   }
 
   // ── Phase + trend
@@ -323,12 +341,12 @@ export function renderDossierMarkdown(data: DossierData): string {
   // ── Frustrations
   if (frustrations.length > 0) {
     lines.push('');
-    lines.push(`## Frustrations (${frustrations.length})`);
+    lines.push(`## Ce que réclame le public (${frustrations.length})`);
     lines.push('');
     for (const f of frustrations) {
-      const label = LABEL_NAMES[f.label] ?? f.label;
+      const label = COMMENT_LABELS[f.label] ?? f.label;
       const ytLink = `https://youtube.com/watch?v=${f.videoId}&lc=${f.commentId}`;
-      lines.push(`${frustrations.indexOf(f) + 1}. **[${f.likeCount} likes]** « ${f.text.slice(0, 200)} »`);
+      lines.push(`${frustrations.indexOf(f) + 1}. **[${f.likeCount} j’aime]** « ${f.text.slice(0, 200)} »`);
       lines.push(`   Type : ${label}${f.requestedAngle ? ` · Angle demandé : ${f.requestedAngle}` : ''} · [Voir sur YouTube](${ytLink})`);
     }
   }
@@ -336,7 +354,7 @@ export function renderDossierMarkdown(data: DossierData): string {
   // ── Competitors
   if (competitors.length > 0) {
     lines.push('');
-    lines.push(`## Concurrents qualifiés (${competitors.length})`);
+    lines.push(`## Vidéos déjà publiées sur ce sujet (${competitors.length})`);
     lines.push('');
     lines.push(`| # | Titre | Chaîne | Vues | Abonnés | Publiée |`);
     lines.push(`|---|-------|--------|------|---------|---------|`);
@@ -350,12 +368,12 @@ export function renderDossierMarkdown(data: DossierData): string {
   // ── RPM
   if (niche) {
     lines.push('');
-    lines.push('## Monétisation (RPM)');
+    lines.push('## Revenus publicitaires');
     lines.push('');
     if (niche.rpmLow && niche.rpmHigh) {
-      lines.push(`**${niche.rpmLow} – ${niche.rpmHigh} $** par 1 000 vues (${niche.rpmSource ?? `coefficient × ${niche.rpmCoefficient}`})`);
+      lines.push(`**${niche.rpmLow} – ${niche.rpmHigh} $** par 1 000 vues (estimation de la thématique)`);
     } else {
-      lines.push(`Coefficient niche : × ${niche.rpmCoefficient}`);
+      lines.push(`×${niche.rpmCoefficient} par rapport à une thématique moyenne`);
     }
   }
 
@@ -380,20 +398,20 @@ export function renderDossierMarkdown(data: DossierData): string {
   // ── Angles
   if (angles.length > 0) {
     lines.push('');
-    lines.push(`## Angles de contenu (${angles.length})`);
+    lines.push(`## Angles proposés (${angles.length})`);
     lines.push('');
     for (const [i, a] of angles.entries()) {
       lines.push(`### ${i + 1}. ${a.title}`);
       lines.push(`**Hook** : ${a.hook}`);
       lines.push(`**Raison** : ${a.rationale}`);
       if (a.formula) lines.push(`**Formule** : ${a.formula}`);
-      if (a.frustrationResolved) lines.push(`**Frustration résolue** : ${a.frustrationResolved}`);
+      if (a.frustrationResolved) lines.push(`**Question à laquelle il répond** : ${a.frustrationResolved}`);
       lines.push('');
     }
   }
 
   lines.push('---');
-  lines.push(`*Dossier généré par TubLyTI — ${new Date().toISOString().slice(0, 10)}*`);
+  lines.push(`*Dossier généré par TubLyTI — ${formatLongDate(new Date().toISOString())}*`);
 
   return lines.join('\n');
 }

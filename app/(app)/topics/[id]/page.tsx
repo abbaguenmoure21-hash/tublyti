@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { AlertTriangle, Play } from 'lucide-react';
 import { notFound } from 'next/navigation';
 import type { Metadata } from 'next';
 import { createServiceClient } from '@/lib/supabase/server';
@@ -13,13 +14,19 @@ import { AnalyzeVideoButton } from '@/components/tublyti/video-analysis';
 import { TopicSaturationCard, OutlierSaturationButton } from '@/components/tublyti/saturation';
 import { topicSaturation } from '@/lib/saturation';
 import { TopicActions } from './_components/topic-actions';
-import { TopicShortcuts } from './_components/topic-shortcuts';
 import { AngleSection } from './_components/angle-section';
+import type { BriefData } from './_components/brief';
 import { DossierExport } from './_components/dossier-export';
 import { getFavoriteIds } from '@/lib/actions/collections';
 import { computeFeasibilityForUser, isNoChannelResult } from '@/lib/scoring/feasibility-for-user';
 import { getUserSubsByNiche } from '@/lib/scoring/user-subs';
 import { getLatestSnapshots } from '@/lib/youtube/latest-snapshots';
+import { COMMENT_LABELS, FRUSTRATION_LABEL, RELIABILITY_LABELS } from '@/lib/lexique';
+import { FeasibilityBadge } from '@/components/tublyti/feasibility-badge';
+import type { FeasibilityGrade } from '@/lib/scoring/feasibility';
+
+/** Most-liked unanswered-question comments shown (the list is capped: display « 20+ »). */
+const FRUSTRATION_LIMIT = 20;
 
 // L'analyse vidéo (Gemini) peut prendre jusqu'à 2-3 minutes.
 export const maxDuration = 300;
@@ -34,18 +41,12 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   return { title: data?.label ? `${data.label} - Dossier` : 'Dossier Sujet' };
 }
 
-const LABEL_NAMES: Record<string, string> = {
-  no_one_explains: 'Explication manquante',
-  wish_video_on: 'Vidéo réclamée',
-  stopped_too_early: 'Sujet survolé',
-  searched_long: 'Recherche difficile',
-};
 
 const COMPETITOR_TAGS: Record<string, { label: string; color: string }> = {
-  qualified: { label: 'Qualifiée', color: 'text-phase-2-ink' },
-  old: { label: 'Ancienne', color: 'text-phase-1-ink' },
+  qualified: { label: 'Vidéo de qualité', color: 'text-muted-foreground' },
+  old: { label: 'Ancienne', color: 'text-muted-foreground' },
   off_topic: { label: 'Hors sujet', color: 'text-muted-foreground' },
-  short: { label: 'Short', color: 'text-muted-foreground' },
+  short: { label: 'Vidéo courte', color: 'text-muted-foreground' },
 };
 
 interface Competitor {
@@ -86,7 +87,7 @@ function formatRelativeDate(dateStr: string): string {
 }
 
 function formatDuration(sec: number): string {
-  if (sec < 60) return 'Short';
+  if (sec < 60) return 'moins d’1 min';
   const m = Math.floor(sec / 60);
   return `${m} min`;
 }
@@ -143,7 +144,7 @@ export default async function TopicPage({
 
   // Independent reads in parallel (were ~12 sequential round-trips).
   const ninetyDaysAgo = new Date(Date.now() - 90 * 86_400_000).toISOString().slice(0, 10);
-  const [saturation, { data: score }, { data: videos }, { data: frustrations }, { data: angles }, { data: trendPoints }, { data: favoriteTopicIds }, userSubsByNiche] = await Promise.all([
+  const [saturation, { data: score }, { data: videos, error: videosError }, { data: frustrations, error: frustrationsError }, { data: angles, error: anglesError }, { data: trendPoints }, { data: favoriteTopicIds }, userSubsByNiche] = await Promise.all([
     // Saturation : concurrence récente et performance des nouvelles vidéos du sujet.
     topicSaturation(db, id).catch(() => null),
     // Latest score
@@ -172,7 +173,7 @@ export default async function TopicPage({
       .neq('label', 'none')
       .gte('confidence', 0.7)
       .order('comments(like_count)', { ascending: false })
-      .limit(20),
+      .limit(FRUSTRATION_LIMIT),
     // Angles
     (async () => {
       let anglesQ = db
@@ -257,6 +258,21 @@ export default async function TopicPage({
     };
   });
 
+  // A failed query must show the error state, not empty sections (« Aucune vidéo trouvée »).
+  if (videosError || frustrationsError || anglesError) {
+    throw new Error(`topic page load failed: ${(videosError ?? frustrationsError ?? anglesError)?.message}`);
+  }
+
+  // Per-account state (the shared topics.status is not per user since multi-account).
+  const ready = await isDbReady();
+  let myVideos: { status: string }[] = [];
+  if (ready) {
+    const { data: mineRows } = await db.from('angles').select('status').eq('topic_id', id).eq('user_id', user.id);
+    myVideos = (mineRows ?? []) as { status: string }[];
+  }
+  const inMyVideos = ready ? myVideos.length > 0 : topic.status === 'in_production';
+  const hasOpenVideo = ready ? myVideos.some((v) => v.status === 'in_production') : topic.status === 'in_production';
+
   const signals: Record<string, { date: string; value: number }[]> = {
     trends: [], hn: [], yt_views: [],
   };
@@ -290,11 +306,39 @@ export default async function TopicPage({
 
   const totalFrustrated = frustrationList.length;
 
-  // Estimate total comments from frustration ratio
-  let totalComments = 0;
-  if (score && Number(score.frustration) > 0) {
-    totalComments = Math.round(totalFrustrated / Number(score.frustration));
-  }
+  const briefData: BriefData = {
+    topicLabel: topic.label,
+    nicheName: niche?.name ?? '?',
+    rpmCoefficient: niche?.rpm_coefficient ?? 1,
+    phaseLabel: phase !== null && phase !== undefined ? (PHASE_LABELS[phase] ?? String(phase)) : '?',
+    mgi: score ? Number(score.mgi) : null,
+    demand: score ? Number(score.demand) : null,
+    supply: score ? Number(score.supply_q) : null,
+    frustrationScore: score ? Number(score.frustration) : null,
+    monetization: score ? Number(score.monetization) : null,
+    date: score?.scored_at ?? new Date().toISOString().slice(0, 10),
+    frustrations: frustrationList.map((f) => ({
+      text: f.text,
+      likeCount: f.likeCount,
+      label: f.label,
+      requestedAngle: f.requestedAngle,
+      commentId: f.commentId,
+    })),
+    competitors: competitors.map((c) => ({
+      title: c.title,
+      channelTitle: c.channelTitle,
+      views: c.views,
+      videoId: c.id,
+    })),
+  };
+  // Brief angle: the one already chosen, otherwise the first proposed one.
+  const anglesList = (angles ?? []) as { id: string; title: string | null; hook: string | null; rationale: string | null; status: string }[];
+  const chosenAngle =
+    anglesList.find((a) => a.status === 'in_production' || a.status === 'published') ?? anglesList[0] ?? null;
+  const briefAngle = chosenAngle
+    ? { id: chosenAngle.id as string, title: String(chosenAngle.title ?? ''), hook: String(chosenAngle.hook ?? ''), rationale: String(chosenAngle.rationale ?? '') }
+    : null;
+
 
   return (
     <div className="flex-1 flex flex-col min-w-0">
@@ -307,29 +351,37 @@ export default async function TopicPage({
 
       <div className="flex flex-1 flex-col gap-5 px-4 pb-12 pt-3 md:px-8">
         {/* Title row */}
-        <div className="flex items-start justify-between gap-6">
-          <div className="flex flex-col gap-2.5">
-            <div className="flex items-center gap-2.5">
+        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between md:gap-6">
+          <div className="flex min-w-0 flex-col gap-2.5">
+            <div className="flex flex-wrap items-center gap-2.5">
               <PhaseBadge phase={phase} />
               <span className="text-[13px] text-muted-foreground">
                 {niche?.name ? `${niche.name} · ` : ''}repéré il y a {daysSinceCreated} jour{daysSinceCreated !== 1 ? 's' : ''}
               </span>
             </div>
-            <h1 className="text-[28px] font-semibold leading-tight tracking-[-0.02em] md:text-[32px]">
+            <h1 className="break-words text-[28px] font-semibold leading-tight tracking-[-0.02em] md:text-[32px]">
               {topic.label}
             </h1>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 md:shrink-0 md:justify-end">
             <DossierExport topicId={id} />
-            <TopicActions topicId={id} status={topic.status} isFavorite={isFavorite} canGenerate={user.role === 'admin'} />
+            <TopicActions
+              topicId={id}
+              topicLabel={topic.label}
+              inMyVideos={inMyVideos}
+              hasOpenVideo={hasOpenVideo}
+              isFavorite={isFavorite}
+              canGenerate={user.role === 'admin'}
+              briefAngle={briefAngle}
+              briefData={briefData}
+            />
           </div>
         </div>
-        <TopicShortcuts topicId={id} status={topic.status} hasBrief={(angles ?? []).length > 0} />
 
         {/* Stale data banner */}
         {score && (Date.now() - new Date(score.scored_at).getTime() > 36 * 3_600_000) && (
-          <div className="flex items-center gap-2 px-4 py-2.5 rounded-[10px] bg-[var(--warning)]/10 text-[var(--warning)] text-[13px] border border-[var(--warning)]/20">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          <div role="status" className="flex items-center gap-2 rounded-[10px] bg-warning/10 px-4 py-2.5 text-[13px] text-foreground">
+            <AlertTriangle className="h-4 w-4 shrink-0 text-warning" aria-hidden="true" />
             Ces chiffres datent de plus de 36 heures : la mise à jour de cette nuit n’est pas encore passée.
           </div>
         )}
@@ -343,13 +395,13 @@ export default async function TopicPage({
             : null;
           return (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-            <div className="flex flex-col gap-1.5 rounded-2xl bg-card px-4 py-4">
+            <div className="flex flex-col gap-1.5 rounded-xl bg-card px-4 py-4">
               <span className="text-[13px] font-medium text-muted-foreground">Potentiel</span>
               <span className="flex items-baseline gap-2">
                 <span className="text-[30px] font-semibold leading-none tabular-nums tracking-[-0.02em]">{Math.round(mgiVal)}</span>
                 <span className="text-sm text-muted-foreground">/ 100</span>
                 {mgiDelta !== null && Math.round(mgiDelta) !== 0 && (
-                  <span className={`text-[13px] font-medium ${mgiDelta >= 0 ? 'text-phase-2-ink' : 'text-phase-3-ink'}`}>
+                  <span className={`text-[13px] font-medium ${mgiDelta >= 0 ? 'text-success' : 'text-destructive'}`}>
                     {mgiDelta >= 0 ? '+' : ''}{Math.round(mgiDelta)} en 7 j
                   </span>
                 )}
@@ -358,7 +410,7 @@ export default async function TopicPage({
                 <span className="block h-full rounded-full bg-primary" style={{ width: `${Math.min(mgiVal, 100)}%` }} />
               </span>
               <span className="text-xs text-muted-foreground" title={confidenceData?.reason}>
-                {confidenceData ? (confidenceData.level === 'high' ? 'Fiable' : confidenceData.level === 'medium' ? 'Assez fiable' : 'Peu de données') : ''}
+                {confidenceData ? (RELIABILITY_LABELS[confidenceData.level as 'high' | 'medium' | 'low'] ?? RELIABILITY_LABELS.low) : ''}
                 {confidenceData ? ' · ' : ''}
                 {formatScoredAtFreshness(score.scored_at)}
               </span>
@@ -370,10 +422,10 @@ export default async function TopicPage({
               sub={Number(score.supply_q) < 0.8 ? 'Moins que la moyenne : peu de concurrence' : Number(score.supply_q) <= 1.25 ? 'Dans la moyenne de la thématique' : 'Plus que la moyenne : concurrence forte'}
             />
             <ScoreCard
-              label="Public frustré"
+              label={FRUSTRATION_LABEL}
               value={`${Math.round(Number(score.frustration) * 100)}`}
               unit="%"
-              sub={totalComments > 0 ? `des ${totalComments.toLocaleString('fr-FR')} commentaires analysés` : 'des commentaires analysés'}
+              sub="des commentaires analysés sur ce sujet"
             />
             <ScoreCard
               label="Revenus publicitaires"
@@ -386,23 +438,19 @@ export default async function TopicPage({
 
         {/* Feasibility card */}
         {showFeasibility && (
-          <div className="bg-card rounded-xl p-6 !px-[18px] !py-3.5 flex items-center gap-3">
-            <span className={`inline-flex items-center justify-center h-8 w-8 rounded-[8px] text-[16px] font-bold ${GRADE_COLORS[userFeasibility.grade]}`}>
-              {userFeasibility.grade}
-            </span>
-            <div className="flex flex-col gap-0.5">
-              <span className="text-[13px] font-semibold">Faisabilité</span>
-              <span className="text-[13px] text-muted-foreground">
-                {userFeasibility.reason}
-              </span>
+          <div className="flex items-center gap-3 rounded-xl bg-card px-[18px] py-3.5">
+            <div className="flex flex-col gap-1">
+              <span className="text-[13px] font-semibold">Tes chances</span>
+              <FeasibilityBadge grade={userFeasibility.grade as FeasibilityGrade} showLabel />
+              <span className="text-[13px] text-muted-foreground">{userFeasibility.reason}</span>
+              <Link href="/guide#faisabilite" className="text-[12px] font-medium text-primary hover:underline">Comment c’est calculé</Link>
             </div>
           </div>
         )}
         {showNoChannelHint && (
-          <div className="bg-card rounded-xl p-6 !px-[18px] !py-3.5 flex items-center gap-3">
-            <span className="inline-flex items-center justify-center h-8 w-8 rounded-[8px] text-[16px] bg-muted text-muted-foreground">?</span>
+          <div className="flex items-center gap-3 rounded-xl bg-card px-[18px] py-3.5">
             <div className="flex flex-col gap-0.5">
-              <span className="text-[13px] font-semibold">Faisabilité</span>
+              <span className="text-[13px] font-semibold">Tes chances</span>
               <span className="text-[13px] text-muted-foreground">
                 <Link href="/settings#chaines" className="text-primary hover:underline">Ajoute l’adresse YouTube de ta chaîne dans Réglages</Link> pour voir tes chances.
               </span>
@@ -413,30 +461,30 @@ export default async function TopicPage({
         {saturation && <TopicSaturationCard s={saturation} />}
 
         {/* Two-column layout */}
-        <div className="flex gap-4 items-start">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:gap-4">
           {/* Left column */}
           <div className="flex-1 min-w-0 flex flex-col gap-5">
             <SignalSection signals={signals} />
 
             {/* Frustrations */}
-            <section className="bg-card rounded-xl p-6 !p-0 flex flex-col">
-              <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-muted/50">
+            <section className="rounded-xl bg-card overflow-hidden flex flex-col">
+              <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-muted/40">
                 <h2 className="text-headline">Ce que réclame le public</h2>
                 <span className="text-[13px] font-medium text-muted-foreground bg-muted px-2 py-0.5 rounded border border-border">
-                  {totalFrustrated} commentaire{totalFrustrated !== 1 ? 's' : ''}
+                  {totalFrustrated >= FRUSTRATION_LIMIT ? `${FRUSTRATION_LIMIT}+` : totalFrustrated} commentaire{totalFrustrated !== 1 ? 's' : ''}
                 </span>
               </div>
               {frustrationList.length === 0 ? (
                 <div className="px-5 py-10 text-center text-[14px] text-muted-foreground font-medium">
-                  Aucun commentaire de frustration détecté.
+                  Aucune question du public repérée pour l’instant sur ce sujet.
                 </div>
               ) : (
                 frustrationList.slice(0, 8).map((f) => (
-                  <div key={f.commentId} className="px-5 py-4 border-b border-border flex flex-col gap-2.5 last:border-0 hover:bg-muted transition-colors">
+                  <div key={f.commentId} className="px-5 py-4 border-b border-border flex flex-col gap-2.5 last:border-0 hover:bg-muted/40 transition-colors">
                     <p className="line-clamp-4 text-[15px] leading-relaxed text-foreground">« {f.text} »</p>
-                    <div className="flex items-center gap-2.5 text-[12px] text-muted-foreground">
+                    <div className="flex flex-wrap items-center gap-2.5 text-[12px] text-muted-foreground">
                       <span className="inline-flex h-6 shrink-0 items-center rounded-md bg-muted px-2 font-medium text-muted-foreground">
-                        {LABEL_NAMES[f.label] ?? f.label}
+                        {COMMENT_LABELS[f.label] ?? f.label}
                       </span>
                       {f.requestedAngle && (
                         <span>
@@ -457,40 +505,17 @@ export default async function TopicPage({
           </div>
 
           {/* Right column */}
-          <div className="w-[400px] shrink-0 flex flex-col gap-5">
+          <div className="flex w-full min-w-0 flex-col gap-5 lg:w-[400px] lg:shrink-0">
             <AngleSection
               topicId={id}
               angles={angles ?? []}
               canGenerate={user.role === 'admin'}
-              briefData={{
-                topicLabel: topic.label,
-                nicheName: niche?.name ?? '?',
-                rpmCoefficient: niche?.rpm_coefficient ?? 1,
-                phaseLabel: phase !== null && phase !== undefined ? (PHASE_LABELS[phase] ?? String(phase)) : '?',
-                mgi: score ? Number(score.mgi) : null,
-                demand: score ? Number(score.demand) : null,
-                supply: score ? Number(score.supply_q) : null,
-                frustrationScore: score ? Number(score.frustration) : null,
-                monetization: score ? Number(score.monetization) : null,
-                date: score?.scored_at ?? new Date().toISOString().slice(0, 10),
-                frustrations: frustrationList.map((f) => ({
-                  text: f.text,
-                  likeCount: f.likeCount,
-                  requestedAngle: f.requestedAngle,
-                  commentId: f.commentId,
-                })),
-                competitors: competitors.map((c) => ({
-                  title: c.title,
-                  channelTitle: c.channelTitle,
-                  views: c.views,
-                  videoId: c.id,
-                })),
-              }}
+              briefData={briefData}
             />
 
             {/* Competitors */}
-            <section className="bg-card rounded-xl p-6 !p-0 flex flex-col">
-              <div className="px-5 py-4 border-b border-border bg-muted/50">
+            <section className="rounded-xl bg-card overflow-hidden flex flex-col">
+              <div className="px-5 py-4 border-b border-border bg-muted/40">
                 <h2 className="text-headline">Vidéos déjà publiées sur ce sujet</h2>
               </div>
               {competitors.length === 0 ? (
@@ -506,21 +531,19 @@ export default async function TopicPage({
                         <img 
                           src={`https://i.ytimg.com/vi/${c.id}/mqdefault.jpg`} 
                           alt={c.title} 
-                          className="elev-1 aspect-video w-[96px] rounded-lg object-cover"
+                          className="elev-1 aspect-video w-[80px] rounded-lg object-cover"
                           loading="lazy"
                         />
                         <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center">
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg">
-                            <path d="M8 5V19L19 12L8 5Z" />
-                          </svg>
+                          <Play className="h-4 w-4 fill-current text-white" aria-hidden="true" />
                         </div>
                       </a>
                       <div className="flex-1 min-w-0 flex flex-col gap-1">
                         <a href={`https://youtube.com/watch?v=${c.id}`} target="_blank" rel="noopener noreferrer" className="line-clamp-2 text-[13px] font-semibold leading-snug text-foreground hover:text-primary">
                           {c.title}
                         </a>
-                        <div className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
-                            <a href={`https://youtube.com/channel/${c.channelId}`} target="_blank" rel="noopener noreferrer" className="hover:underline truncate max-w-[120px]">
+                        <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[12px] text-muted-foreground">
+                          <a href={`https://youtube.com/channel/${c.channelId}`} target="_blank" rel="noopener noreferrer" className="hover:underline truncate max-w-[160px]">
                             {c.channelTitle}
                           </a>
                           <span>·</span>
@@ -528,7 +551,8 @@ export default async function TopicPage({
                           <span className="shrink-0">· {formatRelativeDate(c.publishedAt)} · {formatDuration(c.durationSec)}</span>
                         </div>
                       </div>
-                      <div className="flex items-center gap-2 shrink-0">
+                      {/* Actions under the text (the column is ≤ 400 px wide): the title keeps the full width. */}
+                      <div className="flex basis-full flex-wrap items-center gap-2 pl-[92px]">
                         <AnalyzeVideoButton videoId={c.id} title={c.title} variant="icon" />
                         {c.outlier && c.outlier.score >= 2 && <OutlierSaturationButton videoId={c.id} />}
                         {c.outlier && c.outlier.score >= 2 && (
@@ -557,7 +581,7 @@ export default async function TopicPage({
 
 function ScoreCard({ label, value, unit, sub }: { label: string; value: string; unit?: string; sub?: string }) {
   return (
-    <div className="flex flex-col gap-1.5 rounded-2xl bg-card px-4 py-4">
+    <div className="flex flex-col gap-1.5 rounded-xl bg-card px-4 py-4">
       <span className="text-[13px] font-medium text-muted-foreground">{label}</span>
       <span className="flex items-baseline gap-1.5">
         <span className="text-[30px] font-semibold leading-none tabular-nums tracking-[-0.02em]">{value}</span>
@@ -573,7 +597,6 @@ const SIGNAL_COLORS: Record<string, string> = {
   trends: 'var(--chart-1)',
   yt_views: 'var(--chart-2)',
   hn: 'var(--chart-3)',
-  se: 'var(--chart-4)',
 };
 
 const SIGNAL_LABELS: Record<string, string> = {
@@ -614,10 +637,10 @@ function SignalSection({ signals }: { signals: Record<string, { date: string; va
   ])].filter(Boolean);
 
   return (
-    <section className="bg-card rounded-xl p-6 px-5 py-4 flex flex-col gap-3">
-      <div className="flex items-center justify-between">
+    <section className="rounded-xl bg-card px-5 py-4 flex flex-col gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-headline">Signaux sur 90 jours</h2>
-        <div className="flex gap-4 text-[12px] font-semibold uppercase tracking-wider text-muted-foreground">
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-[12px] font-semibold uppercase tracking-wider text-muted-foreground">
           {activeSources.map((source) => (
             <span key={source} className="flex items-center gap-1.5">
               <span className="w-3 h-[3px] rounded-sm" style={{ backgroundColor: SIGNAL_COLORS[source] }} />

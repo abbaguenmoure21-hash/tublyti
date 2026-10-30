@@ -33,7 +33,14 @@ export function TopicActions({ topicId, topicLabel, inProduction, angles, afterI
         toast.error(res.error);
         return;
       }
-      const created = res as { videoId: string };
+      const created = res as { videoId: string; existing?: boolean };
+      if (created.existing) {
+        toast('Ce sujet est déjà dans Mes vidéos', {
+          action: { label: 'Ouvrir', onClick: () => router.push('/pipeline') },
+        });
+        router.refresh();
+        return;
+      }
       toast.success('Vidéo ajoutée à Mes vidéos', {
         description: topicLabel,
         // The server actions revalidate /sujets, /pipeline and /topics/[id]: no extra router.refresh().
@@ -115,11 +122,11 @@ export function TopicActions({ topicId, topicLabel, inProduction, angles, afterI
         </fieldset>
       )}
 
-      <div className="sticky bottom-0 -mx-5 mt-auto flex flex-col gap-2 border-t border-border bg-card/95 px-5 py-4 backdrop-blur">
+      <div className="sticky bottom-0 -mx-5 mt-auto flex flex-col gap-2 border-t border-border bg-card/95 px-5 pt-4 pb-[max(16px,env(safe-area-inset-bottom))] backdrop-blur">
         {inProduction ? (
           <Link
             href="/pipeline"
-            className="inline-flex h-11 items-center justify-center gap-2 rounded-[10px] bg-phase-2-soft text-[15px] font-medium text-phase-2-ink"
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-[10px] bg-muted text-[15px] font-medium text-foreground"
           >
             <Check className="h-4 w-4" aria-hidden="true" />
             Déjà dans Mes vidéos · Ouvrir

@@ -5,26 +5,23 @@ import { createServiceClient } from '@/lib/supabase/server';
 import { getSessionUser, assertAdmin, isDbReady } from '@/lib/auth/session';
 import { createVideoFromTopic } from '@/lib/actions/sujets';
 import { canSeeTopic } from '@/lib/auth/topic-access';
+import { parseVideoId } from '@/lib/video/analyze';
 
 /** « Passer en production » depuis la fiche d'un sujet : crée une vidéo pour le client connecté. */
 export async function markTopicProduction(topicId: string) {
   const res = await createVideoFromTopic(topicId);
   if ('error' in res) return { error: res.error };
   revalidatePath(`/topics/${topicId}`);
-  return { success: true };
+  return { success: true, videoId: res.videoId, existing: res.existing };
 }
 
 /** Relie la vidéo YouTube publiée à la vidéo en cours du client sur ce sujet. */
-export async function markTopicPublished(topicId: string, rawVideoId: string) {
-  if (!rawVideoId?.trim()) {
-    return { error: "L'identifiant de la vidéo publiée est requis." };
+export async function markTopicPublished(topicId: string, videoUrl: string) {
+  // Accepts a full YouTube link (watch, youtu.be, shorts…) or a bare video id.
+  const videoId = parseVideoId(videoUrl ?? '');
+  if (!videoId) {
+    return { error: 'Colle le lien de ta vidéo publiée sur YouTube.' };
   }
-  // Accept a bare YouTube id or a YouTube link; anything else is refused.
-  const trimmed = rawVideoId.trim();
-  const videoId = /^[\w-]{11}$/.test(trimmed)
-    ? trimmed
-    : (trimmed.match(/(?:[?&]v=|youtu\.be\/|\/shorts\/|\/live\/|\/embed\/)([\w-]{11})/)?.[1] ?? null);
-  if (!videoId) return { error: "Ce lien de vidéo YouTube n'est pas reconnu." };
   const user = await getSessionUser();
   if (!user) return { error: 'Connecte-toi pour continuer.' };
   if (!(await canSeeTopic(user, topicId))) return { error: 'Sujet introuvable.' };
@@ -40,12 +37,12 @@ export async function markTopicPublished(topicId: string, rawVideoId: string) {
 
   if (mine) {
     const { error } = await db.from('angles').update({ status: 'published', video_id: videoId }).eq('id', mine.id);
-    if (error) return { error: error.message };
+    if (error) return { error: "La vidéo n'a pas pu être marquée publiée. Réessaie." };
   } else {
     const { error } = await db
       .from('angles')
       .insert({ topic_id: topicId, title: 'Vidéo publiée', status: 'published', video_id: videoId, ...(ready ? { user_id: user.id } : {}) });
-    if (error) return { error: error.message };
+    if (error) return { error: "La vidéo n'a pas pu être marquée publiée. Réessaie." };
   }
 
   revalidatePath(`/topics/${topicId}`);

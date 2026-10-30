@@ -1,3 +1,4 @@
+'use client';
 
 import { getMgiBand, type ConfidenceResult } from '@/lib/scoring/mgi';
 import { mgiColor } from './mgi-scale';
@@ -8,12 +9,9 @@ const STALE_AFTER_MS = 36 * 3_600_000;
 function isOlderThan(iso: string, ms: number): boolean {
   return Date.now() - new Date(iso).getTime() > ms;
 }
+import { RELIABILITY_LABELS } from '@/lib/lexique';
 
-const CONFIDENCE_LABELS: Record<string, string> = {
-  high: 'Élevée',
-  medium: 'Moyenne',
-  low: 'Faible',
-};
+const CONFIDENCE_LABELS: Record<string, string> = RELIABILITY_LABELS;
 
 const CONFIDENCE_DOTS: Record<string, string> = {
   high: 'bg-[var(--success)]',
