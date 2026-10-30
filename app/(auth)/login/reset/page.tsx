@@ -115,7 +115,7 @@ export default function ResetPasswordPage() {
           )}
 
           {status === 'invalid' && (
-            <Link href="/login" className={primaryButtonClass}>
+            <Link href="/login?mode=oubli" className={primaryButtonClass}>
               Demander un nouveau lien
             </Link>
           )}
