@@ -1,13 +1,14 @@
 'use client';
 
 import { smoothScrollIntoView } from '@/lib/ui/smooth-scroll';
-import { useRef, useState, useTransition } from 'react';
+import { useEffect, useRef, useState, useTransition } from 'react';
 import { AlertTriangle, Check, Film, ImagePlus, Loader2, Plus, Sparkles, TrendingDown, TrendingUp, Trophy, X } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import { evaluateBeforePublish, startVideoUpload, videoUploadState } from '@/lib/actions/preflight';
 import type { PreflightResult } from '@/lib/preflight/engine';
 import type { TitleScore } from '@/lib/preflight/titles';
 import { HOOK_TYPES } from '@/lib/preflight/hook-types';
+import { PhaseBadge } from '@/components/tublyti/phase-badge';
 
 // recharts (~105 KB gz) is only needed once a result with a video is shown: load it on demand.
 // The parent div reserves the height (h-44), so no layout shift while it loads.
@@ -17,7 +18,21 @@ const RetentionChart = dynamic(() => import('./retention-chart').then((m) => m.R
 });
 
 const nf = new Intl.NumberFormat('fr-FR');
-const pct = (x: number) => `${Math.round(x * 100)} %`;
+/** Same threshold as lib/preflight/engine.ts (SCRIPT_MIN_WORDS): shorter scripts are not scored. */
+const SCRIPT_MIN_WORDS = 40;
+
+/** Probability: "moins de 1 %" under 1 %, one decimal under 10 % (never a misleading "0 %"). */
+const pct = (x: number) => {
+  const v = x * 100;
+  if (v < 1) return 'moins de 1 %';
+  return `${v < 10 ? v.toLocaleString('fr-FR', { maximumFractionDigits: 1 }) : Math.round(v)} %`;
+};
+/** Point estimates are rounded to 2 significant digits: the precision is not real. */
+const roughly = (n: number) => {
+  if (n < 100) return Math.round(n);
+  const p = 10 ** (Math.floor(Math.log10(n)) - 1);
+  return Math.round(n / p) * p;
+};
 const times = (m: number) => `×${m.toLocaleString('fr-FR', { maximumFractionDigits: 1 })}`;
 
 /** Réduit l'image côté navigateur (1280 px de large, JPEG) pour un envoi léger. */
@@ -45,13 +60,13 @@ async function shrink(file: File): Promise<{ mimeType: string; base64: string; t
 }
 
 function tone(score: number) {
-  return score >= 75 ? 'text-phase-2-ink bg-phase-2-soft' : score >= 55 ? 'text-phase-1-ink bg-phase-1-soft' : 'text-destructive bg-destructive/10';
+  return score >= 75 ? 'text-primary-ink bg-primary-soft' : score >= 55 ? 'text-foreground bg-muted' : 'text-destructive bg-destructive/10';
 }
 
 function Bar({ value }: { value: number }) {
   return (
     <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted" role="presentation">
-      <div className={`h-full rounded-full ${value >= 75 ? 'bg-phase-2' : value >= 55 ? 'bg-warning' : 'bg-destructive'}`} style={{ width: `${value}%` }} />
+      <div className={`h-full rounded-full ${value >= 75 ? 'bg-primary' : value >= 55 ? 'bg-warning' : 'bg-destructive'}`} style={{ width: `${value}%` }} />
     </div>
   );
 }
@@ -71,6 +86,47 @@ export function PreflightForm({ userChannelId, aiEnabled }: { userChannelId: str
   const [pending, start] = useTransition();
   const fileRef = useRef<HTMLInputElement>(null);
   const resultRef = useRef<HTMLDivElement>(null);
+  const [announce, setAnnounce] = useState('');
+  const [elapsed, setElapsed] = useState(0);
+  const busyVideo = video?.status === 'uploading' || video?.status === 'processing';
+
+  // Elapsed time while evaluating (1 to 3 min with a video).
+  useEffect(() => {
+    if (!pending) return;
+    const t0 = Date.now();
+    const t = window.setInterval(() => setElapsed(Math.round((Date.now() - t0) / 1000)), 1000);
+    return () => {
+      window.clearInterval(t);
+      setElapsed(0);
+    };
+  }, [pending]);
+
+  // Leaving the page loses the upload and the evaluation: ask first.
+  useEffect(() => {
+    if (!pending && !busyVideo) return;
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    // In-app links leaving /preflight (sidebar…) do not fire beforeunload: confirm them too.
+    // Links inside /preflight (view switch) are safe: the form stays mounted.
+    const onClick = (e: MouseEvent) => {
+      const a = (e.target as Element | null)?.closest?.('a[href]') as HTMLAnchorElement | null;
+      if (!a || a.target === '_blank' || e.defaultPrevented) return;
+      const url = new URL(a.href, window.location.href);
+      if (url.origin !== window.location.origin || url.pathname === window.location.pathname) return;
+      if (!window.confirm('Une vidéo est en cours d’envoi ou d’évaluation. Quitter cette page l’arrête. Quitter quand même ?')) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+    window.addEventListener('beforeunload', warn);
+    document.addEventListener('click', onClick, true);
+    return () => {
+      window.removeEventListener('beforeunload', warn);
+      document.removeEventListener('click', onClick, true);
+    };
+  }, [pending, busyVideo]);
 
   async function onFile(f: File | undefined) {
     if (!f) return;
@@ -81,6 +137,7 @@ export function PreflightForm({ userChannelId, aiEnabled }: { userChannelId: str
 
   function submit() {
     setError(null);
+    setAnnounce('Évaluation en cours.');
     start(async () => {
       const res = await evaluateBeforePublish({
         userChannelId,
@@ -90,10 +147,24 @@ export function PreflightForm({ userChannelId, aiEnabled }: { userChannelId: str
         video: video?.status === 'ready' && video.file ? { ...video.file, durationS: video.durationS } : null,
         publishAt: publishAt ? new Date(publishAt).toISOString() : null,
       });
-      if (video?.status === 'ready') setVideo(null); // le fichier est effacé chez Gemini après l'analyse
-      if (!res.ok) return setError(res.message);
+      if (!res.ok) {
+        // Keep the uploaded video when the engine never received it (daily limit, invalid input…).
+        if (res.videoUsed && video?.status === 'ready') {
+          setVideo(null);
+          setAnnounce('');
+          return setError(`${res.message} La vidéo a été effacée après l’essai : renvoie-la pour réessayer.`);
+        }
+        setAnnounce('');
+        return setError(res.message);
+      }
+      if (video?.status === 'ready') setVideo(null); // the file is deleted after the analysis
       setResult(res.result);
-      setTimeout(() => smoothScrollIntoView(resultRef.current), 50);
+      const v = res.result.verdict === 'ready' ? 'prête à publier' : res.result.verdict === 'improve' ? 'à améliorer' : 'à retravailler';
+      setAnnounce(`Évaluation terminée : note ${res.result.overall} sur 100, ${v}.`);
+      setTimeout(() => {
+        smoothScrollIntoView(resultRef.current);
+        resultRef.current?.focus({ preventScroll: true });
+      }, 50);
     });
   }
 
@@ -106,7 +177,7 @@ export function PreflightForm({ userChannelId, aiEnabled }: { userChannelId: str
           <h2 id="pf-form" className="text-lg font-semibold">Ta prochaine vidéo</h2>
 
           <div className="flex flex-col gap-2">
-            <span className="text-[13px] font-medium">Titre{titles.length > 1 ? 's à comparer' : ''}</span>
+            <span id="pf-title-label" className="text-[13px] font-medium">Titre{titles.length > 1 ? 's à comparer' : ''}</span>
             {titles.map((t, i) => (
               <div key={i} className="flex items-center gap-2">
                 <input
@@ -114,9 +185,14 @@ export function PreflightForm({ userChannelId, aiEnabled }: { userChannelId: str
                   onChange={(e) => setTitles((xs) => xs.map((x, j) => (j === i ? e.target.value : x)))}
                   placeholder={i === 0 ? 'Ex. : Why Nobody Talks About the Richest Village in Africa' : `Variante ${i + 1}`}
                   maxLength={150}
+                  aria-label={titles.length > 1 ? `Titre ${i + 1}` : 'Titre'}
+                  aria-describedby={`pf-title-count-${i}`}
                   className="h-11 w-full rounded-[10px] border border-input bg-background px-3 text-[15px] outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
                 />
-                <span className="w-9 shrink-0 text-right text-[12px] tabular-nums text-muted-foreground">{t.length}</span>
+                <span id={`pf-title-count-${i}`} className="w-9 shrink-0 text-right text-[12px] tabular-nums text-muted-foreground">
+                  {t.length}
+                  <span className="sr-only"> caractères sur 70 conseillés</span>
+                </span>
                 {titles.length > 1 && (
                   <button type="button" onClick={() => setTitles((xs) => xs.filter((_, j) => j !== i))} aria-label="Retirer cette variante" className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted">
                     <X className="h-4 w-4" aria-hidden="true" />
@@ -133,15 +209,21 @@ export function PreflightForm({ userChannelId, aiEnabled }: { userChannelId: str
 
           <label className="flex flex-col gap-2">
             <span className="flex items-baseline justify-between text-[13px] font-medium">
-              Script <span className="font-normal text-muted-foreground">facultatif · {words ? `${nf.format(words)} mots ≈ ${Math.max(1, Math.round(words / 150))} min` : 'au moins l’accroche'}</span>
+              Script <span className="font-normal text-muted-foreground">facultatif · {words ? `${nf.format(words)} mots ≈ ${words < 150 ? `${Math.max(1, Math.round((words / 150) * 60))} s` : `${Math.round(words / 150)} min`}` : 'au moins l’accroche'}</span>
             </span>
             <textarea
               value={script}
               onChange={(e) => setScript(e.target.value)}
               rows={7}
               placeholder="Colle ton script, ou au moins les 30 premières secondes (l’accroche compte double)."
+              aria-describedby="pf-script-hint"
               className="rounded-[10px] border border-input bg-background px-3 py-2.5 text-[14px] leading-relaxed outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
             />
+            {words > 0 && words < SCRIPT_MIN_WORDS && (
+              <span id="pf-script-hint" className="text-[12px] text-muted-foreground">
+                Encore {SCRIPT_MIN_WORDS - words} mot{SCRIPT_MIN_WORDS - words > 1 ? 's' : ''} pour que le script soit noté.
+              </span>
+            )}
           </label>
 
           <VideoUploader state={video} onChange={setVideo} aiEnabled={aiEnabled} />
@@ -192,7 +274,7 @@ export function PreflightForm({ userChannelId, aiEnabled }: { userChannelId: str
             // eslint-disable-next-line @next/next/no-img-element
             <img src={thumb.preview} alt="" className="aspect-video w-[168px] rounded-md object-cover" />
           )}
-          {!aiEnabled && <p className="text-[12px] text-muted-foreground">Miniature et script seront notés une fois la clé Gemini ajoutée.</p>}
+          {!aiEnabled && <p className="text-[12px] text-muted-foreground">La note de la miniature, du script et de la vidéo n’est pas disponible pour le moment : seul le titre sera noté.</p>}
         </div>
 
         <div className="flex flex-col gap-3 md:col-span-2 md:flex-row md:items-center">
@@ -203,15 +285,27 @@ export function PreflightForm({ userChannelId, aiEnabled }: { userChannelId: str
             className="elev-1 inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-primary px-5 text-[15px] font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
           >
             {pending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Sparkles className="h-4 w-4" aria-hidden="true" />}
-            {pending ? (video?.status === 'ready' ? 'Évaluation en cours… (1 à 3 min avec la vidéo)' : 'Évaluation en cours… (15 à 40 s)') : video?.status === 'uploading' || video?.status === 'processing' ? 'Attends la fin de l’envoi de la vidéo…' : 'Évaluer avant de publier'}
+            {pending
+              ? `${video?.status === 'ready' ? 'Évaluation en cours… (1 à 3 min avec la vidéo)' : 'Évaluation en cours… (15 à 40 s)'}${elapsed >= 5 ? ` · ${clock(elapsed)} écoulées` : ''}`
+              : busyVideo
+                ? 'Attends la fin de l’envoi de la vidéo…'
+                : 'Évaluer avant de publier'}
           </button>
-          {error && <p className="text-[13px] text-destructive">{error}</p>}
+          {pending && <span className="text-[12px] text-muted-foreground">Garde cette page ouverte.</span>}
+          <p role="alert" className="text-[13px] text-destructive empty:hidden">{error ?? ''}</p>
         </div>
       </div>
 
+      <p role="status" className="sr-only">{announce}</p>
+
       {result && (
-        <div ref={resultRef}>
-          <ResultView r={result} />
+        <div ref={resultRef} tabIndex={-1} aria-label="Résultat de l’évaluation" aria-busy={pending || undefined} className="flex flex-col gap-2 outline-none">
+          {(pending || error) && (
+            <p className="text-[13px] font-medium text-muted-foreground">{pending ? 'Ancienne évaluation : la nouvelle arrive.' : 'Résultat précédent (la dernière évaluation a échoué).'}</p>
+          )}
+          <div className={pending || error ? 'opacity-50 transition-opacity' : 'transition-opacity'}>
+            <ResultView r={result} />
+          </div>
         </div>
       )}
     </section>
@@ -222,7 +316,7 @@ function ResultView({ r }: { r: PreflightResult }) {
   const p = r.prediction;
   const verdict = r.verdict === 'ready' ? 'Prête à publier' : r.verdict === 'improve' ? 'À améliorer avant de publier' : 'À retravailler';
   return (
-    <div className="flex flex-col gap-6" aria-live="polite">
+    <div className="flex flex-col gap-6">
       {/* Synthèse */}
       <div className="elev-1 grid gap-5 rounded-[22px] bg-card p-5 md:grid-cols-[180px_1fr] md:p-6">
         <div className="flex flex-col items-start gap-1">
@@ -234,20 +328,24 @@ function ResultView({ r }: { r: PreflightResult }) {
           <dl className="grid grid-cols-2 gap-2 sm:grid-cols-3">
             <div className="rounded-xl bg-background px-3 py-2.5">
               <dt className="text-[12px] text-muted-foreground">Vues attendues</dt>
-              <dd className="text-[20px] font-semibold tabular-nums">{times(p.multiple)}</dd>
-              <dd className="text-[12px] text-muted-foreground">{p.expectedViews ? `≈ ${nf.format(p.expectedViews)} vues` : 'tes vues habituelles'}</dd>
+              <dd className="text-[20px] font-semibold tabular-nums">
+                {times(p.multiple)}
+                {p.multiple < 1 && <span className="ml-1.5 text-[13px] font-medium text-muted-foreground">{`−${Math.round((1 - p.multiple) * 100)} %`}</span>}
+              </dd>
+              <dd className="text-[12px] text-muted-foreground">{p.expectedViews ? `≈ ${nf.format(roughly(p.expectedViews))} vues · ` : ''}tes vues habituelles</dd>
             </div>
             <div className="rounded-xl bg-background px-3 py-2.5">
-              <dt className="text-[12px] text-muted-foreground">Chances de faire ×2</dt>
+              <dt className="text-[12px] text-muted-foreground">Chances de doubler tes vues habituelles</dt>
               <dd className="text-[20px] font-semibold tabular-nums">{pct(p.p2x)}</dd>
               <dd className="text-[12px] text-muted-foreground">niche : {pct(r.nichePrior.p2x)}</dd>
             </div>
             <div className="rounded-xl bg-background px-3 py-2.5">
-              <dt className="text-[12px] text-muted-foreground">Chances de faire ×10</dt>
+              <dt className="text-[12px] text-muted-foreground">Chances de les multiplier par 10</dt>
               <dd className="text-[20px] font-semibold tabular-nums">{pct(p.p10x)}</dd>
               <dd className="text-[12px] text-muted-foreground">niche : {pct(r.nichePrior.p10x)}</dd>
             </div>
           </dl>
+          <p className="text-[12px] text-muted-foreground">×2 = deux fois les vues habituelles de la chaîne ; ×0,8 = 20 % de moins que d’habitude.</p>
           <p className="text-[13px] leading-relaxed text-muted-foreground">
             {p.basis}{' '}
             {p.calibration.n >= 3
@@ -256,8 +354,8 @@ function ResultView({ r }: { r: PreflightResult }) {
             C’est une probabilité, pas une garantie.
           </p>
           {r.errors.map((e) => (
-            <p key={e} className="flex items-start gap-2 text-[13px] text-warning">
-              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" /> {e}
+            <p key={e} className="flex items-start gap-2 text-[13px] text-foreground">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" aria-hidden="true" /> {e}
             </p>
           ))}
         </div>
@@ -270,8 +368,8 @@ function ResultView({ r }: { r: PreflightResult }) {
       {/* Titres */}
       <section className="flex flex-col gap-3">
         <h3 className="text-[15px] font-semibold">Titre{r.titles.length > 1 ? 's' : ''}</h3>
-        {r.titles.map((t) => (
-          <TitleCard key={t.title} t={t} best={r.titles.length > 1 && t.title === r.bestTitle} />
+        {r.titles.map((t, i) => (
+          <TitleCard key={i} t={t} best={r.titles.length > 1 && t.title === r.bestTitle} />
         ))}
       </section>
 
@@ -333,7 +431,7 @@ function ResultView({ r }: { r: PreflightResult }) {
               <ul className="flex flex-col gap-2">
                 {r.script.risks.map((k, i) => (
                   <li key={i} className="flex gap-3 rounded-xl bg-warning/10 px-3 py-2.5 text-[14px]">
-                    <span className="shrink-0 font-semibold tabular-nums text-warning">{k.at_pct} %</span>
+                    <span className="shrink-0 font-semibold tabular-nums text-foreground">{k.at_pct} %</span>
                     <span>
                       {k.issue} <span className="text-muted-foreground">→ {k.fix}</span>
                     </span>
@@ -364,14 +462,14 @@ function TitleCard({ t, best }: { t: TitleScore; best: boolean }) {
         <span className={`rounded-full px-2.5 py-0.5 text-[13px] font-semibold tabular-nums ${tone(t.score)}`}>{t.score}/100</span>
       </div>
       <dl className="flex flex-wrap gap-x-6 gap-y-1 text-[13px]">
-        <div><dt className="inline text-muted-foreground">Titres proches dans la niche : </dt><dd className="inline font-medium tabular-nums">{t.multiple === null ? '—' : times(t.multiple)}</dd></div>
-        <div><dt className="inline text-muted-foreground">×2 : </dt><dd className="inline font-medium tabular-nums">{t.p2x === null ? '—' : pct(t.p2x)}</dd></div>
+        <div><dt className="inline text-muted-foreground">Vidéos au titre proche : </dt><dd className="inline font-medium tabular-nums">{t.multiple === null ? '—' : `${times(t.multiple)} leurs vues habituelles`}</dd></div>
+        <div><dt className="inline text-muted-foreground">Chances de doubler : </dt><dd className="inline font-medium tabular-nums">{t.p2x === null ? '—' : pct(t.p2x)}</dd></div>
         <div><dt className="inline text-muted-foreground">Forme : </dt><dd className="inline font-medium tabular-nums">{t.formScore}/100</dd></div>
       </dl>
       <ul className="grid gap-1.5 sm:grid-cols-2">
         {t.checks.map((c) => (
           <li key={c.label} className="flex items-start gap-2 text-[13px]">
-            {c.ok ? <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-phase-2" aria-hidden="true" /> : <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" aria-hidden="true" />}
+            {c.ok ? <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-success" aria-hidden="true" /> : <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" aria-hidden="true" />}
             <span className={c.ok ? 'text-muted-foreground' : ''}>{c.label}</span>
           </li>
         ))}
@@ -381,13 +479,14 @@ function TitleCard({ t, best }: { t: TitleScore; best: boolean }) {
           {t.winners.length > 0 && (
             <div className="flex flex-col gap-1.5">
               <span className="text-[12px] font-semibold uppercase tracking-[0.04em] text-muted-foreground">Proches et gagnants · inspire-toi</span>
+              <span className="text-[12px] text-muted-foreground">×N = vues de la vidéo par rapport aux vues habituelles de sa chaîne</span>
               {t.winners.map((w) => (
                 <a key={w.videoId} href={`https://www.youtube.com/watch?v=${w.videoId}`} target="_blank" rel="noreferrer" className="flex items-start justify-between gap-3 rounded-lg px-2 py-1.5 text-[13px] hover:bg-muted">
                   <span className="min-w-0">
                     {w.title}
                     <span className="block text-[12px] text-muted-foreground">{w.channelTitle}</span>
                   </span>
-                  <span className="shrink-0 font-semibold tabular-nums text-phase-2-ink">{times(w.score)}</span>
+                  <span className="shrink-0 font-semibold tabular-nums text-foreground">{times(w.score)}</span>
                 </a>
               ))}
             </div>
@@ -437,7 +536,7 @@ function TwoLists({ good, fix }: { good: string[]; fix: string[] }) {
           <span className="text-[13px] font-medium">Ce qui marche</span>
           <ul className="flex flex-col gap-1.5">
             {good.map((g) => (
-              <li key={g} className="flex items-start gap-2 text-[14px]"><Check className="mt-1 h-3.5 w-3.5 shrink-0 text-phase-2" aria-hidden="true" />{g}</li>
+              <li key={g} className="flex items-start gap-2 text-[14px]"><Check className="mt-1 h-3.5 w-3.5 shrink-0 text-success" aria-hidden="true" />{g}</li>
             ))}
           </ul>
         </div>
@@ -487,16 +586,34 @@ function readDuration(file: File): Promise<number | null> {
 
 const mb = (b: number) => `${(b / 1_000_000).toLocaleString('fr-FR', { maximumFractionDigits: 0 })} Mo`;
 
-function VideoUploader({ state, onChange, aiEnabled }: { state: UploadState | null; onChange: (s: UploadState | null) => void; aiEnabled: boolean }) {
+function VideoUploader({ state, onChange: setState, aiEnabled }: { state: UploadState | null; onChange: (s: UploadState | null) => void; aiEnabled: boolean }) {
   const ref = useRef<HTMLInputElement>(null);
   const xhrRef = useRef<XMLHttpRequest | null>(null);
+  // Cancellation token: bumped by every new pick, cancel and unmount; stale uploads/polls stop updating the state.
+  const tokenRef = useRef(0);
+
+  useEffect(
+    () => () => {
+      tokenRef.current++;
+      xhrRef.current?.abort();
+    },
+    [],
+  );
 
   async function pick(file: File | undefined) {
     if (!file) return;
+    xhrRef.current?.abort();
+    const my = ++tokenRef.current;
+    const alive = () => tokenRef.current === my;
+    const onChange = (s: UploadState | null) => {
+      if (alive()) setState(s);
+    };
     const base: UploadState = { status: 'uploading', fileName: file.name, size: file.size, progress: 0, durationS: null, startedAt: Date.now() };
     onChange(base);
     const durationS = await readDuration(file);
+    if (!alive()) return;
     const start = await startVideoUpload({ size: file.size, mimeType: file.type || 'video/mp4', name: file.name });
+    if (!alive()) return;
     if (!start.ok) return onChange({ ...base, durationS, status: 'error', error: start.message });
 
     const xhr = new XMLHttpRequest();
@@ -521,15 +638,16 @@ function VideoUploader({ state, onChange, aiEnabled }: { state: UploadState | nu
       } catch {
         /* réponse illisible */
       }
-      if (xhr.status >= 300 || !f.name) return onChange({ ...base, durationS, status: 'error', error: `Envoi refusé (${xhr.status}).` });
+      if (xhr.status >= 300 || !f.name) return onChange({ ...base, durationS, status: 'error', error: 'L’envoi a été refusé. Essaie une version allégée (720p).' });
       onChange({ ...base, durationS, progress: 1, status: 'processing' });
-      // Gemini prépare la vidéo (souvent 10 s à 2 min).
+      // The AI provider prepares the video (often 10 s to 2 min).
       for (let i = 0; i < 90; i++) {
+        if (!alive()) return;
         const st = await videoUploadState(f.name);
         if (st.state === 'ACTIVE' && st.uri) {
           return onChange({ ...base, durationS, progress: 1, status: 'ready', file: { name: f.name, uri: st.uri, mimeType: st.mimeType ?? f.mimeType ?? 'video/mp4' } });
         }
-        if (st.state === 'FAILED') return onChange({ ...base, durationS, status: 'error', error: st.error ?? 'Gemini n’a pas pu lire la vidéo.' });
+        if (st.state === 'FAILED') return onChange({ ...base, durationS, status: 'error', error: st.error ?? 'L’IA n’a pas pu lire la vidéo. Essaie un export en MP4.' });
         await new Promise((r) => setTimeout(r, 4000));
       }
       onChange({ ...base, durationS, status: 'error', error: 'La préparation de la vidéo prend trop de temps. Réessaie.' });
@@ -538,8 +656,10 @@ function VideoUploader({ state, onChange, aiEnabled }: { state: UploadState | nu
   }
 
   function cancel() {
+    tokenRef.current++;
     xhrRef.current?.abort();
-    onChange(null);
+    xhrRef.current = null;
+    setState(null);
   }
 
   const eta = state?.status === 'uploading' ? state.etaS ?? null : null;
@@ -583,12 +703,13 @@ function VideoUploader({ state, onChange, aiEnabled }: { state: UploadState | nu
             </>
           )}
           {state.status === 'processing' && (
-            <span className="flex items-center gap-2 text-[12px] text-muted-foreground"><Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> Gemini prépare la vidéo…</span>
+            <span role="status" className="flex items-center gap-2 text-[12px] text-muted-foreground"><Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> L’IA prépare ta vidéo…</span>
           )}
           {state.status === 'ready' && (
-            <span className="flex items-center gap-2 text-[12px] text-phase-2-ink"><Check className="h-3.5 w-3.5" aria-hidden="true" /> Prête à être analysée{state.durationS ? ` · ${Math.floor(state.durationS / 60)} min ${String(state.durationS % 60).padStart(2, '0')}` : ''}</span>
+            <span role="status" className="flex items-center gap-2 text-[12px] text-foreground"><Check className="h-3.5 w-3.5 text-success" aria-hidden="true" /> Prête à être analysée{state.durationS ? ` · ${Math.floor(state.durationS / 60)} min ${String(state.durationS % 60).padStart(2, '0')}` : ''}</span>
           )}
-          {state.status === 'error' && <span className="text-[12px] text-destructive">{state.error}</span>}
+          {state.status === 'error' && <span role="alert" className="text-[12px] text-destructive">{state.error}</span>}
+
         </div>
       )}
       <input ref={ref} type="file" accept="video/mp4,video/quicktime,video/webm,video/*" className="hidden" onChange={(e) => void pick(e.target.files?.[0])} />
@@ -627,7 +748,7 @@ function VideoSection({ v }: { v: NonNullable<PreflightResult['video']> }) {
           <ul className="flex flex-col gap-2">
             {v.drops.map((d, i) => (
               <li key={i} className="flex gap-3 rounded-xl bg-warning/10 px-3 py-2.5 text-[14px]">
-                <span className="shrink-0 font-mono font-semibold tabular-nums text-warning">{clock(d.at_s)}</span>
+                <span className="shrink-0 font-mono font-semibold tabular-nums text-foreground">{clock(d.at_s)}</span>
                 <span>
                   {d.issue} <span className="text-muted-foreground">→ {d.fix}</span>
                 </span>
@@ -641,26 +762,28 @@ function VideoSection({ v }: { v: NonNullable<PreflightResult['video']> }) {
   );
 }
 
-const PHASES: Record<number, string> = { 1: 'émergent', 2: 'en croissance', 3: 'au pic', 4: 'en déclin' };
-
 function ModelSection({ r }: { r: PreflightResult }) {
   const m = r.model!;
   const up = m.drivers.filter((d) => d.effect > 0.02);
   const down = m.drivers.filter((d) => d.effect < -0.02);
   const pctEffect = (e: number) => `${e > 0 ? '+' : '−'}${Math.round(Math.abs(Math.exp(e) - 1) * 100)} %`;
+  // baseBrierP2x = constant prediction at the usual rate (the average), not chance.
+  const r2Pct = Math.max(0, Math.round(m.metrics.r2 * 100));
+  const gain = m.metrics.baseBrierP2x > 0 && m.metrics.brierP2x < m.metrics.baseBrierP2x ? Math.round((1 - m.metrics.brierP2x / m.metrics.baseBrierP2x) * 100) : 0;
+  const reliability = r2Pct >= 30 && gain >= 15 ? 'haute' : r2Pct >= 10 || gain >= 5 ? 'moyenne' : 'faible';
   return (
     <section className="elev-1 flex flex-col gap-4 rounded-[22px] bg-card p-5 md:p-6">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h3 className="text-[15px] font-semibold">Ce qui joue pour et contre cette vidéo</h3>
         <span className="text-[12px] text-muted-foreground">
-          Modèle entraîné le {new Date(m.trainedAt).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })} sur {nf.format(m.n)} vidéos
+          Calcul mis à jour le {new Date(m.trainedAt).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })} sur {nf.format(m.n)} vidéos
         </span>
       </div>
       <div className="grid gap-4 md:grid-cols-2">
         <div className="flex flex-col gap-1.5">
-          <span className="flex items-center gap-1.5 text-[13px] font-medium"><TrendingUp className="h-4 w-4 text-phase-2" aria-hidden="true" /> Pour</span>
+          <span className="flex items-center gap-1.5 text-[13px] font-medium"><TrendingUp className="h-4 w-4 text-success" aria-hidden="true" /> Pour</span>
           {up.length ? up.map((d) => (
-            <span key={d.label} className="flex justify-between gap-3 text-[14px]"><span>{d.label}</span><span className="tabular-nums text-phase-2-ink">{pctEffect(d.effect)}</span></span>
+            <span key={d.label} className="flex justify-between gap-3 text-[14px]"><span>{d.label}</span><span className="tabular-nums text-foreground">{pctEffect(d.effect)}</span></span>
           )) : <span className="text-[13px] text-muted-foreground">Rien de marquant.</span>}
         </div>
         <div className="flex flex-col gap-1.5">
@@ -670,9 +793,17 @@ function ModelSection({ r }: { r: PreflightResult }) {
           )) : <span className="text-[13px] text-muted-foreground">Rien de marquant.</span>}
         </div>
       </div>
+      {m.topicPhase !== null && m.topicPhase !== undefined && (
+        <p className="flex flex-wrap items-center gap-1.5 text-[13px] text-muted-foreground">
+          Sujet le plus proche : <PhaseBadge phase={m.topicPhase} />
+          <span>
+            · {m.topicRecent7d} vidéo{m.topicRecent7d > 1 ? 's' : ''} concurrente{m.topicRecent7d > 1 ? 's' : ''} ces 7 derniers jours
+          </span>
+        </p>
+      )}
       <p className="text-[12px] leading-relaxed text-muted-foreground">
-        {m.topicPhase ? `Sujet le plus proche : ${PHASES[m.topicPhase] ?? 'phase inconnue'}, ${m.topicRecent7d} vidéo${m.topicRecent7d > 1 ? 's' : ''} concurrente${m.topicRecent7d > 1 ? 's' : ''} ces 7 derniers jours. ` : ''}
-        Fiabilité mesurée sur les vidéos les plus récentes ({nf.format(m.metrics.testN)}) : le modèle explique {Math.max(0, Math.round(m.metrics.r2 * 100))} % des écarts de vues, et ses probabilités « ×2 » sont {m.metrics.brierP2x < m.metrics.baseBrierP2x ? `${Math.round((1 - m.metrics.brierP2x / m.metrics.baseBrierP2x) * 100)} % plus justes` : 'pas encore meilleures'} qu’une estimation au hasard.
+        <span className="font-medium text-foreground">Fiabilité : {reliability}.</span> Mesurée sur les {nf.format(m.metrics.testN)} vidéos les plus récentes : le calcul explique {r2Pct} % des écarts de vues, et ses chances « ×2 » sont{' '}
+        {gain > 0 ? `${gain} % plus justes` : 'pas encore plus justes'} que la moyenne de toutes les vidéos.
       </p>
     </section>
   );

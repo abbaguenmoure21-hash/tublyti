@@ -14,9 +14,9 @@ import { isMissingFunction, markRpcMissing, rpcKnownMissing } from './supabase/r
 export type SaturationLevel = 'open' | 'filling' | 'saturated' | 'unknown';
 
 export const LEVEL_LABEL: Record<SaturationLevel, string> = {
-  open: 'Ouvert',
-  filling: 'Se remplit',
-  saturated: 'Saturé',
+  open: 'Peu de concurrence',
+  filling: 'Concurrence en hausse',
+  saturated: 'Trop de concurrence',
   unknown: 'Pas assez de données',
 };
 
@@ -55,18 +55,21 @@ export async function topicSaturation(db: SupabaseClient, topicId: string): Prom
     db.from('videos').select('id', { count: 'exact', head: true }).eq('topic_id', topicId).not('published_at', 'is', null),
     db
       .from('videos')
-      .select('id, channel_id, published_at, video_outliers(score, age_days)')
+      .select('id, channel_id, published_at, video_outliers(score, age_days, method)')
       .eq('topic_id', topicId)
       .gte('published_at', since120)
       .order('published_at', { ascending: false })
       .limit(1000),
   ]);
-  type OutlierRow = { score: number; age_days: number };
+  type OutlierRow = { score: number; age_days: number; method: string };
   const rows = (vids ?? []) as unknown as { id: string; channel_id: string; published_at: string; video_outliers: OutlierRow | OutlierRow[] | null }[];
   const list = rows.map(({ id, channel_id, published_at }) => ({ id, channel_id, published_at }));
   const scores = new Map<string, { score: number; age: number }>();
   for (const r of rows) {
-    const o = Array.isArray(r.video_outliers) ? r.video_outliers[0] : r.video_outliers;
+    const all = Array.isArray(r.video_outliers) ? r.video_outliers : r.video_outliers ? [r.video_outliers] : [];
+    // 'approximate' scores compare a young video with lifetime views of older ones: they are biased low
+    // and would wrongly read as "new videos do worse" (wear). Only same-age scores are used here.
+    const o = all.find((x) => x.method === 'same_age');
     if (o) scores.set(r.id, { score: Number(o.score), age: o.age_days });
   }
   const total = totalCount ?? list.length;

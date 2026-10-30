@@ -5,26 +5,31 @@ import { Layers, Loader2, Search } from 'lucide-react';
 import { checkLinkSaturation, checkOutlierSaturation } from '@/lib/actions/saturation';
 import type { LinkSaturation, OutlierSaturation, SaturationLevel, TopicSaturation } from '@/lib/saturation';
 
-const LABEL: Record<SaturationLevel, string> = { open: 'Ouvert', filling: 'Se remplit', saturated: 'Saturé', unknown: 'À confirmer' };
+// LEXIQUE.md: never "Saturé / Saturation". Phase colors are reserved to phases (DESIGN.md).
+/** Labels for an idea (a video that can be copied). */
+const LABEL: Record<SaturationLevel, string> = { open: 'Peu copiée', filling: 'Déjà bien copiée', saturated: 'Trop copiée', unknown: 'À confirmer' };
+/** Labels for a topic (competition). */
+const TOPIC_LABEL: Record<SaturationLevel, string> = { open: 'Peu de concurrence', filling: 'Concurrence en hausse', saturated: 'Trop de concurrence', unknown: 'À confirmer' };
 const TONE: Record<SaturationLevel, string> = {
-  open: 'bg-phase-2-soft text-phase-2-ink',
-  filling: 'bg-phase-1-soft text-phase-1-ink',
+  open: 'bg-primary-soft text-primary-ink',
+  filling: 'bg-muted text-foreground',
   saturated: 'bg-destructive/10 text-destructive',
   unknown: 'bg-muted text-muted-foreground',
 };
+const multipleTone = (score: number) => (score >= 1 ? 'text-foreground' : 'text-destructive');
 
-/** Carte « Saturation du sujet » de la fiche sujet. */
+/** Carte « Concurrence sur ce sujet » de la fiche sujet. */
 export function TopicSaturationCard({ s }: { s: TopicSaturation }) {
   return (
     <section className="bg-card rounded-xl p-6 flex flex-col gap-3 !px-[18px] !py-4" aria-labelledby="sat-titre">
       <div className="flex flex-wrap items-center gap-3">
         <span className={`inline-flex h-8 items-center gap-1.5 rounded-[8px] px-2.5 text-[13px] font-semibold ${TONE[s.level]}`}>
-          <Layers className="h-4 w-4" aria-hidden="true" /> {LABEL[s.level]}
+          <Layers className="h-4 w-4" aria-hidden="true" /> {TOPIC_LABEL[s.level]}
         </span>
-        <h2 id="sat-titre" className="text-[13px] font-semibold">Saturation du sujet{s.score !== null ? ` · ${s.score}/100` : ''}</h2>
+        <h2 id="sat-titre" className="text-[13px] font-semibold">Concurrence sur ce sujet{s.score !== null ? ` · ${s.score}/100` : ''}</h2>
         {s.score !== null && (
           <span className="h-1.5 min-w-24 flex-1 overflow-hidden rounded-full bg-muted" aria-hidden="true">
-            <span className={`block h-full rounded-full ${s.level === 'saturated' ? 'bg-destructive' : s.level === 'filling' ? 'bg-warning' : 'bg-phase-2'}`} style={{ width: `${s.score}%` }} />
+            <span className={`block h-full rounded-full ${s.level === 'saturated' ? 'bg-destructive' : s.level === 'filling' ? 'bg-warning' : 'bg-primary'}`} style={{ width: `${s.score}%` }} />
           </span>
         )}
       </div>
@@ -104,7 +109,7 @@ export function OutlierSaturationButton({ videoId }: { videoId: string }) {
                     <li key={e.videoId}>
                       <a href={`https://www.youtube.com/watch?v=${e.videoId}`} target="_blank" rel="noreferrer" className="flex items-start justify-between gap-2 rounded px-1 py-0.5 hover:bg-muted">
                         <span className="min-w-0 truncate">{e.title}</span>
-                        <span className={`shrink-0 tabular-nums ${e.score >= 1 ? 'text-phase-2-ink' : 'text-destructive'}`}>×{e.score.toLocaleString('fr-FR', { maximumFractionDigits: 1 })}</span>
+                        <span className={`shrink-0 tabular-nums ${multipleTone(e.score)}`}>×{e.score.toLocaleString('fr-FR', { maximumFractionDigits: 1 })}</span>
                       </a>
                     </li>
                   ))}
@@ -118,7 +123,7 @@ export function OutlierSaturationButton({ videoId }: { videoId: string }) {
   );
 }
 
-/** « Avant de publier » : colle n'importe quel lien YouTube pour savoir si l'idée est déjà saturée. */
+/** « Avant de publier » : colle n'importe quel lien YouTube pour savoir si l'idée a déjà été trop copiée. */
 export function LinkSaturationCheck() {
   const [link, setLink] = useState('');
   const [res, setRes] = useState<LinkSaturation | null>(null);
@@ -141,8 +146,8 @@ export function LinkSaturationCheck() {
   return (
     <section aria-labelledby="sat-lien" className="flex flex-col gap-3">
       <div>
-        <h2 id="sat-lien" className="text-lg font-semibold">Cette idée est-elle déjà saturée ?</h2>
-        <p className="text-[13px] text-muted-foreground">Colle le lien d’une vidéo qui t’inspire, de n’importe quelle chaîne : TubLyTI cherche dans sa niche les vidéos au titre très proche publiées avant et après, et regarde si elles marchent encore.</p>
+        <h2 id="sat-lien" className="text-lg font-semibold">Cette idée a-t-elle déjà été trop copiée ?</h2>
+        <p className="text-[13px] text-muted-foreground">Colle le lien d’une vidéo qui t’inspire, de n’importe quelle chaîne : TubLyTI cherche dans sa niche les vidéos au titre très proche publiées avant et après, et regarde si elles marchent encore (×2 = deux fois les vues habituelles de leur chaîne).</p>
       </div>
       <form
         onSubmit={(e) => {
@@ -156,14 +161,15 @@ export function LinkSaturationCheck() {
           onChange={(e) => setLink(e.target.value)}
           placeholder="https://www.youtube.com/watch?v=…"
           aria-label="Lien de la vidéo YouTube"
-          className="h-11 flex-1 rounded-[10px] border border-input bg-card px-3 text-[15px] outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+          className="h-11 flex-1 rounded-[10px] border border-input bg-background px-3 text-[15px] outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
         />
         <button type="submit" disabled={pending || !link.trim()} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-primary px-4 text-[14px] font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50">
           {pending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Search className="h-4 w-4" aria-hidden="true" />}
           Vérifier
         </button>
       </form>
-      {err && <p className="text-[13px] text-destructive">{err}</p>}
+      {err && <p role="alert" className="text-[13px] text-destructive">{err}</p>}
+
       {res && s && (
         <div className="elev-1 flex flex-col gap-3 rounded-[22px] bg-card p-5">
           <div className="flex flex-wrap items-start gap-3">
@@ -193,7 +199,7 @@ export function LinkSaturationCheck() {
                       {e.title}
                       <span className="block text-[12px] text-muted-foreground">{e.channelTitle} · {new Date(e.publishedAt).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}</span>
                     </span>
-                    <span className={`shrink-0 font-semibold tabular-nums ${e.score >= 1 ? 'text-phase-2-ink' : 'text-destructive'}`}>×{e.score.toLocaleString('fr-FR', { maximumFractionDigits: 1 })}</span>
+                    <span className={`shrink-0 font-semibold tabular-nums ${multipleTone(e.score)}`}>×{e.score.toLocaleString('fr-FR', { maximumFractionDigits: 1 })}</span>
                   </a>
                 </li>
               ))}

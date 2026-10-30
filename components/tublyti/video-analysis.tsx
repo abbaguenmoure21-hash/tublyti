@@ -14,7 +14,7 @@ const clock = (s: number) => {
   return h ? `${h}:${String(m).padStart(2, '0')}:${r}` : `${m}:${r}`;
 };
 
-const STEPS = ['Gemini regarde la vidéo…', 'Écoute de la voix et de la musique…', 'Lecture du texte à l’écran…', 'Découpage en parties…', 'Rédaction de l’analyse…'];
+const STEPS = ['L’IA regarde la vidéo…', 'Écoute de la voix et de la musique…', 'Lecture du texte à l’écran…', 'Découpage en parties…', 'Rédaction de l’analyse…'];
 
 interface Props {
   videoId: string;
@@ -83,7 +83,8 @@ function AnalysisDrawer({ videoId, title, channelId, onClose }: { videoId: strin
 
   useEffect(() => {
     if (!running) return;
-    const t = window.setInterval(() => setStep((s) => (s + 1) % STEPS.length), 6000);
+    // Stop on the last step instead of looping back to the first one (looked like a restart).
+    const t = window.setInterval(() => setStep((s) => Math.min(s + 1, STEPS.length - 1)), 6000);
     return () => window.clearInterval(t);
   }, [running]);
 
@@ -128,7 +129,7 @@ function AnalysisDrawer({ videoId, title, channelId, onClose }: { videoId: strin
 
         <div className="flex-1 overflow-y-auto px-5 py-5">
           {!loaded ? (
-            <p className="flex items-center gap-2 text-sm text-muted-foreground">
+            <p role="status" aria-live="polite" className="flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> Chargement…
             </p>
           ) : running ? (
@@ -162,14 +163,14 @@ function Intro({ enabled, error, mine, onLaunch }: { enabled: boolean; error: st
         L’IA regarde les images, écoute la voix et la musique, lit le texte à l’écran. Tu obtiens l’accroche, la structure minute par minute, le style de montage, la transcription,
         {mine ? ' ce qui se passe à chaque décrochage de ta rétention,' : ''} et ce que tu peux reprendre pour ta chaîne.
       </p>
-      {error && <p className="w-full rounded-xl bg-destructive/10 px-3 py-2 text-[13px] text-destructive">{error}</p>}
+      {error && <p role="alert" className="w-full rounded-xl bg-destructive/10 px-3 py-2 text-[13px] text-destructive">{error}</p>}
       {enabled ? (
         <button type="button" onClick={onLaunch} className="elev-1 inline-flex h-10 items-center gap-2 rounded-xl bg-primary px-4 text-[14px] font-medium text-primary-foreground hover:opacity-90">
           <Sparkles className="h-4 w-4" aria-hidden="true" /> {error ? 'Réessayer' : 'Lancer l’analyse'}
         </button>
       ) : (
         <p className="rounded-xl bg-muted px-3 py-2 text-[13px] text-muted-foreground">
-          L’analyse vidéo n’est pas encore activée. Ajoute la clé <code>GEMINI_API_KEY</code> (gratuite sur Google AI Studio) dans les variables du site.
+          L’analyse vidéo n’est pas disponible pour le moment.
         </p>
       )}
       <p className="text-[12px] text-muted-foreground">Vidéos publiques uniquement · une analyse est gardée et resservie sans nouveau coût.</p>
@@ -201,7 +202,7 @@ function Stamp({ id, s }: { id: string; s: number }) {
 }
 
 function Bullets({ items, tone = 'default' }: { items: string[]; tone?: 'default' | 'good' | 'bad' | 'do' }) {
-  const dot = tone === 'good' ? 'bg-phase-2' : tone === 'bad' ? 'bg-warning' : tone === 'do' ? 'bg-primary' : 'bg-muted-foreground';
+  const dot = tone === 'good' ? 'bg-success' : tone === 'bad' ? 'bg-warning' : tone === 'do' ? 'bg-primary' : 'bg-muted-foreground';
   return (
     <ul className="flex flex-col gap-2">
       {items.map((x, i) => (
@@ -288,7 +289,8 @@ function AnalysisView({ row, onRerun }: { row: StoredAnalysis; onRerun?: () => v
               <li key={i} className="flex flex-col gap-1.5 rounded-2xl bg-warning/10 p-3.5">
                 <span className="flex items-center gap-2 text-[13px]">
                   <Stamp id={id} s={n.at_s} />
-                  {n.drop && <span className="font-semibold text-warning">{n.drop}</span>}
+                  {n.drop && <span className="font-semibold text-foreground">{n.drop}</span>}
+
                 </span>
                 <p className="text-[14px] leading-relaxed">{n.what_happens}</p>
                 {n.fix && <p className="text-[14px] leading-relaxed"><span className="font-medium">À corriger : </span>{n.fix}</p>}

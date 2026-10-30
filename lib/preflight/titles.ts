@@ -44,8 +44,9 @@ export interface TitleScore {
   neighborIds: string[];
 }
 
-const CURIOSITY = /\b(why|how|what|secret|truth|nobody|never|stop|mistake|actually|really|hidden|real reason|this is|you('| a)re|explained|pourquoi|comment|secret|vérité|personne|jamais|erreur|vraiment|caché)\b/i;
-const EMOTION = /\b(insane|shocking|terrifying|brutal|incredible|crazy|dark|disturbing|genius|ultimate|worst|best|richest|poorest|deadliest|biggest|fou|choquant|terrifiant|incroyable|pire|meilleur)\b/i;
+// Unicode-aware word boundaries: `\b` treats « é » as a non-letter, so « vérité » / « caché » never matched.
+const CURIOSITY = /(?<![\p{L}\p{N}])(why|how|what|secret|truth|nobody|never|stop|mistake|actually|really|hidden|real reason|this is|you('| a)re|explained|pourquoi|comment|vérité|personne|jamais|erreur|vraiment|caché)(?![\p{L}\p{N}])/iu;
+const EMOTION = /(?<![\p{L}\p{N}])(insane|shocking|terrifying|brutal|incredible|crazy|dark|disturbing|genius|ultimate|worst|best|richest|poorest|deadliest|biggest|fou|choquant|terrifiant|incroyable|pire|meilleur)(?![\p{L}\p{N}])/iu;
 
 export function titleChecks(title: string): { checks: TitleCheck[]; formScore: number } {
   const t = title.trim();
@@ -105,15 +106,26 @@ async function nichePrior(db: SupabaseClient, nicheIds: string[]) {
 async function nichePriorLegacy(db: SupabaseClient, nicheIds: string[]) {
   const { data: chans } = await db.from('channels').select('id').in('niche_id', nicheIds).limit(500);
   const ids = ((chans ?? []) as { id: string }[]).map((c) => c.id);
-  const scores: number[] = [];
-  for (let i = 0; i < ids.length && scores.length < 3000; i += 100) {
-    const { data: vids } = await db.from('videos').select('id').in('channel_id', ids.slice(i, i + 100)).limit(1000);
+  // Most recent long videos first (the former query took 1 000 arbitrary rows, Shorts included).
+  // Same-age scores are preferred; 'approximate' ones (biased low) are only a fallback.
+  const sameAge: number[] = [];
+  const approx: number[] = [];
+  for (let i = 0; i < ids.length && sameAge.length + approx.length < 3000; i += 100) {
+    const { data: vids } = await db
+      .from('videos')
+      .select('id')
+      .in('channel_id', ids.slice(i, i + 100))
+      .gt('duration_s', 60)
+      .order('published_at', { ascending: false })
+      .limit(1000);
     const vIds = ((vids ?? []) as { id: string }[]).map((v) => v.id);
     for (let j = 0; j < vIds.length; j += 200) {
-      const { data: o } = await db.from('video_outliers').select('score').in('video_id', vIds.slice(j, j + 200));
-      for (const r of (o ?? []) as { score: number }[]) scores.push(Number(r.score));
+      const { data: o } = await db.from('video_outliers').select('score, method').in('video_id', vIds.slice(j, j + 200));
+      for (const r of (o ?? []) as { score: number; method: string | null }[]) (r.method === 'approximate' ? approx : sameAge).push(Number(r.score));
     }
   }
+  const scores = sameAge.length >= 20 ? sameAge : [...sameAge, ...approx];
+
   if (scores.length < 20) return { logMean: 0, p2x: 0.12, p10x: 0.01, n: scores.length };
   const logMean = scores.reduce((s, x) => s + Math.log(Math.min(100, Math.max(0.05, x))), 0) / scores.length;
   return {

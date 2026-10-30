@@ -14,7 +14,7 @@ const DAILY_LIMIT = Number(process.env.PREFLIGHT_DAILY ?? 30);
 const MAX_THUMB_BYTES = 2_500_000;
 const MAX_VIDEO_BYTES = 2_000_000_000;
 
-export type PreflightResponse = { ok: true; id: string | null; result: PreflightResult } | { ok: false; message: string };
+export type PreflightResponse = { ok: true; id: string | null; result: PreflightResult } | { ok: false; message: string; /** The uploaded video was sent to the engine (and deleted afterwards): it must be sent again. */ videoUsed?: boolean };
 
 async function ownChannel(userId: string, userChannelId: string) {
   const db = createServiceClient();
@@ -71,7 +71,8 @@ export async function evaluateBeforePublish(input: {
     revalidatePath('/preflight');
     return { ok: true, id, result };
   } catch (e) {
-    return { ok: false, message: `L’évaluation a échoué : ${(e as Error).message.slice(0, 200)}` };
+    console.error('[preflight] evaluation failed', e);
+    return { ok: false, message: 'L’évaluation a échoué. Réessaie dans un instant.', videoUsed: Boolean(input.video) };
   }
 }
 
@@ -95,14 +96,15 @@ export async function linkCheckToVideo(checkId: string, videoId: string | null):
 export async function startVideoUpload(input: { size: number; mimeType: string; name: string }): Promise<{ ok: true; uploadUrl: string } | { ok: false; message: string }> {
   const user = await getSessionUser();
   if (!user) return { ok: false, message: 'Connecte-toi.' };
-  if (!geminiEnabled()) return { ok: false, message: 'Analyse vidéo non activée : ajoute la clé GEMINI_API_KEY.' };
+  if (!geminiEnabled()) return { ok: false, message: 'L’analyse de la vidéo n’est pas disponible pour le moment.' };
   if (!/^video\//.test(input.mimeType)) return { ok: false, message: 'Choisis un fichier vidéo (MP4, MOV, WebM).' };
   if (!(input.size > 0) || input.size > MAX_VIDEO_BYTES) return { ok: false, message: 'Vidéo trop lourde : 2 Go maximum.' };
   if (!(await consumeUserQuota(createServiceClient(), user, 'video_upload'))) return { ok: false, message: QUOTA_MESSAGE };
   try {
     return { ok: true, uploadUrl: await startUpload(input.size, input.mimeType, input.name || 'video') };
   } catch (e) {
-    return { ok: false, message: (e as Error).message };
+    console.error('[preflight] video upload start failed', e);
+    return { ok: false, message: 'L’envoi de la vidéo n’a pas pu démarrer. Réessaie dans un instant.' };
   }
 }
 
@@ -113,8 +115,10 @@ export async function videoUploadState(name: string): Promise<{ state: string; u
   try {
     return await fileState(name);
   } catch (e) {
-    return { state: 'FAILED', error: (e as Error).message };
+    console.error('[preflight] video state failed', e);
+    return { state: 'FAILED', error: 'Impossible de suivre la préparation de la vidéo. Renvoie-la pour réessayer.' };
   }
+
 }
 
 /** « Quel mot attire le plus ? » : 2 à 4 mots comparés sur les vidéos de la niche (ou de toutes les niches). */
@@ -128,6 +132,7 @@ export async function compareKeywordsAction(userChannelId: string, terms: string
   try {
     return { ok: true, data: await compareKeywords(db, clean, scope === 'all' ? null : [ch.niche_id]) };
   } catch (e) {
-    return { ok: false, message: (e as Error).message.slice(0, 200) };
+    console.error('[preflight] keyword comparison failed', e);
+    return { ok: false, message: 'La comparaison n’a pas pu être faite. Réessaie dans un instant.' };
   }
 }

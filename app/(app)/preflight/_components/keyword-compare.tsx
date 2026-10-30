@@ -85,7 +85,7 @@ export function KeywordCompare({ userChannelId }: { userChannelId: string }) {
             {pending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <BarChart3 className="h-4 w-4" aria-hidden="true" />}
             Comparer
           </button>
-          {err && <span className="text-[13px] text-destructive">{err}</span>}
+          {err && <span role="alert" className="text-[13px] text-destructive">{err}</span>}
         </div>
 
         {res && (
@@ -99,8 +99,8 @@ export function KeywordCompare({ userChannelId }: { userChannelId: string }) {
                       {res.winner === s.term && <Trophy className="h-3.5 w-3.5 text-primary-ink" aria-hidden="true" />}« {s.term} »
                     </span>
                     <span className="text-[13px] tabular-nums text-muted-foreground">
-                      {s.medianScore !== null ? `${times(s.medianScore)} en médiane` : 'pas de mesure'}
-                      {s.share2x !== null ? ` · ${Math.round(s.share2x * 100)} % à ×2+` : ''}
+                      {s.medianScore !== null ? `${times(s.medianScore)} leurs vues habituelles (médiane)` : 'pas de mesure'}
+                      {s.share2x !== null ? ` · ${Math.round(s.share2x * 100)} % doublent leurs vues habituelles` : ''}
                       {s.medianViews ? ` · ~${nf.format(s.medianViews)} vues` : ''}
                     </span>
                   </div>
